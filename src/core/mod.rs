@@ -5,5 +5,5 @@ pub mod image;
 pub mod palette;
 
 pub use color::{MaterialScheme, RgbColor, TerminalPalette};
-pub use image::load_and_preprocess_image;
+pub use image::{load_and_preprocess_image, to_material_pixels};
 pub use palette::GeneratedPalette;

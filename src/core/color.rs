@@ -36,6 +36,12 @@ impl RgbColor {
     }
 }
 
+impl From<material_colors::color::Rgb> for RgbColor {
+    fn from(c: material_colors::color::Rgb) -> Self {
+        Self::new(c.red, c.green, c.blue)
+    }
+}
+
 /// Represents the standard 16 terminal ANSI colors (color0 through color15).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TerminalPalette {
@@ -73,6 +79,8 @@ pub struct MaterialScheme {
     pub on_secondary_container: RgbColor,
     pub tertiary: RgbColor,
     pub on_tertiary: RgbColor,
+    pub error: RgbColor,
+    pub on_error: RgbColor,
     pub surface: RgbColor,
     pub on_surface: RgbColor,
     pub surface_variant: RgbColor,
@@ -80,4 +88,30 @@ pub struct MaterialScheme {
     pub background: RgbColor,
     pub on_background: RgbColor,
     pub outline: RgbColor,
+}
+
+impl From<material_colors::scheme::Scheme> for MaterialScheme {
+    fn from(s: material_colors::scheme::Scheme) -> Self {
+        Self {
+            primary: s.primary.into(),
+            on_primary: s.on_primary.into(),
+            primary_container: s.primary_container.into(),
+            on_primary_container: s.on_primary_container.into(),
+            secondary: s.secondary.into(),
+            on_secondary: s.on_secondary.into(),
+            secondary_container: s.secondary_container.into(),
+            on_secondary_container: s.on_secondary_container.into(),
+            tertiary: s.tertiary.into(),
+            on_tertiary: s.on_tertiary.into(),
+            error: s.error.into(),
+            on_error: s.on_error.into(),
+            surface: s.surface.into(),
+            on_surface: s.on_surface.into(),
+            surface_variant: s.surface_variant.into(),
+            on_surface_variant: s.on_surface_variant.into(),
+            background: s.background.into(),
+            on_background: s.on_background.into(),
+            outline: s.outline.into(),
+        }
+    }
 }

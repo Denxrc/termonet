@@ -31,17 +31,17 @@ impl MonitorWallpapers {
 
         // Check if all monitors share the same wallpaper path
         let mut paths = self.outputs.values();
-        if let Some(first) = paths.next() {
-            if paths.all(|p| p == first) {
-                return Some(first.clone());
-            }
+        if let Some(first) = paths.next()
+            && paths.all(|p| p == first)
+        {
+            return Some(first.clone());
         }
 
         // Look for the configured primary monitor
-        if let Some(primary) = primary_monitor {
-            if let Some(path) = self.outputs.get(primary) {
-                return Some(path.clone());
-            }
+        if let Some(primary) = primary_monitor
+            && let Some(path) = self.outputs.get(primary)
+        {
+            return Some(path.clone());
         }
 
         // Fallback to first available active monitor

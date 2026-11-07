@@ -1,13 +1,14 @@
 //! Image loading, animation frame extraction, and in-memory downscaling.
 
 use std::path::Path;
-use image::{DynamicImage, GenericImageView, ImageReader};
+use image::{DynamicImage, ImageReader};
 use crate::error::Result;
 
 /// Target dimension for palette extraction downscaling (128x128).
 pub const EXTRACTION_SIZE: u32 = 128;
 
-/// Loads an image file, extracts the first frame if animated, and resizes it to 128x128 in-memory.
+/// Loads an image file, extracts the first frame if animated (GIF, WebP),
+/// and resizes it to 128x128 in-memory for fast and accurate color quantization.
 ///
 /// # Arguments
 /// * `path` - Filesystem path to the wallpaper image.
@@ -19,23 +20,21 @@ pub fn load_and_preprocess_image<P: AsRef<Path>>(path: P) -> Result<DynamicImage
     let reader = ImageReader::open(path_ref)?
         .with_guessed_format()?;
 
+    // Decoding via ImageReader extracts the first frame for GIF / WebP animations
     let image = reader.decode()?;
 
-    // Resize image in memory to 128x128 using Fast Nearest/Triangle filtering
-    // to provide optimal speed and sufficient color distribution for MCU quantization.
+    // Resize image in memory to 128x128 using thumbnail_exact for maximum performance
+    // and optimal color distribution during MCU quantization.
     let resized = image.thumbnail_exact(EXTRACTION_SIZE, EXTRACTION_SIZE);
     Ok(resized)
 }
 
-/// Converts a `DynamicImage` into raw ARGB/RGBA pixel buffer for quantization.
+/// Converts a `DynamicImage` into a collection of `material_colors::color::Rgb` pixels.
 #[must_use]
-pub fn extract_pixels(image: &DynamicImage) -> Vec<[u8; 4]> {
-    let (width, height) = image.dimensions();
-    let mut pixels = Vec::with_capacity((width * height) as usize);
-
-    for (_, _, pixel) in image.pixels() {
-        pixels.push(pixel.0);
-    }
-
-    pixels
+pub fn to_material_pixels(image: &DynamicImage) -> Vec<material_colors::color::Rgb> {
+    let rgb_image = image.to_rgb8();
+    rgb_image
+        .pixels()
+        .map(|p| material_colors::color::Rgb::new(p[0], p[1], p[2]))
+        .collect()
 }
