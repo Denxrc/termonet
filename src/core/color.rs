@@ -42,6 +42,12 @@ impl From<material_colors::color::Rgb> for RgbColor {
     }
 }
 
+impl From<RgbColor> for ratatui::style::Color {
+    fn from(c: RgbColor) -> Self {
+        ratatui::style::Color::Rgb(c.r, c.g, c.b)
+    }
+}
+
 /// Represents the standard 16 terminal ANSI colors (color0 through color15).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TerminalPalette {
