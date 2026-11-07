@@ -1,0 +1,15 @@
+[package]
+name = "termonet"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+crossterm = "0.29.0"
+directories = "6.0.0"
+image = "0.25.10"
+material-colors = "0.5.0"
+minijinja = { version = "3.0.5", features = ["serde"] }
+ratatui = "0.30.2"
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2.0.21"
+toml = "1.2.1"
