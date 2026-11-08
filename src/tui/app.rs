@@ -1,8 +1,9 @@
 //! TUI state machine and main interaction loop.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use crate::config::AppConfig;
+use crate::config::{AppConfig, DisplayServer, FontMode, Language, TuiTheme, WallpaperBackend};
 use crate::core::GeneratedPalette;
+use crate::error::Result;
 
 /// Active navigation step in the top panel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -44,6 +45,94 @@ impl Step {
     }
 }
 
+/// First-run configuration wizard steps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WizardStep {
+    #[default]
+    Language = 0,
+    Appearance = 1,
+    Environment = 2,
+    Programs = 3,
+    Finish = 4,
+}
+
+impl WizardStep {
+    /// Advances to the next wizard step.
+    #[must_use]
+    pub fn next(self) -> Self {
+        match self {
+            Self::Language => Self::Appearance,
+            Self::Appearance => Self::Environment,
+            Self::Environment => Self::Programs,
+            Self::Programs => Self::Finish,
+            Self::Finish => Self::Finish,
+        }
+    }
+
+    /// Moves back to the previous wizard step.
+    #[must_use]
+    pub fn prev(self) -> Self {
+        match self {
+            Self::Language => Self::Language,
+            Self::Appearance => Self::Language,
+            Self::Environment => Self::Appearance,
+            Self::Programs => Self::Environment,
+            Self::Finish => Self::Programs,
+        }
+    }
+
+    /// Returns index of the step (0..4).
+    #[must_use]
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+}
+
+/// State tracking for the first-run configuration wizard.
+#[derive(Debug, Clone)]
+pub struct WizardState {
+    pub step: WizardStep,
+    pub selected_idx: usize,
+    pub config: AppConfig,
+    pub opened_from_main: bool,
+}
+
+impl WizardState {
+    /// Creates a new wizard state initialized with the given base config.
+    #[must_use]
+    pub fn new(config: AppConfig) -> Self {
+        Self {
+            step: WizardStep::Language,
+            selected_idx: 0,
+            config,
+            opened_from_main: false,
+        }
+    }
+
+    /// Creates a wizard state invoked from within the main running TUI session.
+    #[must_use]
+    pub fn new_from_main(config: AppConfig) -> Self {
+        Self {
+            step: WizardStep::Language,
+            selected_idx: 0,
+            config,
+            opened_from_main: true,
+        }
+    }
+
+    /// Returns the number of selectable options for the active wizard step.
+    #[must_use]
+    pub fn max_options(&self) -> usize {
+        match self.step {
+            WizardStep::Language => 2,
+            WizardStep::Appearance => 5,
+            WizardStep::Environment => 13,
+            WizardStep::Programs => 7,
+            WizardStep::Finish => 1,
+        }
+    }
+}
+
 /// Represents an application target in the TUI list, including its reload hook.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProgramItem {
@@ -70,70 +159,51 @@ pub struct AppState {
 
     // Step 3: Hooks interactive state (pointer into active hooks)
     pub selected_hook_idx: usize,
+
+    // First-run setup wizard state
+    pub is_wizard: bool,
+    pub wizard_state: Option<WizardState>,
 }
 
 impl AppState {
+    /// Creates standard initial program items configured according to enabled_programs.
+    fn create_default_programs(enabled_list: &[String]) -> Vec<ProgramItem> {
+        let default_specs = [
+            ("Kitty", "~/.config/kitty/colors-termonet.conf", Some("killall -SIGUSR1 kitty"), Some("Live terminal color reload"), true),
+            ("Waybar", "~/.config/waybar/colors.css", Some("killall -SIGUSR2 waybar"), Some("Instant CSS style reload"), true),
+            ("Rofi", "~/.config/rofi/colors.rasi", None, None, false),
+            ("Hyprland", "~/.config/hypr/colors.conf", Some("hyprctl reload"), Some("Window borders & active theme reload"), true),
+            ("Alacritty", "~/.config/alacritty/colors.toml", None, None, false),
+            ("Dunst", "~/.config/dunst/dunstrc.d/colors.conf", Some("killall -SIGUSR1 dunst"), Some("Notification daemon reload"), true),
+            ("Sway", "~/.config/sway/colors.conf", Some("swaymsg reload"), Some("Sway compositor config reload"), true),
+        ];
+
+        default_specs
+            .into_iter()
+            .map(|(name, output, cmd, desc, hook_default)| {
+                let name_lower = name.to_lowercase();
+                let is_enabled = if enabled_list.is_empty() {
+                    matches!(name, "Kitty" | "Waybar" | "Rofi" | "Hyprland")
+                } else {
+                    enabled_list.iter().any(|p| p.to_lowercase() == name_lower)
+                };
+
+                ProgramItem {
+                    name: name.to_string(),
+                    output_path: output.to_string(),
+                    enabled: is_enabled,
+                    reload_cmd: cmd.map(String::from),
+                    reload_desc: desc.map(String::from),
+                    hook_enabled: hook_default,
+                }
+            })
+            .collect()
+    }
+
     /// Creates a new TUI application state with given configuration.
     #[must_use]
     pub fn new(config: AppConfig) -> Self {
-        let programs = vec![
-            ProgramItem {
-                name: "Kitty".into(),
-                output_path: "~/.config/kitty/colors-termonet.conf".into(),
-                enabled: true,
-                reload_cmd: Some("killall -SIGUSR1 kitty".into()),
-                reload_desc: Some("Live terminal color reload".into()),
-                hook_enabled: true,
-            },
-            ProgramItem {
-                name: "Waybar".into(),
-                output_path: "~/.config/waybar/colors.css".into(),
-                enabled: true,
-                reload_cmd: Some("killall -SIGUSR2 waybar".into()),
-                reload_desc: Some("Instant CSS style reload".into()),
-                hook_enabled: true,
-            },
-            ProgramItem {
-                name: "Rofi".into(),
-                output_path: "~/.config/rofi/colors.rasi".into(),
-                enabled: true,
-                reload_cmd: None, // Rofi loads colors on each run, no reload needed
-                reload_desc: None,
-                hook_enabled: false,
-            },
-            ProgramItem {
-                name: "Hyprland".into(),
-                output_path: "~/.config/hypr/colors.conf".into(),
-                enabled: true,
-                reload_cmd: Some("hyprctl reload".into()),
-                reload_desc: Some("Window borders & active theme reload".into()),
-                hook_enabled: true,
-            },
-            ProgramItem {
-                name: "Alacritty".into(),
-                output_path: "~/.config/alacritty/colors.toml".into(),
-                enabled: false,
-                reload_cmd: None, // Alacritty auto-reloads on file change
-                reload_desc: None,
-                hook_enabled: false,
-            },
-            ProgramItem {
-                name: "Dunst".into(),
-                output_path: "~/.config/dunst/dunstrc.d/colors.conf".into(),
-                enabled: false,
-                reload_cmd: Some("killall -SIGUSR1 dunst".into()),
-                reload_desc: Some("Notification daemon reload".into()),
-                hook_enabled: true,
-            },
-            ProgramItem {
-                name: "Sway".into(),
-                output_path: "~/.config/sway/colors.conf".into(),
-                enabled: false,
-                reload_cmd: Some("swaymsg reload".into()),
-                reload_desc: Some("Sway compositor config reload".into()),
-                hook_enabled: true,
-            },
-        ];
+        let programs = Self::create_default_programs(&config.enabled_programs);
 
         Self {
             current_step: Step::Palette,
@@ -145,7 +215,57 @@ impl AppState {
             programs,
             selected_program_idx: 0,
             selected_hook_idx: 0,
+            is_wizard: false,
+            wizard_state: None,
         }
+    }
+
+    /// Creates a new TUI application state started directly in First-Run Wizard mode.
+    #[must_use]
+    pub fn new_wizard(config: AppConfig) -> Self {
+        let programs = Self::create_default_programs(&config.enabled_programs);
+        let wizard_state = WizardState::new(config.clone());
+
+        Self {
+            current_step: Step::Palette,
+            is_running: true,
+            config,
+            palette: None,
+            wallpaper_path: None,
+            status_message: None,
+            programs,
+            selected_program_idx: 0,
+            selected_hook_idx: 0,
+            is_wizard: true,
+            wizard_state: Some(wizard_state),
+        }
+    }
+
+    /// Finalizes the wizard, saves `~/.config/termonet/config.toml`, and transitions to main TUI.
+    pub fn finish_wizard(&mut self) -> Result<()> {
+        if let Some(ref wizard) = self.wizard_state {
+            let saved_config = wizard.config.clone();
+            saved_config.save()?;
+            self.config = saved_config;
+
+            // Synchronize program items with the finalized configuration
+            for prog in &mut self.programs {
+                let name_lower = prog.name.to_lowercase();
+                prog.enabled = self.config.enabled_programs.iter().any(|p| p.to_lowercase() == name_lower);
+            }
+
+            self.is_wizard = false;
+            self.wizard_state = None;
+            self.status_message = Some("Configuration saved successfully!".to_string());
+        }
+        Ok(())
+    }
+
+    /// Opens the settings wizard on demand from the active main TUI screen.
+    pub fn open_settings(&mut self) {
+        let wizard = WizardState::new_from_main(self.config.clone());
+        self.wizard_state = Some(wizard);
+        self.is_wizard = true;
     }
 
     /// Advances to the next step.
@@ -208,10 +328,161 @@ impl AppState {
         }
     }
 
+    /// Toggles or updates the selected setting in the current wizard step.
+    fn toggle_wizard_option(&mut self) {
+        let Some(wizard) = &mut self.wizard_state else {
+            return;
+        };
+
+        match wizard.step {
+            WizardStep::Language => {
+                match wizard.selected_idx {
+                    0 => wizard.config.language = Language::Ru,
+                    1 => wizard.config.language = Language::En,
+                    _ => {}
+                }
+                self.config.language = wizard.config.language;
+            }
+            WizardStep::Appearance => {
+                match wizard.selected_idx {
+                    0 => wizard.config.tui_theme = TuiTheme::Dark,
+                    1 => wizard.config.tui_theme = TuiTheme::Light,
+                    2 => wizard.config.tui_theme = TuiTheme::System,
+                    3 => wizard.config.font_mode = FontMode::Pixel,
+                    4 => wizard.config.font_mode = FontMode::Standard,
+                    _ => {}
+                }
+                self.config.tui_theme = wizard.config.tui_theme;
+                self.config.font_mode = wizard.config.font_mode;
+            }
+            WizardStep::Environment => {
+                match wizard.selected_idx {
+                    0 => wizard.config.display_server = DisplayServer::Wayland,
+                    1 => wizard.config.display_server = DisplayServer::X11,
+                    2 => wizard.config.wallpaper_backend = WallpaperBackend::Auto,
+                    3 => wizard.config.wallpaper_backend = WallpaperBackend::Swww,
+                    4 => wizard.config.wallpaper_backend = WallpaperBackend::Hyprpaper,
+                    5 => wizard.config.wallpaper_backend = WallpaperBackend::Awww,
+                    6 => wizard.config.wallpaper_backend = WallpaperBackend::Wpaperd,
+                    7 => wizard.config.wallpaper_backend = WallpaperBackend::Swaybg,
+                    8 => wizard.config.wallpaper_backend = WallpaperBackend::Gnome,
+                    9 => wizard.config.wallpaper_backend = WallpaperBackend::Kde,
+                    10 => wizard.config.wallpaper_backend = WallpaperBackend::Feh,
+                    11 => wizard.config.wallpaper_backend = WallpaperBackend::Nitrogen,
+                    12 => wizard.config.wallpaper_backend = WallpaperBackend::Manual,
+                    _ => {}
+                }
+            }
+            WizardStep::Programs => {
+                let program_names = ["kitty", "waybar", "rofi", "hyprland", "alacritty", "dunst", "sway"];
+                if let Some(&name) = program_names.get(wizard.selected_idx) {
+                    if let Some(pos) = wizard.config.enabled_programs.iter().position(|p| p == name) {
+                        wizard.config.enabled_programs.remove(pos);
+                    } else {
+                        wizard.config.enabled_programs.push(name.to_string());
+                    }
+                }
+            }
+            WizardStep::Finish => {}
+        }
+    }
+
+    /// Handles keyboard interaction when the First-Run Wizard is active.
+    pub fn handle_wizard_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Char('q') => self.quit(),
+            KeyCode::Esc => {
+                if let Some(ref w) = self.wizard_state
+                    && w.opened_from_main
+                {
+                    // Cancel and return cleanly to main TUI without modifying saved config
+                    self.is_wizard = false;
+                    self.wizard_state = None;
+                } else {
+                    self.quit();
+                }
+            }
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => self.quit(),
+
+            // Wizard step navigation
+            KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
+                if let Some(ref mut wizard) = self.wizard_state {
+                    wizard.step = wizard.step.next();
+                    wizard.selected_idx = 0;
+                }
+            }
+            KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
+                if let Some(ref mut wizard) = self.wizard_state {
+                    wizard.step = wizard.step.prev();
+                    wizard.selected_idx = 0;
+                }
+            }
+            KeyCode::Char('1') => {
+                if let Some(ref mut wizard) = self.wizard_state { wizard.step = WizardStep::Language; wizard.selected_idx = 0; }
+            }
+            KeyCode::Char('2') => {
+                if let Some(ref mut wizard) = self.wizard_state { wizard.step = WizardStep::Appearance; wizard.selected_idx = 0; }
+            }
+            KeyCode::Char('3') => {
+                if let Some(ref mut wizard) = self.wizard_state { wizard.step = WizardStep::Environment; wizard.selected_idx = 0; }
+            }
+            KeyCode::Char('4') => {
+                if let Some(ref mut wizard) = self.wizard_state { wizard.step = WizardStep::Programs; wizard.selected_idx = 0; }
+            }
+            KeyCode::Char('5') => {
+                if let Some(ref mut wizard) = self.wizard_state { wizard.step = WizardStep::Finish; wizard.selected_idx = 0; }
+            }
+
+            // Move cursor between options inside active step
+            KeyCode::Up | KeyCode::Char('k') => {
+                if let Some(ref mut wizard) = self.wizard_state
+                    && wizard.selected_idx > 0
+                {
+                    wizard.selected_idx -= 1;
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if let Some(ref mut wizard) = self.wizard_state {
+                    let max = wizard.max_options();
+                    if max > 0 && wizard.selected_idx + 1 < max {
+                        wizard.selected_idx += 1;
+                    }
+                }
+            }
+
+            // Select or toggle current option
+            KeyCode::Char(' ') => {
+                self.toggle_wizard_option();
+            }
+
+            KeyCode::Enter => {
+                let current_step = self.wizard_state.as_ref().map(|w| w.step);
+                if current_step == Some(WizardStep::Finish) {
+                    if let Err(e) = self.finish_wizard() {
+                        self.status_message = Some(format!("Error: {}", e));
+                    }
+                } else {
+                    self.toggle_wizard_option();
+                    if let Some(ref mut wizard) = self.wizard_state {
+                        wizard.step = wizard.step.next();
+                        wizard.selected_idx = 0;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// Handles keyboard events.
     pub fn handle_key(&mut self, key: KeyEvent) {
+        if self.is_wizard {
+            self.handle_wizard_key(key);
+            return;
+        }
+
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => self.quit(),
+            KeyCode::Char('s') | KeyCode::F(2) => self.open_settings(),
             KeyCode::Tab => self.next_step(),
             KeyCode::BackTab => self.prev_step(),
             KeyCode::Char('1') => self.set_step(Step::Palette),

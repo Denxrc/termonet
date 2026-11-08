@@ -13,10 +13,14 @@ use crate::error::{Result, TermonetError};
 /// Resolves the current wallpaper path based on configured backend and multi-monitor policy.
 pub fn get_current_wallpaper(
     backend: &WallpaperBackend,
+    manual_path: Option<&str>,
     primary_monitor: Option<&str>,
 ) -> Result<PathBuf> {
     match backend {
-        WallpaperBackend::Manual(path) => {
+        WallpaperBackend::Manual => {
+            let path = manual_path.ok_or_else(|| {
+                TermonetError::WallpaperNotFound("Manual wallpaper path not specified in configuration".into())
+            })?;
             let p = PathBuf::from(path);
             if p.exists() {
                 Ok(p)

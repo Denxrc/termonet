@@ -14,7 +14,7 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-pub use app::{AppState, ProgramItem, Step};
+pub use app::{AppState, ProgramItem, Step, WizardState, WizardStep};
 pub use font::PixelFont;
 pub use terminal::{TerminalGuard, TuiTerminal};
 
@@ -28,6 +28,12 @@ pub fn run_tui(mut state: AppState) -> Result<()> {
     while state.is_running {
         guard.draw(|frame| {
             let total_area = frame.area();
+
+            // If First-Run Wizard is active, delegate full rendering to wizard view
+            if state.is_wizard {
+                views::render_wizard(frame, total_area, &state);
+                return;
+            }
 
             // Responsive header height: 5 lines for pixel logo + tabs, or 3 lines for compact
             let header_height = if total_area.height >= 22 && total_area.width >= 48 {
@@ -79,6 +85,8 @@ pub fn run_tui(mut state: AppState) -> Result<()> {
                 Span::styled(format!("{}  ", t.hint_jump), Style::default().fg(Color::Gray)),
                 Span::styled(" [Space] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
                 Span::styled(format!("{}  ", t.hint_space), Style::default().fg(Color::Gray)),
+                Span::styled(" [s] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
+                Span::styled(format!("{}  ", t.hint_settings), Style::default().fg(Color::Gray)),
                 Span::styled(" [q/Esc] ", Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
                 Span::styled(t.hint_quit, Style::default().fg(Color::Gray)),
             ]);
@@ -138,6 +146,91 @@ mod tests {
                     }
                 })
                 .expect("draw failed");
+        }
+    }
+
+    #[test]
+    fn test_wizard_render_all_steps() {
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).expect("failed to create test terminal");
+
+        let config = AppConfig::default();
+        let mut state = AppState::new_wizard(config);
+
+        let wizard_steps = [
+            WizardStep::Language,
+            WizardStep::Appearance,
+            WizardStep::Environment,
+            WizardStep::Programs,
+            WizardStep::Finish,
+        ];
+
+        for step in wizard_steps {
+            if let Some(ref mut w) = state.wizard_state {
+                w.step = step;
+            }
+            terminal
+                .draw(|f| {
+                    views::render_wizard(f, f.area(), &state);
+                })
+                .expect("draw wizard step succeeded");
+        }
+    }
+
+    #[test]
+    fn test_wizard_key_navigation_and_toggle() {
+        let config = AppConfig::default();
+        let mut state = AppState::new_wizard(config);
+
+        assert!(state.is_wizard);
+        assert_eq!(state.wizard_state.as_ref().unwrap().step, WizardStep::Language);
+
+        // Tab to Step 2 (Appearance)
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Tab));
+        assert_eq!(state.wizard_state.as_ref().unwrap().step, WizardStep::Appearance);
+
+        // Press '3' to jump to Step 3 (Environment)
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char('3')));
+        assert_eq!(state.wizard_state.as_ref().unwrap().step, WizardStep::Environment);
+
+        // Shift+Tab back to Step 2
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::BackTab));
+        assert_eq!(state.wizard_state.as_ref().unwrap().step, WizardStep::Appearance);
+    }
+
+    #[test]
+    fn test_open_settings_from_main_and_cancel_esc() {
+        let config = AppConfig::default();
+        let mut state = AppState::new(config);
+
+        assert!(!state.is_wizard);
+
+        // Press 's' to open settings wizard
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char('s')));
+        assert!(state.is_wizard);
+        assert!(state.wizard_state.as_ref().unwrap().opened_from_main);
+
+        // Press 'Esc' to cancel and return to main interface
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Esc));
+        assert!(!state.is_wizard);
+        assert!(state.is_running);
+    }
+
+    #[test]
+    fn test_wizard_render_both_languages() {
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).expect("failed to create test terminal");
+
+        for lang in [crate::config::Language::Ru, crate::config::Language::En] {
+            let mut config = AppConfig::default();
+            config.language = lang;
+            let state = AppState::new_wizard(config);
+
+            terminal
+                .draw(|f| {
+                    views::render_wizard(f, f.area(), &state);
+                })
+                .expect("draw wizard step in language succeeded");
         }
     }
 }
