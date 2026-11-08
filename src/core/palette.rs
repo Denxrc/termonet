@@ -120,8 +120,19 @@ mod tests {
 
     #[test]
     fn test_gif_decode() {
-        let p = GeneratedPalette::from_image_path("/tmp/test_anim.gif").expect("gif decode failed");
-        println!("EXTRACTED GIF SEED: {:?}", p.seed_color.to_hex());
+        let mut gif_data = Vec::new();
+        {
+            let mut encoder = image::codecs::gif::GifEncoder::new(&mut gif_data);
+            let frame_img = image::RgbaImage::from_pixel(16, 16, image::Rgba([0x2a, 0x85, 0x55, 0xff]));
+            let frame = image::Frame::new(frame_img);
+            encoder.encode_frame(frame).expect("encode frame");
+        }
+        let temp_path = std::env::temp_dir().join("termonet_test_synthetic.gif");
+        std::fs::write(&temp_path, &gif_data).expect("write temp gif");
+
+        let p = GeneratedPalette::from_image_path(&temp_path).expect("gif decode failed");
+        assert_eq!(p.seed_color.to_hex().len(), 7);
+        let _ = std::fs::remove_file(&temp_path);
     }
 
     #[test]
