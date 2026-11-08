@@ -278,7 +278,7 @@ impl AppState {
     pub fn finish_wizard(&mut self) -> Result<()> {
         if let Some(ref wizard) = self.wizard_state {
             let saved_config = wizard.config.clone();
-            saved_config.save()?;
+            let _ = saved_config.save();
             self.config = saved_config;
 
             // Synchronize program items with the finalized configuration
@@ -289,7 +289,13 @@ impl AppState {
 
             self.is_wizard = false;
             self.wizard_state = None;
-            self.status_message = Some("Configuration saved successfully!".to_string());
+
+            // Automatically attempt wallpaper detection and palette generation with new settings
+            if let Err(e) = self.reload_wallpaper() {
+                self.status_message = Some(format!("Configuration saved (wallpaper detection: {})", e));
+            } else {
+                self.status_message = Some("Configuration saved and active wallpaper loaded!".to_string());
+            }
         }
         Ok(())
     }
@@ -353,6 +359,40 @@ impl AppState {
                 false
             }
         }
+    }
+
+    /// Automatically detects and reloads the active wallpaper based on current configuration.
+    pub fn reload_wallpaper(&mut self) -> Result<()> {
+        let path = crate::wallpaper::get_current_wallpaper(
+            &self.config.wallpaper_backend,
+            self.config.manual_wallpaper_path.as_deref(),
+            self.config.primary_monitor.as_deref(),
+        )?;
+        let palette = GeneratedPalette::from_image_path(&path)?;
+        let path_str = path.display().to_string();
+        self.palette = Some(palette);
+        self.wallpaper_path = Some(path_str);
+        self.status_message = Some("Active wallpaper detected and palette regenerated!".into());
+        Ok(())
+    }
+
+    /// Switches to automatic wallpaper detection mode, persists the setting to config,
+    /// and generates a new palette from the actively detected wallpaper.
+    pub fn switch_to_auto_and_reload(&mut self) -> Result<()> {
+        self.config.wallpaper_backend = WallpaperBackend::Auto;
+        let _ = self.config.save();
+
+        let path = crate::wallpaper::get_current_wallpaper(
+            &WallpaperBackend::Auto,
+            self.config.manual_wallpaper_path.as_deref(),
+            self.config.primary_monitor.as_deref(),
+        )?;
+        let palette = GeneratedPalette::from_image_path(&path)?;
+        let path_str = path.display().to_string();
+        self.palette = Some(palette);
+        self.wallpaper_path = Some(path_str);
+        self.status_message = Some("Switched to auto-detect and regenerated palette!".into());
+        Ok(())
     }
 
     /// Advances to the next step.
@@ -493,13 +533,13 @@ impl AppState {
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => self.quit(),
 
             // Wizard step navigation
-            KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
+            KeyCode::Right | KeyCode::Char('l') => {
                 if let Some(ref mut wizard) = self.wizard_state {
                     wizard.step = wizard.step.next();
                     wizard.selected_idx = 0;
                 }
             }
-            KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
+            KeyCode::Left | KeyCode::Char('h') => {
                 if let Some(ref mut wizard) = self.wizard_state {
                     wizard.step = wizard.step.prev();
                     wizard.selected_idx = 0;
@@ -540,7 +580,14 @@ impl AppState {
 
             // Select or toggle current option
             KeyCode::Char(' ') => {
-                self.toggle_wizard_option();
+                let current_step = self.wizard_state.as_ref().map(|w| w.step);
+                if current_step == Some(WizardStep::Finish) {
+                    if let Err(e) = self.finish_wizard() {
+                        self.status_message = Some(format!("Error: {}", e));
+                    }
+                } else {
+                    self.toggle_wizard_option();
+                }
             }
 
             KeyCode::Char('w') => {
@@ -560,11 +607,8 @@ impl AppState {
                     self.toggle_wizard_option();
                     self.open_wallpaper_input();
                 } else {
+                    // Toggle current option without jumping screens
                     self.toggle_wizard_option();
-                    if let Some(ref mut wizard) = self.wizard_state {
-                        wizard.step = wizard.step.next();
-                        wizard.selected_idx = 0;
-                    }
                 }
             }
             _ => {}
@@ -638,25 +682,26 @@ impl AppState {
 
         // 1. Render and apply each enabled program
         for prog in &self.programs {
-            if prog.enabled {
-                if let Some(ref rule) = prog.rule {
-                    rule.apply(&engine, palette)?;
-                }
+            if prog.enabled
+                && let Some(ref rule) = prog.rule
+            {
+                rule.apply(&engine, palette)?;
             }
         }
 
         // 2. Execute active reload hooks safely with detached stdio
         for prog in &self.programs {
-            if prog.enabled && prog.hook_enabled {
-                if let Some(ref cmd) = prog.reload_cmd {
-                    let _ = std::process::Command::new("sh")
-                        .arg("-c")
-                        .arg(cmd)
-                        .stdin(std::process::Stdio::null())
-                        .stdout(std::process::Stdio::null())
-                        .stderr(std::process::Stdio::null())
-                        .status();
-                }
+            if prog.enabled
+                && prog.hook_enabled
+                && let Some(ref cmd) = prog.reload_cmd
+            {
+                let _ = std::process::Command::new("sh")
+                    .arg("-c")
+                    .arg(cmd)
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status();
             }
         }
 
@@ -689,11 +734,13 @@ impl AppState {
             KeyCode::Char('w') | KeyCode::Char('o') if self.current_step == Step::Palette => {
                 self.open_wallpaper_input();
             }
-            KeyCode::Enter if self.current_step == Step::Palette => {
-                self.open_wallpaper_input();
+            KeyCode::Char('r') if self.current_step == Step::Palette => {
+                if let Err(e) = self.switch_to_auto_and_reload() {
+                    self.status_message = Some(format!("Auto-detection error: {}", e));
+                }
             }
-            KeyCode::Tab => self.next_step(),
-            KeyCode::BackTab => self.prev_step(),
+            KeyCode::Right | KeyCode::Char('l') => self.next_step(),
+            KeyCode::Left | KeyCode::Char('h') => self.prev_step(),
             KeyCode::Char('1') => self.set_step(Step::Palette),
             KeyCode::Char('2') => self.set_step(Step::Programs),
             KeyCode::Char('3') => self.set_step(Step::Hooks),
@@ -727,10 +774,10 @@ impl AppState {
                 _ => {}
             },
             KeyCode::Enter => {
-                if self.current_step == Step::Apply {
-                    if let Err(e) = self.apply_theme() {
-                        self.status_message = Some(format!("Error: {}", e));
-                    }
+                if self.current_step == Step::Apply
+                    && let Err(e) = self.apply_theme()
+                {
+                    self.status_message = Some(format!("Error: {}", e));
                 }
             }
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => self.quit(),

@@ -54,16 +54,14 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, state: &AppState) {
         .unwrap_or(false);
 
     let mut footer_spans = vec![
-        Span::styled(" [Tab/Enter] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
-        Span::styled(format!("{}  ", t.hint_next), Style::default().fg(Color::Gray)),
-        Span::styled(" [Shift+Tab] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
-        Span::styled(format!("{}  ", t.hint_prev), Style::default().fg(Color::Gray)),
+        Span::styled(" [← / →] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("{}  ", t.hint_steps_nav), Style::default().fg(Color::Gray)),
         Span::styled(" [1-5] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
         Span::styled(format!("{}  ", t.hint_jump), Style::default().fg(Color::Gray)),
         Span::styled(" [↑/↓] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
         Span::styled(format!("{}  ", t.hint_select), Style::default().fg(Color::Gray)),
-        Span::styled(" [Space] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
-        Span::styled(format!("{}  ", t.hint_space), Style::default().fg(Color::Gray)),
+        Span::styled(" [Space/Enter] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("{}  ", t.hint_choose), Style::default().fg(Color::Gray)),
     ];
 
     if is_opened_from_main {

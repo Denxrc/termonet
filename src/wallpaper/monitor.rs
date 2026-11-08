@@ -44,6 +44,11 @@ impl MonitorWallpapers {
             return Some(path.clone());
         }
 
+        // Check for general fallback key "default"
+        if let Some(path) = self.outputs.get("default") {
+            return Some(path.clone());
+        }
+
         // Fallback to first available active monitor
         self.outputs.values().next().cloned()
     }
@@ -52,5 +57,45 @@ impl MonitorWallpapers {
 impl Default for MonitorWallpapers {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    #[test]
+    fn test_monitor_resolution_identical() {
+        let mut monitors = MonitorWallpapers::new();
+        monitors.outputs.insert("DP-1".into(), PathBuf::from("/path/to/wall.png"));
+        monitors.outputs.insert("HDMI-A-1".into(), PathBuf::from("/path/to/wall.png"));
+
+        assert_eq!(
+            monitors.resolve_primary(None),
+            Some(PathBuf::from("/path/to/wall.png"))
+        );
+    }
+
+    #[test]
+    fn test_monitor_resolution_primary_match() {
+        let mut monitors = MonitorWallpapers::new();
+        monitors.outputs.insert("DP-1".into(), PathBuf::from("/path/to/wall1.png"));
+        monitors.outputs.insert("HDMI-A-1".into(), PathBuf::from("/path/to/wall2.png"));
+
+        assert_eq!(
+            monitors.resolve_primary(Some("HDMI-A-1")),
+            Some(PathBuf::from("/path/to/wall2.png"))
+        );
+    }
+
+    #[test]
+    fn test_monitor_resolution_fallback_to_default_key() {
+        let mut monitors = MonitorWallpapers::new();
+        monitors.outputs.insert("default".into(), PathBuf::from("/path/to/default.png"));
+
+        assert_eq!(
+            monitors.resolve_primary(Some("NonExistent")),
+            Some(PathBuf::from("/path/to/default.png"))
+        );
     }
 }

@@ -204,9 +204,9 @@ display_server = "{server}"
 # Active wallpaper backend engine used to detect the current wallpaper.
 # Allowed options:
 #   "auto"      - Automatic detection based on running desktop / compositor
-#   "swww"      - Wayland animated wallpaper daemon (hyprland/sway/wlroots)
+#   "awww"      - Modern Wayland animated wallpaper daemon (successor to swww)
+#   "swww"      - Wayland animated wallpaper daemon (compatible with awww)
 #   "hyprpaper" - Hyprland native IPC wallpaper utility
-#   "awww"      - Lightweight Wayland daemon
 #   "wpaperd"   - Wayland wallpaper daemon via symlinks
 #   "swaybg"    - Sway / wlroots wallpaper background process
 #   "gnome"     - GNOME desktop (gsettings org.gnome.desktop.background)
@@ -232,7 +232,7 @@ wallpaper_backend = "{backend}"
 #   "kitty"     - Kitty terminal (~/.config/kitty/colors-termonet.conf)
 #   "waybar"    - Waybar status bar (~/.config/waybar/colors.css)
 #   "rofi"      - Rofi app launcher (~/.config/rofi/colors.rasi)
-#   "hyprland"  - Hyprland compositor borders (~/.config/hypr/colors.conf)
+#   "hyprland"  - Hyprland 0.55+ Lua configuration (~/.config/hypr/colors.lua)
 #   "alacritty" - Alacritty terminal (~/.config/alacritty/colors.toml)
 #   "dunst"     - Dunst notification daemon (~/.config/dunst/dunstrc.d/colors.conf)
 #   "sway"      - Sway window manager (~/.config/sway/colors.conf)

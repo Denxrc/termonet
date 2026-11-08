@@ -17,10 +17,10 @@ impl<'a> TemplateEngine<'a> {
 
         // Filter: hex (ensures `#rrggbb`)
         env.add_filter("hex", |val: &Value| -> std::result::Result<String, minijinja::Error> {
-            if let Ok(hex_str) = val.get_attr("hex") {
-                if !hex_str.is_undefined() {
-                    return Ok(hex_str.to_string());
-                }
+            if let Ok(hex_str) = val.get_attr("hex")
+                && !hex_str.is_undefined()
+            {
+                return Ok(hex_str.to_string());
             }
             let s = val.to_string();
             if s.starts_with('#') {
@@ -32,10 +32,10 @@ impl<'a> TemplateEngine<'a> {
 
         // Filter: strip (removes leading `#`)
         env.add_filter("strip", |val: &Value| -> std::result::Result<String, minijinja::Error> {
-            if let Ok(strip_str) = val.get_attr("strip") {
-                if !strip_str.is_undefined() {
-                    return Ok(strip_str.to_string());
-                }
+            if let Ok(strip_str) = val.get_attr("strip")
+                && !strip_str.is_undefined()
+            {
+                return Ok(strip_str.to_string());
             }
             let s = val.to_string();
             Ok(s.trim_start_matches('#').to_string())
@@ -43,10 +43,10 @@ impl<'a> TemplateEngine<'a> {
 
         // Alias for strip
         env.add_filter("stripped", |val: &Value| -> std::result::Result<String, minijinja::Error> {
-            if let Ok(strip_str) = val.get_attr("strip") {
-                if !strip_str.is_undefined() {
-                    return Ok(strip_str.to_string());
-                }
+            if let Ok(strip_str) = val.get_attr("strip")
+                && !strip_str.is_undefined()
+            {
+                return Ok(strip_str.to_string());
             }
             let s = val.to_string();
             Ok(s.trim_start_matches('#').to_string())
@@ -54,15 +54,15 @@ impl<'a> TemplateEngine<'a> {
 
         // Filter: rgb (returns "r, g, b")
         env.add_filter("rgb", |val: &Value| -> std::result::Result<String, minijinja::Error> {
-            if let Ok(rgb_str) = val.get_attr("rgb") {
-                if !rgb_str.is_undefined() {
-                    return Ok(rgb_str.to_string());
-                }
+            if let Ok(rgb_str) = val.get_attr("rgb")
+                && !rgb_str.is_undefined()
+            {
+                return Ok(rgb_str.to_string());
             }
-            if let (Ok(r), Ok(g), Ok(b)) = (val.get_attr("r"), val.get_attr("g"), val.get_attr("b")) {
-                if !r.is_undefined() && !g.is_undefined() && !b.is_undefined() {
-                    return Ok(format!("{}, {}, {}", r, g, b));
-                }
+            if let (Ok(r), Ok(g), Ok(b)) = (val.get_attr("r"), val.get_attr("g"), val.get_attr("b"))
+                && !r.is_undefined() && !g.is_undefined() && !b.is_undefined()
+            {
+                return Ok(format!("{}, {}, {}", r, g, b));
             }
             Ok(val.to_string())
         });

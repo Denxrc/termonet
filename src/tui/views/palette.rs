@@ -50,6 +50,8 @@ pub fn render_palette(frame: &mut Frame, area: Rect, state: &AppState) {
         Span::styled(wp_text, Style::default().fg(Color::White)),
         Span::raw("   "),
         Span::styled(format!("{} ", t.wallpaper_change_btn), Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
+        Span::raw(" "),
+        Span::styled(format!("{} ", t.wallpaper_reload_btn), Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
         Span::raw("    "),
         Span::styled(format!("{} ", t.seed_color), Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
         color_badge(&palette.seed_color),

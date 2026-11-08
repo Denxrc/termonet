@@ -77,10 +77,8 @@ pub fn run_tui(mut state: AppState) -> Result<()> {
                 .unwrap_or(Color::Rgb(191, 198, 220));
 
             let mut footer_spans = vec![
-                Span::styled(" [Tab] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
-                Span::styled(format!("{}  ", t.hint_next), Style::default().fg(Color::Gray)),
-                Span::styled(" [Shift+Tab] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
-                Span::styled(format!("{}  ", t.hint_prev), Style::default().fg(Color::Gray)),
+                Span::styled(" [← / →] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
+                Span::styled(format!("{}  ", t.hint_steps_nav), Style::default().fg(Color::Gray)),
                 Span::styled(" [1-4] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
                 Span::styled(format!("{}  ", t.hint_jump), Style::default().fg(Color::Gray)),
             ];
@@ -88,6 +86,8 @@ pub fn run_tui(mut state: AppState) -> Result<()> {
             if state.current_step == Step::Palette {
                 footer_spans.push(Span::styled(" [w] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
                 footer_spans.push(Span::styled(format!("{}  ", t.hint_wallpaper), Style::default().fg(Color::Gray)));
+                footer_spans.push(Span::styled(" [r] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
+                footer_spans.push(Span::styled(format!("{}  ", t.hint_auto_detect), Style::default().fg(Color::Gray)));
             } else {
                 footer_spans.push(Span::styled(" [Space] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
                 footer_spans.push(Span::styled(format!("{}  ", t.hint_space), Style::default().fg(Color::Gray)));
@@ -192,16 +192,16 @@ mod tests {
         assert!(state.is_wizard);
         assert_eq!(state.wizard_state.as_ref().unwrap().step, WizardStep::Language);
 
-        // Tab to Step 2 (Appearance)
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Tab));
+        // Right arrow to Step 2 (Appearance)
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Right));
         assert_eq!(state.wizard_state.as_ref().unwrap().step, WizardStep::Appearance);
 
         // Press '3' to jump to Step 3 (Environment)
         state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char('3')));
         assert_eq!(state.wizard_state.as_ref().unwrap().step, WizardStep::Environment);
 
-        // Shift+Tab back to Step 2
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::BackTab));
+        // Left arrow back to Step 2
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Left));
         assert_eq!(state.wizard_state.as_ref().unwrap().step, WizardStep::Appearance);
     }
 
@@ -272,6 +272,35 @@ mod tests {
         // Esc cancels modal
         state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Esc));
         assert!(state.wallpaper_input.is_none());
+    }
+
+    #[test]
+    fn test_palette_enter_does_not_open_input_modal() {
+        let config = AppConfig::default();
+        let mut state = AppState::new(config);
+        state.current_step = Step::Palette;
+
+        // Press Enter in Palette step -> should do nothing
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Enter));
+        assert!(state.wallpaper_input.is_none());
+
+        // Press 'w' in Palette step -> opens modal
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char('w')));
+        assert!(state.wallpaper_input.is_some());
+    }
+
+    #[test]
+    fn test_wizard_finish_step_space_saves() {
+        let config = AppConfig::default();
+        let mut state = AppState::new_wizard(config);
+
+        // Jump to Step 5 (Finish)
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char('5')));
+        assert_eq!(state.wizard_state.as_ref().unwrap().step, WizardStep::Finish);
+
+        // Space triggers finish_wizard
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char(' ')));
+        assert!(!state.is_wizard);
     }
 
     #[test]

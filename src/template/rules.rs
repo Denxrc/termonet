@@ -152,29 +152,28 @@ impl ProgramRule {
         // 2. Scan user's rules directory (~/.config/termonet/rules/)
         if let Ok(rules_dir) = AppPaths::rules_dir()
             && rules_dir.is_dir()
+            && let Ok(entries) = fs::read_dir(&rules_dir)
         {
-            if let Ok(entries) = fs::read_dir(&rules_dir) {
-                let mut paths: Vec<_> = entries
-                    .filter_map(std::result::Result::ok)
-                    .map(|e| e.path())
-                    .filter(|p| p.extension().is_some_and(|ext| ext == "toml"))
-                    .collect();
-                paths.sort();
+            let mut paths: Vec<_> = entries
+                .filter_map(std::result::Result::ok)
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|ext| ext == "toml"))
+                .collect();
+            paths.sort();
 
-                for path in paths {
-                    if let Ok(content) = fs::read_to_string(&path)
-                        && let Ok(user_rule) = Self::from_toml(&content)
-                    {
-                        let key = user_rule.name.to_lowercase();
-                        if let Some(embedded_rule) = rules_map.get(&key) {
-                            // Only override if the user rule has equal or newer version
-                            if user_rule.version >= embedded_rule.version {
-                                rules_map.insert(key, user_rule);
-                            }
-                        } else {
-                            // User's own custom rule
+            for path in paths {
+                if let Ok(content) = fs::read_to_string(&path)
+                    && let Ok(user_rule) = Self::from_toml(&content)
+                {
+                    let key = user_rule.name.to_lowercase();
+                    if let Some(embedded_rule) = rules_map.get(&key) {
+                        // Only override if the user rule has equal or newer version
+                        if user_rule.version >= embedded_rule.version {
                             rules_map.insert(key, user_rule);
                         }
+                    } else {
+                        // User's own custom rule
+                        rules_map.insert(key, user_rule);
                     }
                 }
             }
@@ -195,17 +194,17 @@ impl ProgramRule {
 
         if let Ok(templates_dir) = AppPaths::templates_dir() {
             let file_path = templates_dir.join(&self.template);
-            if file_path.is_file() {
-                if let Ok(disk_content) = fs::read_to_string(&file_path) {
-                    if let Some(embedded) = embedded_content {
-                        let disk_version = extract_template_version(&disk_content);
-                        let embedded_version = extract_template_version(embedded);
-                        if disk_version < embedded_version {
-                            return Ok(embedded.to_string());
-                        }
+            if file_path.is_file()
+                && let Ok(disk_content) = fs::read_to_string(&file_path)
+            {
+                if let Some(embedded) = embedded_content {
+                    let disk_version = extract_template_version(&disk_content);
+                    let embedded_version = extract_template_version(embedded);
+                    if disk_version < embedded_version {
+                        return Ok(embedded.to_string());
                     }
-                    return Ok(disk_content);
                 }
+                return Ok(disk_content);
             }
         }
 
@@ -288,15 +287,15 @@ pub fn inject_import(
     let block = format!("{}\n{}\n{}", begin_marker, import_line, end_marker);
 
     // Case 1: Termonet block already exists -> replace in-place
-    if let Some(begin_idx) = content.find(begin_marker) {
-        if let Some(end_rel_idx) = content[begin_idx..].find(end_marker) {
-            let end_idx = begin_idx + end_rel_idx + end_marker.len();
-            let mut result = String::with_capacity(content.len() + 32);
-            result.push_str(&content[..begin_idx]);
-            result.push_str(&block);
-            result.push_str(&content[end_idx..]);
-            return result;
-        }
+    if let Some(begin_idx) = content.find(begin_marker)
+        && let Some(end_rel_idx) = content[begin_idx..].find(end_marker)
+    {
+        let end_idx = begin_idx + end_rel_idx + end_marker.len();
+        let mut result = String::with_capacity(content.len() + 32);
+        result.push_str(&content[..begin_idx]);
+        result.push_str(&block);
+        result.push_str(&content[end_idx..]);
+        return result;
     }
 
     // Case 2: Check for foreign / legacy color imports (e.g. pywal, old color includes)

@@ -67,11 +67,12 @@ Termonet organizes its workflow into 4 focused steps:
 
 | Shortcut | Action |
 | :--- | :--- |
-| `Tab` / `Shift+Tab` | Switch to next / previous step |
+| `Left` / `Right` (`h` / `l`) | Switch between steps / windows (1..4) |
 | `1`, `2`, `3`, `4` | Jump directly to step 1..4 |
 | `Up` / `Down` (`k` / `j`) | Navigate items in lists |
 | `Space` | Toggle selected program or hook checkbox |
 | `w` | Open manual wallpaper path input dialog (in Step 1) |
+| `r` | Auto-detect wallpaper from active wallpaper daemon (in Step 1) |
 | `s` / `F2` | Open setup / settings wizard |
 | `Esc` | Close input modal / cancel settings wizard |
 | `q` | Quit Termonet |
@@ -107,14 +108,26 @@ install -Dm755 target/release/termonet ~/.local/bin/termonet
 ## 💻 Usage
 
 ```bash
-# Launch interactive TUI (auto-detects wallpaper from config or launches wizard on first run)
+# Launch interactive TUI (auto-detects active wallpaper from running daemon or config)
 termonet
 
-# Launch with a specific wallpaper image
+# Headless mode: apply theme across all enabled programs from active wallpaper and exit
+termonet --apply
+
+# Force headless re-application (bypassing the state cache)
+termonet --apply --force
+
+# Apply a specific wallpaper image in headless mode
+termonet --apply -w ~/Pictures/Wallpapers/forest.png
+
+# Launch TUI with a specific wallpaper image
 termonet -w ~/Pictures/Wallpapers/forest.png
 
 # Launch directly into the setup wizard
 termonet --init
+
+# Synchronize default rules and templates to latest version
+termonet --reset-rules
 ```
 
 ### CLI Options
@@ -122,9 +135,14 @@ termonet --init
 ```text
 Usage: termonet [OPTIONS] [WALLPAPER_PATH]
 
-Options:
+Headless / Automation Options:
+  -a, --apply              Headless mode: apply theme from active wallpaper and exit
+  -f, --force              Force re-application ignoring cached wallpaper state
+
+General Options:
   -w, --wallpaper <PATH>   Path to wallpaper image (PNG, JPG, GIF, WebP)
   -i, --wizard, --init     Launch first-run configuration wizard
+      --reset-rules        Force reset default rules and templates to latest
   -h, --help               Print help information
 ```
 
@@ -321,9 +339,9 @@ Termonet guarantees configuration safety:
   - [x] Built-in out-of-the-box rules and templates (Kitty, Waybar, Rofi, Hyprland Lua)
   - [x] Safe marker injection, legacy theme (Pywal) replacement, and `.original` master backups
   - [x] Two-tier asset versioning and automatic migration (`--update-rules`)
-  - [ ] Automatic Wayland wallpaper extraction (`swww`, `hyprpaper`, `awww`, `wpaperd`, `swaybg`, `GNOME`, `KDE`)
-  - [ ] Multi-monitor duplicate filter with primary monitor selection
-  - [ ] Headless CLI auto-apply flag (`--apply`) for systemd timers and scripts
+  - [x] Automatic Wayland wallpaper extraction (`awww`, `swww`, `hyprpaper`, `wpaperd`, `swaybg`) and DE (`GNOME`, `KDE`)
+  - [x] Multi-monitor duplicate filter with primary monitor selection (`primary_monitor`)
+  - [x] Headless CLI auto-apply mode (`--apply`, `--force`) with idle state caching
 - [ ] **v2.x (Ecosystem Expansion)**:
   - [ ] X11 auto-detection (`feh`, `nitrogen`)
   - [ ] On-the-fly CLI color scheme overrides

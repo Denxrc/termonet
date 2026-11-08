@@ -13,6 +13,7 @@ pub struct Translations {
     pub no_wallpaper: &'static str,
     pub seed_color: &'static str,
     pub wallpaper_change_btn: &'static str,
+    pub wallpaper_reload_btn: &'static str,
     pub wallpaper_input_title: &'static str,
     pub wallpaper_input_prompt: &'static str,
     pub wallpaper_input_hint: &'static str,
@@ -121,8 +122,7 @@ pub struct Translations {
     pub val_standard_font: &'static str,
 
     // Footer hints
-    pub hint_next: &'static str,
-    pub hint_prev: &'static str,
+    pub hint_steps_nav: &'static str,
     pub hint_jump: &'static str,
     pub hint_space: &'static str,
     pub hint_quit: &'static str,
@@ -130,6 +130,8 @@ pub struct Translations {
     pub hint_select: &'static str,
     pub hint_cancel: &'static str,
     pub hint_wallpaper: &'static str,
+    pub hint_auto_detect: &'static str,
+    pub hint_choose: &'static str,
 }
 
 pub const RU_TRANSLATIONS: Translations = Translations {
@@ -142,6 +144,7 @@ pub const RU_TRANSLATIONS: Translations = Translations {
     no_wallpaper: "Обои не выбраны",
     seed_color: "Доминантный тон (Seed):",
     wallpaper_change_btn: "[w] Изменить обои",
+    wallpaper_reload_btn: "[r] Автоопределение",
     wallpaper_input_title: " Ввод пути к файлу обоев ",
     wallpaper_input_prompt: "Укажите абсолютный или относительный путь к изображению (PNG, JPG, GIF, WebP):",
     wallpaper_input_hint: "[Enter] Применить   [Esc] Отмена",
@@ -189,7 +192,7 @@ pub const RU_TRANSLATIONS: Translations = Translations {
 
     wizard_lang_title: " Выберите язык интерфейса ",
     wizard_lang_prompt: "Выберите основной язык интерфейса Termonet:",
-    wizard_lang_hint: "(Выбор применяется немедленно. Нажмите [Enter] или [Tab] для перехода к следующему шагу)",
+    wizard_lang_hint: "(Выбор применяется немедленно. Используйте [← / →] для перехода между шагами)",
     wizard_lang_ru: "Русский (Russian)",
     wizard_lang_en: "English",
 
@@ -244,8 +247,7 @@ pub const RU_TRANSLATIONS: Translations = Translations {
     val_pixel_font: "Пиксельный 5px (Pixel Font)",
     val_standard_font: "Обычный текст (Standard Font)",
 
-    hint_next: "След. шаг",
-    hint_prev: "Пред. шаг",
+    hint_steps_nav: "Шаги",
     hint_jump: "Перейти к шагу",
     hint_space: "Вкл/Выкл",
     hint_quit: "Выход",
@@ -253,6 +255,8 @@ pub const RU_TRANSLATIONS: Translations = Translations {
     hint_select: "Выбор",
     hint_cancel: "Отмена",
     hint_wallpaper: "Обои",
+    hint_auto_detect: "Авто",
+    hint_choose: "Применить",
 };
 
 pub const EN_TRANSLATIONS: Translations = Translations {
@@ -265,6 +269,7 @@ pub const EN_TRANSLATIONS: Translations = Translations {
     no_wallpaper: "No wallpaper selected",
     seed_color: "Dominant Seed Color:",
     wallpaper_change_btn: "[w] Change Wallpaper",
+    wallpaper_reload_btn: "[r] Auto-detect",
     wallpaper_input_title: " Enter Wallpaper File Path ",
     wallpaper_input_prompt: "Enter absolute or relative path to wallpaper image (PNG, JPG, GIF, WebP):",
     wallpaper_input_hint: "[Enter] Apply   [Esc] Cancel",
@@ -312,7 +317,7 @@ pub const EN_TRANSLATIONS: Translations = Translations {
 
     wizard_lang_title: " Select Interface Language ",
     wizard_lang_prompt: "Select the primary interface language for Termonet:",
-    wizard_lang_hint: "(Selection takes effect immediately. Press [Enter] or [Tab] to proceed to next step)",
+    wizard_lang_hint: "(Selection takes effect immediately. Use [← / →] to navigate between steps)",
     wizard_lang_ru: "Russian (Русский)",
     wizard_lang_en: "English",
 
@@ -367,8 +372,7 @@ pub const EN_TRANSLATIONS: Translations = Translations {
     val_pixel_font: "5px Pixel Font",
     val_standard_font: "Standard Font",
 
-    hint_next: "Next Step",
-    hint_prev: "Prev Step",
+    hint_steps_nav: "Steps",
     hint_jump: "Jump Step",
     hint_space: "Toggle",
     hint_quit: "Quit",
@@ -376,4 +380,6 @@ pub const EN_TRANSLATIONS: Translations = Translations {
     hint_select: "Select",
     hint_cancel: "Cancel",
     hint_wallpaper: "Wallpaper",
+    hint_auto_detect: "Auto",
+    hint_choose: "Apply",
 };
