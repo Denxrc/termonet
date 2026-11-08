@@ -1,0 +1,3 @@
+# Exclude bundled templates and rules from GitHub language statistics
+assets/** linguist-vendored
+*.tmpl linguist-detectable=false
