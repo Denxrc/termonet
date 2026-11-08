@@ -1,7 +1,6 @@
 //! Termonet binary entry point.
 
 use std::env;
-use std::path::Path;
 use termonet::config::AppConfig;
 use termonet::core::GeneratedPalette;
 use termonet::error::Result;
@@ -29,6 +28,7 @@ fn main() -> Result<()> {
                 println!("  1, 2, 3, 4               Jump directly to specific step");
                 println!("  Up / Down (k / j)        Navigate programs and hooks list");
                 println!("  Space                    Toggle selected program or hook");
+                println!("  w                        Change / enter wallpaper path (in Step 1)");
                 println!("  s / F2                   Open settings wizard");
                 println!("  q / Esc                  Quit");
                 return Ok(());
@@ -64,13 +64,14 @@ fn main() -> Result<()> {
     // If no path was passed via CLI or file not found, try manual config path or seed
     let effective_wallpaper = wallpaper_path.or_else(|| state.config.manual_wallpaper_path.clone());
 
-    if let Some(ref path) = effective_wallpaper {
-        if Path::new(path).exists() {
-            let palette = GeneratedPalette::from_image_path(path)?;
+    if let Some(ref raw_path) = effective_wallpaper {
+        let path = termonet::config::paths::AppPaths::expand_tilde(raw_path);
+        if path.exists() {
+            let palette = GeneratedPalette::from_image_path(&path)?;
             state.palette = Some(palette);
-            state.wallpaper_path = Some(path.clone());
+            state.wallpaper_path = Some(path.display().to_string());
         } else {
-            eprintln!("Warning: Specified wallpaper not found: {}", path);
+            eprintln!("Warning: Specified wallpaper not found: {}", raw_path);
         }
     }
 

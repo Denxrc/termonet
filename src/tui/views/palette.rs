@@ -48,6 +48,8 @@ pub fn render_palette(frame: &mut Frame, area: Rect, state: &AppState) {
     let wp_line = Line::from(vec![
         Span::styled(format!(" {} ", t.wallpaper_source), Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
         Span::styled(wp_text, Style::default().fg(Color::White)),
+        Span::raw("   "),
+        Span::styled(format!("{} ", t.wallpaper_change_btn), Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
         Span::raw("    "),
         Span::styled(format!("{} ", t.seed_color), Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
         color_badge(&palette.seed_color),
@@ -112,6 +114,83 @@ pub fn render_palette(frame: &mut Frame, area: Rect, state: &AppState) {
         .title(t.terminal_title);
 
     frame.render_widget(Paragraph::new(terminal_lines).block(terminal_block), columns[1]);
+
+    // 3. Render wallpaper input modal dialog if active
+    if state.wallpaper_input.is_some() {
+        render_wallpaper_input_modal(frame, area, state);
+    }
+}
+
+/// Renders an interactive modal popup for typing or pasting manual wallpaper path.
+pub fn render_wallpaper_input_modal(frame: &mut Frame, area: Rect, state: &AppState) {
+    let Some(ref input_state) = state.wallpaper_input else {
+        return;
+    };
+    let t = get_translations(state.config.language);
+
+    let primary_color = state
+        .palette
+        .as_ref()
+        .map(|p| Color::from(p.dark.primary))
+        .unwrap_or(Color::Rgb(173, 198, 255));
+
+    // Centered modal window: 72 columns wide or 75% width, 7 lines height
+    let popup_area = centered_rect(75, 7, area);
+    frame.render_widget(ratatui::widgets::Clear, popup_area);
+
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled(format!("  {} ", t.wallpaper_input_prompt), Style::default().fg(Color::Gray)),
+        ]),
+        Line::raw(""),
+        Line::from(vec![
+            Span::styled("  > ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
+            Span::styled(&input_state.input[..input_state.cursor_pos], Style::default().fg(Color::White)),
+            Span::styled("█", Style::default().fg(primary_color).add_modifier(Modifier::SLOW_BLINK)),
+            Span::styled(&input_state.input[input_state.cursor_pos..], Style::default().fg(Color::White)),
+        ]),
+    ];
+
+    if let Some(ref err) = input_state.error_msg {
+        lines.push(Line::from(vec![
+            Span::styled(format!("  ✗ {}", err), Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
+        ]));
+    } else {
+        lines.push(Line::raw(""));
+    }
+
+    lines.push(Line::from(vec![
+        Span::styled(format!("  {}", t.wallpaper_input_hint), Style::default().fg(Color::DarkGray)),
+    ]));
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(primary_color).add_modifier(Modifier::BOLD))
+        .title(t.wallpaper_input_title);
+
+    frame.render_widget(Paragraph::new(lines).block(block), popup_area);
+}
+
+/// Helper function to create a centered Rect within given area.
+fn centered_rect(percent_x: u16, height: u16, r: Rect) -> Rect {
+    let top_margin = r.height.saturating_sub(height) / 2;
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(top_margin),
+            Constraint::Length(height),
+            Constraint::Min(0),
+        ])
+        .split(r);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
 }
 
 fn color_badge(color: &RgbColor) -> Span<'static> {

@@ -21,7 +21,7 @@ pub fn get_current_wallpaper(
             let path = manual_path.ok_or_else(|| {
                 TermonetError::WallpaperNotFound("Manual wallpaper path not specified in configuration".into())
             })?;
-            let p = PathBuf::from(path);
+            let p = crate::config::paths::AppPaths::expand_tilde(path);
             if p.exists() {
                 Ok(p)
             } else {

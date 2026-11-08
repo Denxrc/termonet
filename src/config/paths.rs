@@ -44,4 +44,39 @@ impl AppPaths {
     pub fn state_file() -> Result<PathBuf> {
         Ok(Self::state_dir()?.join("state.toml"))
     }
+
+    /// Expands `~` prefix to the current user's home directory.
+    #[must_use]
+    pub fn expand_tilde(path: &str) -> PathBuf {
+        let trimmed = path.trim();
+        if let Some(stripped) = trimmed.strip_prefix("~/") {
+            if let Ok(home) = std::env::var("HOME") {
+                return PathBuf::from(home).join(stripped);
+            }
+        } else if trimmed == "~"
+            && let Ok(home) = std::env::var("HOME")
+        {
+            return PathBuf::from(home);
+        }
+        PathBuf::from(trimmed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_expand_tilde() {
+        let regular = AppPaths::expand_tilde("/usr/share/backgrounds/default.png");
+        assert_eq!(regular, PathBuf::from("/usr/share/backgrounds/default.png"));
+
+        if let Ok(home) = std::env::var("HOME") {
+            let tilde = AppPaths::expand_tilde("~/wallpapers/nature.jpg");
+            assert_eq!(tilde, PathBuf::from(&home).join("wallpapers/nature.jpg"));
+
+            let bare_tilde = AppPaths::expand_tilde("~");
+            assert_eq!(bare_tilde, PathBuf::from(&home));
+        }
+    }
 }

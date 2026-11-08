@@ -12,6 +12,13 @@ pub struct Translations {
     pub wallpaper_source: &'static str,
     pub no_wallpaper: &'static str,
     pub seed_color: &'static str,
+    pub wallpaper_change_btn: &'static str,
+    pub wallpaper_input_title: &'static str,
+    pub wallpaper_input_prompt: &'static str,
+    pub wallpaper_input_hint: &'static str,
+    pub wallpaper_applied_success: &'static str,
+    pub wallpaper_error_not_found: &'static str,
+    pub wallpaper_error_decode: &'static str,
     pub roles_title: &'static str,
     pub terminal_title: &'static str,
     pub normal_colors: &'static str,
@@ -122,6 +129,7 @@ pub struct Translations {
     pub hint_settings: &'static str,
     pub hint_select: &'static str,
     pub hint_cancel: &'static str,
+    pub hint_wallpaper: &'static str,
 }
 
 pub const RU_TRANSLATIONS: Translations = Translations {
@@ -133,6 +141,13 @@ pub const RU_TRANSLATIONS: Translations = Translations {
     wallpaper_source: "Источник обоев:",
     no_wallpaper: "Обои не выбраны",
     seed_color: "Доминантный тон (Seed):",
+    wallpaper_change_btn: "[w] Изменить обои",
+    wallpaper_input_title: " Ввод пути к файлу обоев ",
+    wallpaper_input_prompt: "Укажите абсолютный или относительный путь к изображению (PNG, JPG, GIF, WebP):",
+    wallpaper_input_hint: "[Enter] Применить   [Esc] Отмена",
+    wallpaper_applied_success: "Обои успешно применены и палитра пересчитана!",
+    wallpaper_error_not_found: "Файл обоев не найден по указанному пути",
+    wallpaper_error_decode: "Не удалось декодировать изображение обоев",
     roles_title: " Цветовые роли Material You ",
     terminal_title: " 16 цветов терминала (ANSI) ",
     normal_colors: " [Базовые цвета 0-7]",
@@ -237,6 +252,7 @@ pub const RU_TRANSLATIONS: Translations = Translations {
     hint_settings: "Настройки",
     hint_select: "Выбор",
     hint_cancel: "Отмена",
+    hint_wallpaper: "Обои",
 };
 
 pub const EN_TRANSLATIONS: Translations = Translations {
@@ -248,6 +264,13 @@ pub const EN_TRANSLATIONS: Translations = Translations {
     wallpaper_source: "Wallpaper Source:",
     no_wallpaper: "No wallpaper selected",
     seed_color: "Dominant Seed Color:",
+    wallpaper_change_btn: "[w] Change Wallpaper",
+    wallpaper_input_title: " Enter Wallpaper File Path ",
+    wallpaper_input_prompt: "Enter absolute or relative path to wallpaper image (PNG, JPG, GIF, WebP):",
+    wallpaper_input_hint: "[Enter] Apply   [Esc] Cancel",
+    wallpaper_applied_success: "Wallpaper applied and palette generated successfully!",
+    wallpaper_error_not_found: "Wallpaper image file not found at specified path",
+    wallpaper_error_decode: "Failed to decode wallpaper image file",
     roles_title: " Material You Color Roles ",
     terminal_title: " 16 Terminal ANSI Colors ",
     normal_colors: " [Normal Colors 0-7]",
@@ -352,4 +375,5 @@ pub const EN_TRANSLATIONS: Translations = Translations {
     hint_settings: "Settings",
     hint_select: "Select",
     hint_cancel: "Cancel",
+    hint_wallpaper: "Wallpaper",
 };

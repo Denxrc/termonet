@@ -133,6 +133,28 @@ impl WizardState {
     }
 }
 
+/// Interactive state for the manual wallpaper path input modal.
+#[derive(Debug, Clone, Default)]
+pub struct WallpaperInputState {
+    pub input: String,
+    pub cursor_pos: usize,
+    pub error_msg: Option<String>,
+}
+
+impl WallpaperInputState {
+    /// Creates a new wallpaper path input state initialized with current wallpaper path if available.
+    #[must_use]
+    pub fn new(initial_text: Option<&str>) -> Self {
+        let text = initial_text.unwrap_or("").to_string();
+        let len = text.len();
+        Self {
+            input: text,
+            cursor_pos: len,
+            error_msg: None,
+        }
+    }
+}
+
 /// Represents an application target in the TUI list, including its reload hook.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProgramItem {
@@ -163,6 +185,9 @@ pub struct AppState {
     // First-run setup wizard state
     pub is_wizard: bool,
     pub wizard_state: Option<WizardState>,
+
+    // Interactive wallpaper path input modal state
+    pub wallpaper_input: Option<WallpaperInputState>,
 }
 
 impl AppState {
@@ -217,6 +242,7 @@ impl AppState {
             selected_hook_idx: 0,
             is_wizard: false,
             wizard_state: None,
+            wallpaper_input: None,
         }
     }
 
@@ -238,6 +264,7 @@ impl AppState {
             selected_hook_idx: 0,
             is_wizard: true,
             wizard_state: Some(wizard_state),
+            wallpaper_input: None,
         }
     }
 
@@ -266,6 +293,60 @@ impl AppState {
         let wizard = WizardState::new_from_main(self.config.clone());
         self.wizard_state = Some(wizard);
         self.is_wizard = true;
+    }
+
+    /// Opens the manual wallpaper path input dialog.
+    pub fn open_wallpaper_input(&mut self) {
+        let current_path = self.wallpaper_path.as_deref().or(self.config.manual_wallpaper_path.as_deref());
+        self.wallpaper_input = Some(WallpaperInputState::new(current_path));
+    }
+
+    /// Attempts to apply the entered wallpaper path, generating a new palette and saving config.
+    pub fn apply_manual_wallpaper(&mut self, raw_path: &str) -> bool {
+        let trimmed = raw_path.trim();
+        if trimmed.is_empty() {
+            if let Some(ref mut input_state) = self.wallpaper_input {
+                input_state.error_msg = Some("Path cannot be empty".to_string());
+            }
+            return false;
+        }
+
+        let expanded = crate::config::paths::AppPaths::expand_tilde(trimmed);
+        if !expanded.exists() {
+            if let Some(ref mut input_state) = self.wallpaper_input {
+                input_state.error_msg = Some(format!("File not found: {}", expanded.display()));
+            }
+            return false;
+        }
+
+        match GeneratedPalette::from_image_path(&expanded) {
+            Ok(palette) => {
+                let path_str = expanded.display().to_string();
+                self.palette = Some(palette);
+                self.wallpaper_path = Some(path_str.clone());
+                self.config.manual_wallpaper_path = Some(path_str.clone());
+                self.config.wallpaper_backend = WallpaperBackend::Manual;
+
+                // If currently in wizard, also update wizard config
+                if let Some(ref mut wizard) = self.wizard_state {
+                    wizard.config.manual_wallpaper_path = Some(path_str);
+                    wizard.config.wallpaper_backend = WallpaperBackend::Manual;
+                }
+
+                // Persist update to config.toml
+                let _ = self.config.save();
+
+                self.status_message = Some("Wallpaper applied and palette generated successfully!".into());
+                self.wallpaper_input = None;
+                true
+            }
+            Err(e) => {
+                if let Some(ref mut input_state) = self.wallpaper_input {
+                    input_state.error_msg = Some(format!("Failed to load image: {}", e));
+                }
+                false
+            }
+        }
     }
 
     /// Advances to the next step.
@@ -455,12 +536,22 @@ impl AppState {
                 self.toggle_wizard_option();
             }
 
+            KeyCode::Char('w') => {
+                self.open_wallpaper_input();
+            }
+
             KeyCode::Enter => {
                 let current_step = self.wizard_state.as_ref().map(|w| w.step);
+                let selected_idx = self.wizard_state.as_ref().map(|w| w.selected_idx).unwrap_or(0);
+
                 if current_step == Some(WizardStep::Finish) {
                     if let Err(e) = self.finish_wizard() {
                         self.status_message = Some(format!("Error: {}", e));
                     }
+                } else if current_step == Some(WizardStep::Environment) && selected_idx == 12 {
+                    // Option 12 in Environment is Manual path -> trigger input dialog
+                    self.toggle_wizard_option();
+                    self.open_wallpaper_input();
                 } else {
                     self.toggle_wizard_option();
                     if let Some(ref mut wizard) = self.wizard_state {
@@ -473,8 +564,68 @@ impl AppState {
         }
     }
 
+    /// Handles keyboard interaction when typing a manual wallpaper path.
+    pub fn handle_wallpaper_input_key(&mut self, key: KeyEvent) {
+        let Some(ref mut input_state) = self.wallpaper_input else {
+            return;
+        };
+
+        match key.code {
+            KeyCode::Esc => {
+                self.wallpaper_input = None;
+            }
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.wallpaper_input = None;
+            }
+            KeyCode::Enter => {
+                let input = input_state.input.clone();
+                self.apply_manual_wallpaper(&input);
+            }
+            KeyCode::Backspace => {
+                if input_state.cursor_pos > 0 && !input_state.input.is_empty() {
+                    input_state.input.remove(input_state.cursor_pos - 1);
+                    input_state.cursor_pos -= 1;
+                    input_state.error_msg = None;
+                }
+            }
+            KeyCode::Delete => {
+                if input_state.cursor_pos < input_state.input.len() {
+                    input_state.input.remove(input_state.cursor_pos);
+                    input_state.error_msg = None;
+                }
+            }
+            KeyCode::Left => {
+                if input_state.cursor_pos > 0 {
+                    input_state.cursor_pos -= 1;
+                }
+            }
+            KeyCode::Right => {
+                if input_state.cursor_pos < input_state.input.len() {
+                    input_state.cursor_pos += 1;
+                }
+            }
+            KeyCode::Home => {
+                input_state.cursor_pos = 0;
+            }
+            KeyCode::End => {
+                input_state.cursor_pos = input_state.input.len();
+            }
+            KeyCode::Char(c) => {
+                input_state.input.insert(input_state.cursor_pos, c);
+                input_state.cursor_pos += 1;
+                input_state.error_msg = None;
+            }
+            _ => {}
+        }
+    }
+
     /// Handles keyboard events.
     pub fn handle_key(&mut self, key: KeyEvent) {
+        if self.wallpaper_input.is_some() {
+            self.handle_wallpaper_input_key(key);
+            return;
+        }
+
         if self.is_wizard {
             self.handle_wizard_key(key);
             return;
@@ -483,6 +634,12 @@ impl AppState {
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => self.quit(),
             KeyCode::Char('s') | KeyCode::F(2) => self.open_settings(),
+            KeyCode::Char('w') | KeyCode::Char('o') if self.current_step == Step::Palette => {
+                self.open_wallpaper_input();
+            }
+            KeyCode::Enter if self.current_step == Step::Palette => {
+                self.open_wallpaper_input();
+            }
             KeyCode::Tab => self.next_step(),
             KeyCode::BackTab => self.prev_step(),
             KeyCode::Char('1') => self.set_step(Step::Palette),

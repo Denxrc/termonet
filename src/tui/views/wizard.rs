@@ -77,6 +77,11 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, state: &AppState) {
     }
 
     frame.render_widget(Paragraph::new(Line::from(footer_spans)).alignment(Alignment::Center), chunks[2]);
+
+    // 4. Render wallpaper input modal over wizard if active
+    if state.wallpaper_input.is_some() {
+        crate::tui::views::palette::render_wallpaper_input_modal(frame, area, state);
+    }
 }
 
 fn render_wizard_header(
@@ -441,7 +446,17 @@ fn render_step_environment(
             Style::default().fg(Color::Gray)
         };
 
-        lines.push(Line::from(vec![cursor_span, radio_span, Span::styled(label, label_style)]));
+        let label_text = if backend == WallpaperBackend::Manual {
+            if let Some(ref p) = wizard.config.manual_wallpaper_path {
+                format!("{} ({})", label, p)
+            } else {
+                format!("{} — [w]", label)
+            }
+        } else {
+            label.to_string()
+        };
+
+        lines.push(Line::from(vec![cursor_span, radio_span, Span::styled(label_text, label_style)]));
     }
 
     frame.render_widget(Paragraph::new(lines).block(block), area);

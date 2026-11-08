@@ -76,22 +76,29 @@ pub fn run_tui(mut state: AppState) -> Result<()> {
                 .map(|p| Color::from(p.dark.secondary))
                 .unwrap_or(Color::Rgb(191, 198, 220));
 
-            let footer_line = Line::from(vec![
+            let mut footer_spans = vec![
                 Span::styled(" [Tab] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
                 Span::styled(format!("{}  ", t.hint_next), Style::default().fg(Color::Gray)),
                 Span::styled(" [Shift+Tab] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
                 Span::styled(format!("{}  ", t.hint_prev), Style::default().fg(Color::Gray)),
                 Span::styled(" [1-4] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
                 Span::styled(format!("{}  ", t.hint_jump), Style::default().fg(Color::Gray)),
-                Span::styled(" [Space] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
-                Span::styled(format!("{}  ", t.hint_space), Style::default().fg(Color::Gray)),
-                Span::styled(" [s] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
-                Span::styled(format!("{}  ", t.hint_settings), Style::default().fg(Color::Gray)),
-                Span::styled(" [q/Esc] ", Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
-                Span::styled(t.hint_quit, Style::default().fg(Color::Gray)),
-            ]);
+            ];
 
-            frame.render_widget(Paragraph::new(footer_line).alignment(Alignment::Center), root_layout[2]);
+            if state.current_step == Step::Palette {
+                footer_spans.push(Span::styled(" [w] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
+                footer_spans.push(Span::styled(format!("{}  ", t.hint_wallpaper), Style::default().fg(Color::Gray)));
+            } else {
+                footer_spans.push(Span::styled(" [Space] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
+                footer_spans.push(Span::styled(format!("{}  ", t.hint_space), Style::default().fg(Color::Gray)));
+            }
+
+            footer_spans.push(Span::styled(" [s] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
+            footer_spans.push(Span::styled(format!("{}  ", t.hint_settings), Style::default().fg(Color::Gray)));
+            footer_spans.push(Span::styled(" [q/Esc] ", Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)));
+            footer_spans.push(Span::styled(t.hint_quit, Style::default().fg(Color::Gray)));
+
+            frame.render_widget(Paragraph::new(Line::from(footer_spans)).alignment(Alignment::Center), root_layout[2]);
         })?;
 
         // 50ms polling (~20 FPS) for responsive interaction without high CPU usage
@@ -232,5 +239,56 @@ mod tests {
                 })
                 .expect("draw wizard step in language succeeded");
         }
+    }
+
+    #[test]
+    fn test_wallpaper_input_flow() {
+        let config = AppConfig::default();
+        let mut state = AppState::new(config);
+        state.current_step = Step::Palette;
+
+        assert!(state.wallpaper_input.is_none());
+
+        // Press 'w' to open wallpaper input
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char('w')));
+        assert!(state.wallpaper_input.is_some());
+
+        // Clear pre-filled input and type new path
+        if let Some(ref mut inp) = state.wallpaper_input {
+            inp.input.clear();
+            inp.cursor_pos = 0;
+        }
+
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char('a')));
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char('b')));
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char('c')));
+
+        assert_eq!(state.wallpaper_input.as_ref().unwrap().input, "abc");
+
+        // Backspace
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Backspace));
+        assert_eq!(state.wallpaper_input.as_ref().unwrap().input, "ab");
+
+        // Esc cancels modal
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Esc));
+        assert!(state.wallpaper_input.is_none());
+    }
+
+    #[test]
+    fn test_render_palette_with_input_modal() {
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).expect("failed to create test terminal");
+
+        let config = AppConfig::default();
+        let mut state = AppState::new(config);
+        let seed = material_colors::color::Rgb::new(0x42, 0x85, 0xf4);
+        state.palette = Some(crate::core::GeneratedPalette::from_seed_color(seed));
+        state.open_wallpaper_input();
+
+        terminal
+            .draw(|f| {
+                views::render_palette(f, f.area(), &state);
+            })
+            .expect("draw palette with wallpaper modal succeeded");
     }
 }
