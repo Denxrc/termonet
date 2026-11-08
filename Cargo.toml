@@ -2,6 +2,13 @@
 name = "termonet"
 version = "0.3.0"
 edition = "2024"
+authors = ["Denxrc <postoy07052010@gmail.com>"]
+description = "Fast, dynamic Material You system theme and palette generator for Linux"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/Denxrc/termonet"
+keywords = ["material-you", "theme", "tui", "linux", "wayland"]
+categories = ["command-line-utilities"]
 
 [dependencies]
 crossterm = "0.29.0"
