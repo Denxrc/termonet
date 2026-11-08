@@ -3,6 +3,7 @@
 use std::path::Path;
 use material_colors::{
     color::Rgb as MaterialRgb,
+    dynamic_color::Variant,
     hct::Hct,
     image::extract_color,
     theme::ThemeBuilder,
@@ -55,22 +56,26 @@ impl GeneratedPalette {
     /// Generates light/dark schemes and terminal colors from a given seed color.
     #[must_use]
     pub fn from_seed_color(seed: MaterialRgb) -> Self {
-        let theme = ThemeBuilder::with_source(seed).build();
+        // Use Variant::Content to preserve natural image fidelity and avoid artificial oversaturation
+        let theme = ThemeBuilder::with_source(seed)
+            .variant(Variant::Content)
+            .build();
         let seed_hct = Hct::new(seed);
-        let chroma = seed_hct.get_chroma().max(28.0);
+        // Subtle chroma clamp (6.0..32.0) to preserve muted/moody tones without color distortion
+        let chroma = seed_hct.get_chroma().clamp(6.0, 32.0);
 
         let dark_scheme = theme.schemes.dark;
         let light_scheme = theme.schemes.light;
 
         // Perceptually uniform terminal colors generated via HCT space
         let green_normal: MaterialRgb = Hct::from(142.0, chroma, 75.0).into();
-        let green_bright: MaterialRgb = Hct::from(142.0, chroma + 6.0, 85.0).into();
+        let green_bright: MaterialRgb = Hct::from(142.0, chroma + 4.0, 85.0).into();
 
         let yellow_normal: MaterialRgb = Hct::from(95.0, chroma, 80.0).into();
-        let yellow_bright: MaterialRgb = Hct::from(95.0, chroma + 6.0, 90.0).into();
+        let yellow_bright: MaterialRgb = Hct::from(95.0, chroma + 4.0, 90.0).into();
 
         let cyan_normal: MaterialRgb = Hct::from(195.0, chroma, 80.0).into();
-        let cyan_bright: MaterialRgb = Hct::from(195.0, chroma + 6.0, 90.0).into();
+        let cyan_bright: MaterialRgb = Hct::from(195.0, chroma + 4.0, 90.0).into();
 
         let terminal = TerminalPalette {
             // Normal 0..7
@@ -112,6 +117,12 @@ impl GeneratedPalette {
 mod tests {
     use super::*;
     use image::{Rgb, RgbImage};
+
+    #[test]
+    fn test_gif_decode() {
+        let p = GeneratedPalette::from_image_path("/tmp/test_anim.gif").expect("gif decode failed");
+        println!("EXTRACTED GIF SEED: {:?}", p.seed_color.to_hex());
+    }
 
     #[test]
     fn test_palette_generation_from_seed() {

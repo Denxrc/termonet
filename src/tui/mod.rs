@@ -14,11 +14,12 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-pub use app::{AppState, Step};
+pub use app::{AppState, HookItem, ProgramItem, Step};
 pub use font::PixelFont;
 pub use terminal::{TerminalGuard, TuiTerminal};
 
 use crate::error::Result;
+use crate::i18n::get_translations;
 
 /// Main TUI event loop driver.
 pub fn run_tui(mut state: AppState) -> Result<()> {
@@ -28,11 +29,11 @@ pub fn run_tui(mut state: AppState) -> Result<()> {
         guard.draw(|frame| {
             let total_area = frame.area();
 
-            // Responsive header height calculation
-            let header_height = if total_area.height >= 24 && total_area.width >= 48 {
-                7
+            // Responsive header height: 5 lines for pixel logo + tabs, or 3 lines for compact
+            let header_height = if total_area.height >= 22 && total_area.width >= 48 {
+                5
             } else {
-                4
+                3
             };
 
             let root_layout = Layout::default()
@@ -55,7 +56,8 @@ pub fn run_tui(mut state: AppState) -> Result<()> {
                 Step::Apply => views::render_apply(frame, root_layout[1], &state),
             }
 
-            // 3. Render Footer Bar
+            // 3. Render Footer Bar with localized hints
+            let t = get_translations(state.config.language);
             let primary_color = state
                 .palette
                 .as_ref()
@@ -70,15 +72,15 @@ pub fn run_tui(mut state: AppState) -> Result<()> {
 
             let footer_line = Line::from(vec![
                 Span::styled(" [Tab] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
-                Span::styled("Next Step  ", Style::default().fg(Color::Gray)),
+                Span::styled(format!("{}  ", t.hint_next), Style::default().fg(Color::Gray)),
                 Span::styled(" [Shift+Tab] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
-                Span::styled("Prev Step  ", Style::default().fg(Color::Gray)),
+                Span::styled(format!("{}  ", t.hint_prev), Style::default().fg(Color::Gray)),
                 Span::styled(" [1-4] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
-                Span::styled("Jump Step  ", Style::default().fg(Color::Gray)),
-                Span::styled(" [d/l] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
-                Span::styled("Toggle Dark/Light  ", Style::default().fg(Color::Gray)),
+                Span::styled(format!("{}  ", t.hint_jump), Style::default().fg(Color::Gray)),
+                Span::styled(" [Space] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
+                Span::styled(format!("{}  ", t.hint_space), Style::default().fg(Color::Gray)),
                 Span::styled(" [q/Esc] ", Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
-                Span::styled("Quit", Style::default().fg(Color::Gray)),
+                Span::styled(t.hint_quit, Style::default().fg(Color::Gray)),
             ]);
 
             frame.render_widget(Paragraph::new(footer_line).alignment(Alignment::Center), root_layout[2]);
@@ -121,7 +123,7 @@ mod tests {
                     let chunks = Layout::default()
                         .direction(Direction::Vertical)
                         .constraints([
-                            Constraint::Length(7),
+                            Constraint::Length(5),
                             Constraint::Min(8),
                             Constraint::Length(1),
                         ])

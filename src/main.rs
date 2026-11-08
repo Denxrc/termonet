@@ -1,6 +1,7 @@
 //! Termonet binary entry point.
 
 use std::env;
+use std::path::Path;
 use termonet::config::AppConfig;
 use termonet::core::GeneratedPalette;
 use termonet::error::Result;
@@ -8,34 +9,73 @@ use termonet::tui::{run_tui, AppState};
 
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
-
     let config = AppConfig::default();
     let mut state = AppState::new(config);
 
-    if args.len() > 1 {
-        let arg = &args[1];
-        if arg == "-h" || arg == "--help" {
-            println!("Termonet v{}", env!("CARGO_PKG_VERSION"));
-            println!("Usage: termonet [wallpaper-path]");
-            println!("\nKeybindings in TUI:");
-            println!("  Tab / Shift+Tab   Navigate between steps");
-            println!("  1, 2, 3, 4        Jump to specific step");
-            println!("  d / l             Toggle dark / light preview");
-            println!("  q / Esc           Quit");
-            return Ok(());
-        }
+    // Parse CLI arguments
+    let mut wallpaper_path: Option<String> = None;
 
-        let wallpaper_path = arg.clone();
-        println!("Extracting Material You palette from: {}", wallpaper_path);
-        let palette = GeneratedPalette::from_image_path(&wallpaper_path)?;
-        state.palette = Some(palette);
-        state.wallpaper_path = Some(wallpaper_path);
-    } else {
-        // Fallback default theme for initial interactive run
-        let default_seed = material_colors::color::Rgb::new(0x38, 0x5e, 0x72);
-        let palette = GeneratedPalette::from_seed_color(default_seed);
-        state.palette = Some(palette);
-        state.wallpaper_path = Some("Default Balanced Theme".to_string());
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-h" | "--help" => {
+                println!("Termonet v{}", env!("CARGO_PKG_VERSION"));
+                println!("Usage: termonet [OPTIONS] [WALLPAPER_PATH]");
+                println!("\nOptions:");
+                println!("  -w, --wallpaper <PATH>   Path to wallpaper image (PNG, JPG, GIF, WebP)");
+                println!("  -h, --help               Print help information");
+                println!("\nTUI Controls:");
+                println!("  Tab / Shift+Tab          Switch between steps (1..4)");
+                println!("  1, 2, 3, 4               Jump directly to specific step");
+                println!("  Up / Down (k / j)        Navigate programs and hooks list");
+                println!("  Space                    Toggle selected program or hook");
+                println!("  q / Esc                  Quit");
+                return Ok(());
+            }
+            "-w" | "--wallpaper" => {
+                if i + 1 < args.len() {
+                    wallpaper_path = Some(args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            arg if !arg.starts_with('-') => {
+                wallpaper_path = Some(arg.to_string());
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    // If no path was passed via CLI, look for test wallpapers or default balanced theme
+    if let Some(ref path) = wallpaper_path {
+        if Path::new(path).exists() {
+            let palette = GeneratedPalette::from_image_path(path)?;
+            state.palette = Some(palette);
+            state.wallpaper_path = Some(path.clone());
+        } else {
+            eprintln!("Warning: Specified wallpaper not found: {}", path);
+        }
+    }
+
+    if state.palette.is_none() {
+        // Check if wallpapers in 'wallpapers for testing' exist
+        let test_gif = "wallpapers for testing/wallpaper.gif";
+        let test_png = "wallpapers for testing/wallp.png";
+
+        if Path::new(test_gif).exists() {
+            let palette = GeneratedPalette::from_image_path(test_gif)?;
+            state.palette = Some(palette);
+            state.wallpaper_path = Some(test_gif.to_string());
+        } else if Path::new(test_png).exists() {
+            let palette = GeneratedPalette::from_image_path(test_png)?;
+            state.palette = Some(palette);
+            state.wallpaper_path = Some(test_png.to_string());
+        } else {
+            let default_seed = material_colors::color::Rgb::new(0x38, 0x5e, 0x72);
+            let palette = GeneratedPalette::from_seed_color(default_seed);
+            state.palette = Some(palette);
+            state.wallpaper_path = Some("Default Theme".to_string());
+        }
     }
 
     // Launch interactive TUI

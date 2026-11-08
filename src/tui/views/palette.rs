@@ -9,99 +9,107 @@ use ratatui::{
 };
 
 use crate::core::color::RgbColor;
+use crate::i18n::get_translations;
 use crate::tui::app::AppState;
 
 /// Renders the Step 1 view (palette swatches and scheme controls).
 pub fn render_palette(frame: &mut Frame, area: Rect, state: &AppState) {
+    let t = get_translations(state.config.language);
+
     let Some(ref palette) = state.palette else {
         let no_palette_msg = Paragraph::new(Line::from(vec![
             Span::styled(
-                "No wallpaper palette loaded. Pass an image path or use detection in v1.x.",
+                t.no_wallpaper,
                 Style::default().fg(Color::Yellow),
             ),
         ]))
         .alignment(ratatui::layout::Alignment::Center)
-        .block(Block::default().borders(Borders::ALL).title(" Palette Preview "));
+        .block(Block::default().borders(Borders::ALL).title(t.roles_title));
         frame.render_widget(no_palette_msg, area);
         return;
     };
 
-    let scheme = if state.preview_dark {
-        &palette.dark
-    } else {
-        &palette.light
+    let scheme = match state.config.tui_theme {
+        crate::config::TuiTheme::Light => &palette.light,
+        _ => &palette.dark,
     };
 
     let primary_color = Color::from(scheme.primary);
     let secondary_color = Color::from(scheme.secondary);
 
-    // Split horizontally into 2 columns: Material You Roles (left) and Terminal ANSI Colors (right)
+    // Split vertically: top wallpaper source card (2 lines) and main palette columns
+    let v_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(2), Constraint::Min(8)])
+        .split(area);
+
+    // 1. Wallpaper & Seed indicator inside Step 1
+    let wp_text = state.wallpaper_path.as_deref().unwrap_or(t.no_wallpaper);
+    let wp_line = Line::from(vec![
+        Span::styled(format!(" {} ", t.wallpaper_source), Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+        Span::styled(wp_text, Style::default().fg(Color::White)),
+        Span::raw("    "),
+        Span::styled(format!("{} ", t.seed_color), Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+        color_badge(&palette.seed_color),
+        Span::styled(format!(" {} ", palette.seed_color.to_hex()), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+    ]);
+    frame.render_widget(Paragraph::new(wp_line), v_chunks[0]);
+
+    // 2. Split horizontally into 2 columns: Material You Roles (left) and Terminal ANSI Colors (right)
     let columns = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(area);
+        .split(v_chunks[1]);
 
     // --- Left Column: Material You Theme ---
-    let theme_mode_label = if state.preview_dark {
-        "Dark Scheme [d/l to toggle]"
-    } else {
-        "Light Scheme [d/l to toggle]"
-    };
-
     let material_lines = vec![
-        Line::from(vec![
-            Span::styled(" Seed Dominant: ", Style::default().fg(secondary_color)),
-            color_badge(&palette.seed_color),
-            Span::raw(format!(" {} (rgb: {})", palette.seed_color.to_hex(), palette.seed_color.to_rgb_string())),
-        ]),
-        Line::raw(""),
-        render_role_line("Primary", &scheme.primary),
-        render_role_line("On Primary", &scheme.on_primary),
-        render_role_line("Primary Container", &scheme.primary_container),
-        render_role_line("Secondary", &scheme.secondary),
-        render_role_line("Tertiary", &scheme.tertiary),
-        render_role_line("Surface", &scheme.surface),
-        render_role_line("Surface Variant", &scheme.surface_variant),
-        render_role_line("Background", &scheme.background),
-        render_role_line("Outline", &scheme.outline),
-        render_role_line("Error", &scheme.error),
+        render_role_line(t.role_primary, &scheme.primary),
+        render_role_line(t.role_on_primary, &scheme.on_primary),
+        render_role_line(t.role_primary_container, &scheme.primary_container),
+        render_role_line(t.role_secondary, &scheme.secondary),
+        render_role_line(t.role_tertiary, &scheme.tertiary),
+        render_role_line(t.role_surface, &scheme.surface),
+        render_role_line(t.role_surface_variant, &scheme.surface_variant),
+        render_role_line(t.role_background, &scheme.background),
+        render_role_line(t.role_outline, &scheme.outline),
+        render_role_line(t.role_error, &scheme.error),
     ];
 
     let material_block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(primary_color))
-        .title(format!(" Material You Roles ({}) ", theme_mode_label));
+        .title(t.roles_title);
 
     frame.render_widget(Paragraph::new(material_lines).block(material_block), columns[0]);
 
     // --- Right Column: Terminal ANSI Palette ---
-    let t = &palette.terminal;
+    let term = &palette.terminal;
     let terminal_lines = vec![
-        Line::from(vec![Span::styled(" [Normal ANSI Colors 0-7]", Style::default().fg(primary_color).add_modifier(Modifier::BOLD))]),
-        render_terminal_line("0. Black", &t.color0),
-        render_terminal_line("1. Red", &t.color1),
-        render_terminal_line("2. Green", &t.color2),
-        render_terminal_line("3. Yellow", &t.color3),
-        render_terminal_line("4. Blue", &t.color4),
-        render_terminal_line("5. Magenta", &t.color5),
-        render_terminal_line("6. Cyan", &t.color6),
-        render_terminal_line("7. White", &t.color7),
+        Line::from(vec![Span::styled(t.normal_colors, Style::default().fg(primary_color).add_modifier(Modifier::BOLD))]),
+        render_terminal_line("0. Black", &term.color0),
+        render_terminal_line("1. Red", &term.color1),
+        render_terminal_line("2. Green", &term.color2),
+        render_terminal_line("3. Yellow", &term.color3),
+        render_terminal_line("4. Blue", &term.color4),
+        render_terminal_line("5. Magenta", &term.color5),
+        render_terminal_line("6. Cyan", &term.color6),
+        render_terminal_line("7. White", &term.color7),
         Line::raw(""),
-        Line::from(vec![Span::styled(" [Bright ANSI Colors 8-15]", Style::default().fg(primary_color).add_modifier(Modifier::BOLD))]),
-        render_terminal_line("8. Bright Black", &t.color8),
-        render_terminal_line("9. Bright Red", &t.color9),
-        render_terminal_line("10. Bright Green", &t.color10),
-        render_terminal_line("11. Bright Yellow", &t.color11),
-        render_terminal_line("12. Bright Blue", &t.color12),
-        render_terminal_line("13. Bright Magenta", &t.color13),
-        render_terminal_line("14. Bright Cyan", &t.color14),
-        render_terminal_line("15. Bright White", &t.color15),
+        Line::from(vec![Span::styled(t.bright_colors, Style::default().fg(primary_color).add_modifier(Modifier::BOLD))]),
+        render_terminal_line("8. Bright Black", &term.color8),
+        render_terminal_line("9. Bright Red", &term.color9),
+        render_terminal_line("10. Bright Green", &term.color10),
+        render_terminal_line("11. Bright Yellow", &term.color11),
+        render_terminal_line("12. Bright Blue", &term.color12),
+        render_terminal_line("13. Bright Magenta", &term.color13),
+        render_terminal_line("14. Bright Cyan", &term.color14),
+        render_terminal_line("15. Bright White", &term.color15),
     ];
 
     let terminal_block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(secondary_color))
-        .title(" Terminal 16-Color Palette ");
+        .title(t.terminal_title);
 
     frame.render_widget(Paragraph::new(terminal_lines).block(terminal_block), columns[1]);
 }
@@ -116,7 +124,7 @@ fn color_badge(color: &RgbColor) -> Span<'static> {
 fn render_role_line<'a>(label: &'static str, color: &RgbColor) -> Line<'a> {
     Line::from(vec![
         color_badge(color),
-        Span::styled(format!(" {:<18}", label), Style::default().add_modifier(Modifier::BOLD)),
+        Span::styled(format!(" {:<20}", label), Style::default().add_modifier(Modifier::BOLD)),
         Span::styled(format!(" {} ", color.to_hex()), Style::default().fg(Color::White)),
         Span::styled(format!("({})", color.to_rgb_string()), Style::default().fg(Color::DarkGray)),
     ])

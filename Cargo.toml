@@ -13,3 +13,7 @@ ratatui = "0.30.2"
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.21"
 toml = "1.2.1"
+
+# Optimize heavy image decoding and quantization dependencies even in dev builds
+[profile.dev.package."*"]
+opt-level = 3
