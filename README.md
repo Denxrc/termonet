@@ -334,7 +334,7 @@ Termonet guarantees configuration safety:
   - [x] First-run setup wizard and human-readable TOML persistence
   - [x] Bilingual interface (Russian & English)
   - [x] In-app manual wallpaper path input and auto-loading
-- [ ] **v1.x (Full Wayland Release)**:
+- [x] **v1.x (Full Wayland Release)**:
   - [x] MiniJinja template engine with custom filters and TrueColor / ANSI roles
   - [x] Built-in out-of-the-box rules and templates (Kitty, Waybar, Rofi, Hyprland Lua)
   - [x] Safe marker injection, legacy theme (Pywal) replacement, and `.original` master backups
