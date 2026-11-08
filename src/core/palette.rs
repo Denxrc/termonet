@@ -5,7 +5,8 @@ use material_colors::{
     color::Rgb as MaterialRgb,
     dynamic_color::Variant,
     hct::Hct,
-    image::extract_color,
+    quantize::{Quantizer, QuantizerCelebi},
+    score::Score,
     theme::ThemeBuilder,
 };
 use serde::{Deserialize, Serialize};
@@ -44,13 +45,41 @@ impl GeneratedPalette {
     /// Generates a palette directly from a slice of Material RGB pixels.
     #[must_use]
     pub fn from_pixels(pixels: &[MaterialRgb]) -> Self {
-        let seed_rgb = if pixels.is_empty() {
-            MaterialRgb::new(0x38, 0x5e, 0x72) // Default balanced fallback slate color
-        } else {
-            extract_color(pixels)
-        };
-
+        let seed_rgb = Self::extract_best_seed(pixels);
         Self::from_seed_color(seed_rgb)
+    }
+
+    /// Extracts the most representative and vibrant seed color from an image.
+    ///
+    /// In Google MCU, `Score::score` ranks colors with 70% weight on pixel population.
+    /// This causes dark or muted backgrounds (like clouds, dark asphalt, or shadows)
+    /// to occasionally rank above the true vibrant theme accent (e.g. sunsets, neon).
+    /// This method prioritizes top-ranked candidates with vibrant chroma (>= 25.0),
+    /// gracefully falling back to the top candidate for low-contrast/monochrome images.
+    #[must_use]
+    pub fn extract_best_seed(pixels: &[MaterialRgb]) -> MaterialRgb {
+        if pixels.is_empty() {
+            return MaterialRgb::new(0x38, 0x5e, 0x72); // Default fallback slate color
+        }
+
+        let result = QuantizerCelebi::quantize(pixels, 128);
+        let ranked = Score::score(&result.color_to_count, Some(5), None, Some(true));
+
+        if ranked.is_empty() {
+            return MaterialRgb::new(0x38, 0x5e, 0x72);
+        }
+
+        // Search in rank order: if #0 has sufficient chroma (>= 25.0), it is immediately returned.
+        // Otherwise, if a vibrant accent is ranked among the top candidates, prefer it.
+        ranked
+            .iter()
+            .find(|&&c| {
+                let hct: Hct = c.into();
+                hct.get_chroma() >= 25.0
+            })
+            .or_else(|| ranked.first())
+            .copied()
+            .unwrap_or(ranked[0])
     }
 
     /// Generates light/dark schemes and terminal colors from a given seed color.
@@ -133,6 +162,17 @@ mod tests {
         let p = GeneratedPalette::from_image_path(&temp_path).expect("gif decode failed");
         assert_eq!(p.seed_color.to_hex().len(), 7);
         let _ = std::fs::remove_file(&temp_path);
+    }
+
+    #[test]
+    fn test_vibrant_seed_extraction() {
+        // High population of muted background, small cluster of vibrant accent
+        let mut pixels = vec![MaterialRgb::new(50, 50, 50); 900];
+        pixels.extend(vec![MaterialRgb::new(255, 30, 30); 100]);
+
+        let seed = GeneratedPalette::extract_best_seed(&pixels);
+        let hct: Hct = seed.into();
+        assert!(hct.get_chroma() >= 25.0);
     }
 
     #[test]
