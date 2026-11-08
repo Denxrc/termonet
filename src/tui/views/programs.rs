@@ -57,6 +57,7 @@ pub fn render_programs(frame: &mut Frame, area: Rect, state: &AppState) {
             Span::styled("[ ] ", Style::default().fg(Color::DarkGray))
         };
 
+        // Underline ONLY the name itself dynamically without trailing padding
         let name_style = if is_cursor {
             Style::default().fg(Color::White).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
         } else if program.enabled {
@@ -65,10 +66,13 @@ pub fn render_programs(frame: &mut Frame, area: Rect, state: &AppState) {
             Style::default().fg(Color::DarkGray)
         };
 
+        let pad_len = 14usize.saturating_sub(program.name.len());
+
         program_lines.push(Line::from(vec![
             cursor_marker,
             checkbox,
-            Span::styled(format!("{:<14}", program.name), name_style),
+            Span::styled(&program.name, name_style),
+            Span::raw(" ".repeat(pad_len)),
             Span::styled(format!(" {} ", t.programs_output), Style::default().fg(secondary_color)),
             Span::styled(&program.output_path, Style::default().fg(Color::Gray)),
         ]));

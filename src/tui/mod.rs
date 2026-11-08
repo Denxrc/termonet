@@ -14,7 +14,7 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-pub use app::{AppState, HookItem, ProgramItem, Step};
+pub use app::{AppState, ProgramItem, Step};
 pub use font::PixelFont;
 pub use terminal::{TerminalGuard, TuiTerminal};
 

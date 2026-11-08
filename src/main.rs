@@ -46,7 +46,7 @@ fn main() -> Result<()> {
         i += 1;
     }
 
-    // If no path was passed via CLI, look for test wallpapers or default balanced theme
+    // If no path was passed via CLI or file not found, start with clean state
     if let Some(ref path) = wallpaper_path {
         if Path::new(path).exists() {
             let palette = GeneratedPalette::from_image_path(path)?;
@@ -58,24 +58,10 @@ fn main() -> Result<()> {
     }
 
     if state.palette.is_none() {
-        // Check if wallpapers in 'wallpapers for testing' exist
-        let test_gif = "wallpapers for testing/wallpaper.gif";
-        let test_png = "wallpapers for testing/wallp.png";
-
-        if Path::new(test_gif).exists() {
-            let palette = GeneratedPalette::from_image_path(test_gif)?;
-            state.palette = Some(palette);
-            state.wallpaper_path = Some(test_gif.to_string());
-        } else if Path::new(test_png).exists() {
-            let palette = GeneratedPalette::from_image_path(test_png)?;
-            state.palette = Some(palette);
-            state.wallpaper_path = Some(test_png.to_string());
-        } else {
-            let default_seed = material_colors::color::Rgb::new(0x38, 0x5e, 0x72);
-            let palette = GeneratedPalette::from_seed_color(default_seed);
-            state.palette = Some(palette);
-            state.wallpaper_path = Some("Default Theme".to_string());
-        }
+        let default_seed = material_colors::color::Rgb::new(0x38, 0x5e, 0x72);
+        let palette = GeneratedPalette::from_seed_color(default_seed);
+        state.palette = Some(palette);
+        state.wallpaper_path = None;
     }
 
     // Launch interactive TUI
