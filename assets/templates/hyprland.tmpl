@@ -1,0 +1,43 @@
+-- ==============================================================================
+-- Termonet Hyprland Lua Color Palette
+-- Generated automatically by Termonet
+-- termonet-version: 2
+-- ==============================================================================
+
+return {
+    -- Core Material You roles
+    primary = "{{ dark.primary.hex }}",
+    on_primary = "{{ dark.on_primary.hex }}",
+    primary_container = "{{ dark.primary_container.hex }}",
+    on_primary_container = "{{ dark.on_primary_container.hex }}",
+
+    secondary = "{{ dark.secondary.hex }}",
+    on_secondary = "{{ dark.on_secondary.hex }}",
+    secondary_container = "{{ dark.secondary_container.hex }}",
+    on_secondary_container = "{{ dark.on_secondary_container.hex }}",
+
+    tertiary = "{{ dark.tertiary.hex }}",
+    on_tertiary = "{{ dark.on_tertiary.hex }}",
+
+    surface = "{{ dark.surface.hex }}",
+    on_surface = "{{ dark.on_surface.hex }}",
+    surface_variant = "{{ dark.surface_variant.hex }}",
+    on_surface_variant = "{{ dark.on_surface_variant.hex }}",
+
+    background = "{{ terminal.background.hex }}",
+    foreground = "{{ terminal.foreground.hex }}",
+    outline = "{{ dark.outline.hex }}",
+
+    -- Hyprland window border formats (hl.config general.col)
+    active_border_1 = "rgba({{ dark.primary.strip }}ee)",
+    active_border_2 = "rgba({{ dark.secondary.strip }}ee)",
+    inactive_border = "rgba({{ dark.surface_variant.strip }}aa)",
+
+    -- Raw hex values without '#' prefix
+    raw = {
+        primary = "{{ dark.primary.strip }}",
+        secondary = "{{ dark.secondary.strip }}",
+        surface = "{{ dark.surface.strip }}",
+        background = "{{ terminal.background.strip }}",
+    },
+}

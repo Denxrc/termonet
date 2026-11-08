@@ -1,0 +1,7 @@
+version = 2
+name = "Rofi"
+template = "rofi.tmpl"
+output_path = "~/.config/rofi/colors.rasi"
+target_config = "~/.config/rofi/config.rasi"
+import_line = "@theme \"colors.rasi\""
+import_position = "top"

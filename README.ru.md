@@ -11,7 +11,7 @@
 **Быстрый и динамический генератор системных тем и палитр Material You для Linux**
 
 [![Rust Edition 2024](https://img.shields.io/badge/rust-edition_2024-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/версия-0.3.0-blue.svg)](Cargo.toml)
+[![Version](https://img.shields.io/badge/версия-1.0.0-blue.svg)](Cargo.toml)
 [![License: MIT](https://img.shields.io/badge/лицензия-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/платформа-Linux%20(Wayland%20%2F%20X11)-lightgrey.svg)]()
 
@@ -162,6 +162,141 @@ enabled_programs = [
 
 ---
 
+## 🎨 Создание собственных правил и шаблонов тем
+
+Termonet спроектирован полностью модульным: вы можете добавить динамическую поддержку **любой** программы (терминала, бара, лаунчера, редактора кода), просто создав два файла в каталоге `~/.config/termonet/`.
+
+### 1. Архитектура темы
+
+Интеграция каждой программы описывается двумя компонентами:
+1. **Файл правил** (`~/.config/termonet/rules/<программа>.toml`) — метаданные, пути к файлам и команда перезапуска.
+2. **Файл шаблона** (`~/.config/termonet/templates/<программа>.tmpl`) — разметка конфига с синтаксисом MiniJinja.
+
+### 2. Спецификация файла правил (`rules/<name>.toml`)
+
+```toml
+# Версия схемы правила (для автоматической миграции дефолтов)
+version = 2
+
+# Имя программы (отображается в TUI и мастере)
+name = "Foot"
+
+# Имя файла шаблона в ~/.config/termonet/templates/
+template = "foot.tmpl"
+
+# Куда сохранять сгенерированный файл цветов
+output_path = "~/.config/foot/colors-termonet.ini"
+
+# (Опционально) Главный конфигурационный файл программы для вставки импорта
+target_config = "~/.config/foot/foot.ini"
+
+# (Опционально) Строка импорта, которая автоматически вставится в target_config
+import_line = "include = ~/.config/foot/colors-termonet.ini"
+
+# Позиция вставки ("top" - в начало, "bottom" - в конец)
+import_position = "bottom"
+
+# (Опционально) Стиль комментариев маркера ("hash" | "blockcss" | "slash" | "doubledash")
+# Если не указан, определяется автоматически по расширению файла target_config
+comment_style = "hash"
+
+# (Опционально) Команда для мгновенного применения темы без перезапуска программы
+reload_cmd = ""
+```
+
+### 3. Переменные и фильтры в шаблонах (`templates/<name>.tmpl`)
+
+В шаблонах доступны все роли **Google Material You** (для светлой и темной тем), а также гармонизированная 16-цветная ANSI-палитра терминала.
+
+#### Доступные переменные
+
+- **Роли Material You (`dark.*` и `light.*`)**:
+  - `dark.primary`, `dark.on_primary`, `dark.primary_container`, `dark.on_primary_container`
+  - `dark.secondary`, `dark.on_secondary`, `dark.secondary_container`, `dark.on_secondary_container`
+  - `dark.tertiary`, `dark.on_tertiary`
+  - `dark.surface`, `dark.on_surface`, `dark.surface_variant`, `dark.on_surface_variant`
+  - `dark.background`, `dark.on_background`, `dark.outline`
+- **Терминальная ANSI-палитра (`terminal.*`)**:
+  - `terminal.color0` ... `terminal.color15`
+  - `terminal.background`, `terminal.foreground`, `terminal.cursor`
+- **Ключевой цвет обоев**: `seed_color`
+
+#### Форматы вывода цветов
+
+Каждый цвет предоставляет готовые поля:
+- `.hex` — цвет с решеткой: `#adc6ff`
+- `.strip` — цвет без решетки: `adc6ff`
+- `.rgb` — каналы через запятую: `173, 198, 255`
+- `.r`, `.g`, `.b` — отдельные 8-битные каналы (0..255)
+
+#### Встроенные фильтры MiniJinja
+
+- `{{ dark.primary | hex }}` ➔ гарантированный `#adc6ff`
+- `{{ dark.primary | strip }}` (или `stripped`) ➔ `adc6ff`
+- `{{ dark.primary | rgb }}` ➔ `173, 198, 255`
+- `{{ dark.primary | hypr_rgb }}` ➔ `rgb(adc6ff)`
+- `{{ dark.primary | hypr_rgba("ee") }}` ➔ `rgba(adc6ffee)`
+
+### 4. Практический пример: Добавление терминала Foot
+
+1. Создайте `~/.config/termonet/rules/foot.toml`:
+   ```toml
+   version = 2
+   name = "Foot"
+   template = "foot.tmpl"
+   output_path = "~/.config/foot/colors-termonet.ini"
+   target_config = "~/.config/foot/foot.ini"
+   import_line = "include = ~/.config/foot/colors-termonet.ini"
+   import_position = "bottom"
+   ```
+
+2. Создайте `~/.config/termonet/templates/foot.tmpl`:
+   ```ini
+   # Termonet Foot Terminal Theme
+   # termonet-version: 2
+
+   [colors]
+   background = {{ terminal.background.strip }}
+   foreground = {{ terminal.foreground.strip }}
+   regular0 = {{ terminal.color0.strip }}
+   regular1 = {{ terminal.color1.strip }}
+   regular2 = {{ terminal.color2.strip }}
+   regular3 = {{ terminal.color3.strip }}
+   regular4 = {{ terminal.color4.strip }}
+   regular5 = {{ terminal.color5.strip }}
+   regular6 = {{ terminal.color6.strip }}
+   regular7 = {{ terminal.color7.strip }}
+   bright0 = {{ terminal.color8.strip }}
+   bright1 = {{ terminal.color9.strip }}
+   bright2 = {{ terminal.color10.strip }}
+   bright3 = {{ terminal.color11.strip }}
+   bright4 = {{ terminal.color12.strip }}
+   bright5 = {{ terminal.color13.strip }}
+   bright6 = {{ terminal.color14.strip }}
+   bright7 = {{ terminal.color15.strip }}
+   ```
+
+3. Запустите `termonet` — программа автоматически появится в списке на шаге 2!
+
+### 5. Безопасность и автоматические бэкапы
+
+Termonet заботится о сохранности ваших исходных конфигураций:
+- **Эталонный бэкап (`.original`)**: создается строго один раз при первом внедрении импорта и **никогда** не перезаписывается последующими темами.
+- **Страховочный бэкап (`.bak`)**: создается перед каждым изменением файла.
+- **Умные маркеры**: инъекция оформляется блоком комментариев:
+  ```ini
+  # >>> termonet colors >>>
+  include colors-termonet.conf
+  # <<< termonet colors <<<
+  ```
+  Если в конфиге присутствовал старый импорт Pywal, Termonet аккуратно заменяет его на месте, не плодя дубликатов.
+- **Принудительное обновление дефолтов**: при обновлении Termonet встроенные шаблоны можно обновить командой:
+  ```bash
+  termonet --update-rules
+  ```
+
+---
+
 ## 🗺️ План разработки (Roadmap)
 
 - [x] **v0.x (Прототип и база)**:
@@ -171,7 +306,10 @@ enabled_programs = [
   - [x] Двуязычный интерфейс (русский и английский)
   - [x] Ручной ввод пути к обоям в TUI и автоподстановка
 - [ ] **v1.x (Полноценный релиз для Wayland)**:
-  - [ ] Шаблонизатор `minijinja` и встроенные шаблоны
+  - [x] Модульный шаблонизатор `minijinja` с фильтрами и переменными TrueColor / ANSI
+  - [x] Встроенные готовые правила и шаблоны (Kitty, Waybar, Rofi, Hyprland Lua)
+  - [x] Безопасная инъекция маркеров, замена legacy-импортов (Pywal) и система вечных `.original` бэкапов
+  - [x] Двухуровневое версионирование и автомиграция правил/шаблонов (`--update-rules`)
   - [ ] Автоматическое определение обоев в Wayland (`swww`, `hyprpaper`, `awww`, `wpaperd`, `swaybg`, `GNOME`, `KDE`)
   - [ ] Мультимониторный фильтр и выбор главного экрана
   - [ ] Флаг автоприменения без графики (`--apply`) для скриптов и systemd

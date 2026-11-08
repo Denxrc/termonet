@@ -1,0 +1,8 @@
+version = 2
+name = "Hyprland"
+template = "hyprland.tmpl"
+output_path = "~/.config/hypr/colors.lua"
+target_config = "~/.config/hypr/hyprland.lua"
+import_line = "local colors = require(\"colors\")"
+import_position = "top"
+reload_cmd = "hyprctl reload"

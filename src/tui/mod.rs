@@ -291,4 +291,57 @@ mod tests {
             })
             .expect("draw palette with wallpaper modal succeeded");
     }
+
+    #[test]
+    fn test_apply_theme_execution() {
+        let temp_dir = std::env::temp_dir().join(format!("termonet_test_apply_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let kitty_conf = temp_dir.join("kitty.conf");
+        std::fs::write(&kitty_conf, "font_size 11.0\n").unwrap();
+
+        let custom_rule = crate::template::ProgramRule {
+            version: 2,
+            name: "TestKitty".to_string(),
+            template: "kitty.tmpl".to_string(),
+            output_path: temp_dir.join("colors-termonet.conf"),
+            target_config: Some(kitty_conf.clone()),
+            import_line: Some("include colors-termonet.conf".to_string()),
+            import_position: crate::template::ImportPosition::Bottom,
+            reload_cmd: None,
+            comment_style: Some(crate::template::CommentStyle::Hash),
+        };
+
+        let config = AppConfig::default();
+        let mut state = AppState::new(config);
+        let seed = material_colors::color::Rgb::new(0x42, 0x85, 0xf4);
+        state.palette = Some(crate::core::GeneratedPalette::from_seed_color(seed));
+
+        state.programs = vec![
+            ProgramItem {
+                name: "TestKitty".to_string(),
+                output_path: temp_dir.join("colors-termonet.conf").display().to_string(),
+                enabled: true,
+                reload_cmd: None,
+                reload_desc: None,
+                hook_enabled: false,
+                rule: Some(custom_rule),
+            }
+        ];
+
+        state.current_step = Step::Apply;
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Enter));
+
+        assert!(state.status_message.as_ref().unwrap().contains("successfully"));
+        assert!(temp_dir.join("colors-termonet.conf").exists());
+
+        let target_content = std::fs::read_to_string(&kitty_conf).unwrap();
+        assert!(target_content.contains("# >>> termonet colors >>>"));
+        assert!(target_content.contains("include colors-termonet.conf"));
+        assert!(target_content.contains("# <<< termonet colors <<<"));
+
+        // Clean up
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 }

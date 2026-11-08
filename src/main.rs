@@ -22,6 +22,7 @@ fn main() -> Result<()> {
                 println!("\nOptions:");
                 println!("  -w, --wallpaper <PATH>   Path to wallpaper image (PNG, JPG, GIF, WebP)");
                 println!("  -i, --wizard, --init     Launch first-run configuration wizard");
+                println!("      --reset-rules        Force reset default rules and templates to latest");
                 println!("  -h, --help               Print help information");
                 println!("\nTUI Controls:");
                 println!("  Tab / Shift+Tab          Switch between steps (1..4)");
@@ -42,12 +43,31 @@ fn main() -> Result<()> {
             "-i" | "--wizard" | "--init" => {
                 force_wizard = true;
             }
+            "--reset-rules" | "--update-rules" => {
+                if let Ok(config_dir) = termonet::config::AppPaths::config_dir() {
+                    let updated = termonet::template::sync_default_assets(config_dir, true)?;
+                    println!("Default rules and templates synchronized:");
+                    if updated.is_empty() {
+                        println!("  All rules and templates are already up to date.");
+                    } else {
+                        for item in updated {
+                            println!("  ✔ {}", item);
+                        }
+                    }
+                }
+                return Ok(());
+            }
             arg if !arg.starts_with('-') => {
                 wallpaper_path = Some(arg.to_string());
             }
             _ => {}
         }
         i += 1;
+    }
+
+    // Synchronize and auto-migrate default templates and rules into ~/.config/termonet/
+    if let Ok(config_dir) = termonet::config::AppPaths::config_dir() {
+        let _ = termonet::template::sync_default_assets(config_dir, false);
     }
 
     // Load configuration or trigger initial setup wizard if missing

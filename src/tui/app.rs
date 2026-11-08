@@ -4,6 +4,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use crate::config::{AppConfig, DisplayServer, FontMode, Language, TuiTheme, WallpaperBackend};
 use crate::core::GeneratedPalette;
 use crate::error::Result;
+use crate::template::{ProgramRule, TemplateEngine};
 
 /// Active navigation step in the top panel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -127,7 +128,7 @@ impl WizardState {
             WizardStep::Language => 2,
             WizardStep::Appearance => 5,
             WizardStep::Environment => 13,
-            WizardStep::Programs => 7,
+            WizardStep::Programs => crate::template::ProgramRule::load_all().map(|r| r.len()).unwrap_or(4),
             WizardStep::Finish => 1,
         }
     }
@@ -164,6 +165,7 @@ pub struct ProgramItem {
     pub reload_cmd: Option<String>,
     pub reload_desc: Option<String>,
     pub hook_enabled: bool,
+    pub rule: Option<ProgramRule>,
 }
 
 /// TUI application state.
@@ -191,35 +193,39 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// Creates standard initial program items configured according to enabled_programs.
+    /// Creates program items dynamically from discovered rules or embedded defaults.
     fn create_default_programs(enabled_list: &[String]) -> Vec<ProgramItem> {
-        let default_specs = [
-            ("Kitty", "~/.config/kitty/colors-termonet.conf", Some("killall -SIGUSR1 kitty"), Some("Live terminal color reload"), true),
-            ("Waybar", "~/.config/waybar/colors.css", Some("killall -SIGUSR2 waybar"), Some("Instant CSS style reload"), true),
-            ("Rofi", "~/.config/rofi/colors.rasi", None, None, false),
-            ("Hyprland", "~/.config/hypr/colors.conf", Some("hyprctl reload"), Some("Window borders & active theme reload"), true),
-            ("Alacritty", "~/.config/alacritty/colors.toml", None, None, false),
-            ("Dunst", "~/.config/dunst/dunstrc.d/colors.conf", Some("killall -SIGUSR1 dunst"), Some("Notification daemon reload"), true),
-            ("Sway", "~/.config/sway/colors.conf", Some("swaymsg reload"), Some("Sway compositor config reload"), true),
-        ];
+        let rules = ProgramRule::load_all().unwrap_or_default();
 
-        default_specs
+        rules
             .into_iter()
-            .map(|(name, output, cmd, desc, hook_default)| {
-                let name_lower = name.to_lowercase();
+            .map(|rule| {
+                let name_lower = rule.name.to_lowercase();
                 let is_enabled = if enabled_list.is_empty() {
-                    matches!(name, "Kitty" | "Waybar" | "Rofi" | "Hyprland")
+                    matches!(name_lower.as_str(), "kitty" | "waybar" | "rofi" | "hyprland")
                 } else {
                     enabled_list.iter().any(|p| p.to_lowercase() == name_lower)
                 };
 
+                let reload_desc = match name_lower.as_str() {
+                    "kitty" => Some("Live terminal color reload".to_string()),
+                    "waybar" => Some("Instant CSS style reload".to_string()),
+                    "hyprland" => Some("Window borders & active theme reload".to_string()),
+                    "dunst" => Some("Notification daemon reload".to_string()),
+                    "sway" => Some("Sway compositor config reload".to_string()),
+                    _ => rule.reload_cmd.as_ref().map(|_| "Reload service".to_string()),
+                };
+
+                let hook_default = rule.reload_cmd.is_some();
+
                 ProgramItem {
-                    name: name.to_string(),
-                    output_path: output.to_string(),
+                    name: rule.name.clone(),
+                    output_path: rule.output_path.to_string_lossy().to_string(),
                     enabled: is_enabled,
-                    reload_cmd: cmd.map(String::from),
-                    reload_desc: desc.map(String::from),
+                    reload_cmd: rule.reload_cmd.clone(),
+                    reload_desc,
                     hook_enabled: hook_default,
+                    rule: Some(rule),
                 }
             })
             .collect()
@@ -455,12 +461,13 @@ impl AppState {
                 }
             }
             WizardStep::Programs => {
-                let program_names = ["kitty", "waybar", "rofi", "hyprland", "alacritty", "dunst", "sway"];
-                if let Some(&name) = program_names.get(wizard.selected_idx) {
-                    if let Some(pos) = wizard.config.enabled_programs.iter().position(|p| p == name) {
+                let rules = crate::template::ProgramRule::load_all().unwrap_or_default();
+                if let Some(rule) = rules.get(wizard.selected_idx) {
+                    let name_lower = rule.name.to_lowercase();
+                    if let Some(pos) = wizard.config.enabled_programs.iter().position(|p| p.to_lowercase() == name_lower) {
                         wizard.config.enabled_programs.remove(pos);
                     } else {
-                        wizard.config.enabled_programs.push(name.to_string());
+                        wizard.config.enabled_programs.push(name_lower);
                     }
                 }
             }
@@ -619,6 +626,51 @@ impl AppState {
         }
     }
 
+    /// Renders templates for all enabled programs, safely writes them, and executes reload hooks.
+    pub fn apply_theme(&mut self) -> Result<()> {
+        let Some(ref palette) = self.palette else {
+            return Err(crate::error::TermonetError::Config(
+                "No palette generated to apply".into(),
+            ));
+        };
+
+        let engine = TemplateEngine::new();
+
+        // 1. Render and apply each enabled program
+        for prog in &self.programs {
+            if prog.enabled {
+                if let Some(ref rule) = prog.rule {
+                    rule.apply(&engine, palette)?;
+                }
+            }
+        }
+
+        // 2. Execute active reload hooks safely with detached stdio
+        for prog in &self.programs {
+            if prog.enabled && prog.hook_enabled {
+                if let Some(ref cmd) = prog.reload_cmd {
+                    let _ = std::process::Command::new("sh")
+                        .arg("-c")
+                        .arg(cmd)
+                        .stdin(std::process::Stdio::null())
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .status();
+                }
+            }
+        }
+
+        // 3. Update state cache
+        if let Some(ref wall_path) = self.wallpaper_path {
+            let mut cache = crate::cli::AppStateCache::load().unwrap_or_default();
+            cache.last_wallpaper_path = Some(wall_path.clone());
+            let _ = cache.save();
+        }
+
+        self.status_message = Some("Theme applied and hooks triggered successfully!".to_string());
+        Ok(())
+    }
+
     /// Handles keyboard events.
     pub fn handle_key(&mut self, key: KeyEvent) {
         if self.wallpaper_input.is_some() {
@@ -676,7 +728,9 @@ impl AppState {
             },
             KeyCode::Enter => {
                 if self.current_step == Step::Apply {
-                    self.status_message = Some("Theme applied successfully!".to_string());
+                    if let Err(e) = self.apply_theme() {
+                        self.status_message = Some(format!("Error: {}", e));
+                    }
                 }
             }
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => self.quit(),

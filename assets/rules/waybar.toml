@@ -1,0 +1,8 @@
+version = 2
+name = "Waybar"
+template = "waybar.tmpl"
+output_path = "~/.config/waybar/colors.css"
+target_config = "~/.config/waybar/style.css"
+import_line = "@import 'colors.css';"
+import_position = "top"
+reload_cmd = "killall -SIGUSR2 waybar"

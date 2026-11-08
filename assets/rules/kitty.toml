@@ -1,0 +1,8 @@
+version = 2
+name = "Kitty"
+template = "kitty.tmpl"
+output_path = "~/.config/kitty/colors-termonet.conf"
+target_config = "~/.config/kitty/kitty.conf"
+import_line = "include colors-termonet.conf"
+import_position = "bottom"
+reload_cmd = "killall -SIGUSR1 kitty"

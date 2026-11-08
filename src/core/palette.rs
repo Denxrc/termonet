@@ -2,6 +2,7 @@
 
 use std::path::Path;
 use material_colors::{
+    blend::harmonize,
     color::Rgb as MaterialRgb,
     dynamic_color::Variant,
     hct::Hct,
@@ -59,14 +60,14 @@ impl GeneratedPalette {
     #[must_use]
     pub fn extract_best_seed(pixels: &[MaterialRgb]) -> MaterialRgb {
         if pixels.is_empty() {
-            return MaterialRgb::new(0x38, 0x5e, 0x72); // Default fallback slate color
+            return MaterialRgb::new(0x3d, 0x66, 0x47); // Default fallback slate color
         }
 
         let result = QuantizerCelebi::quantize(pixels, 128);
         let ranked = Score::score(&result.color_to_count, Some(5), None, Some(true));
 
         if ranked.is_empty() {
-            return MaterialRgb::new(0x38, 0x5e, 0x72);
+            return MaterialRgb::new(0x3d, 0x66, 0x47);
         }
 
         // Search in rank order: if #0 has sufficient chroma (>= 25.0), it is immediately returned.
@@ -82,7 +83,7 @@ impl GeneratedPalette {
             .unwrap_or(ranked[0])
     }
 
-    /// Generates light/dark schemes and terminal colors from a given seed color.
+    /// Generates light/dark schemes and harmonized terminal colors from a given seed color.
     #[must_use]
     pub fn from_seed_color(seed: MaterialRgb) -> Self {
         // Use Variant::Content to preserve natural image fidelity and avoid artificial oversaturation
@@ -90,42 +91,76 @@ impl GeneratedPalette {
             .variant(Variant::Content)
             .build();
         let seed_hct = Hct::new(seed);
-        // Subtle chroma clamp (6.0..32.0) to preserve muted/moody tones without color distortion
-        let chroma = seed_hct.get_chroma().clamp(6.0, 32.0);
+        // Tasteful chroma clamp (16.0..36.0) to match the atmospheric saturation of the wallpaper
+        let chroma = seed_hct.get_chroma().clamp(16.0, 36.0);
 
         let dark_scheme = theme.schemes.dark;
         let light_scheme = theme.schemes.light;
 
-        // Perceptually uniform terminal colors generated via HCT space
-        let green_normal: MaterialRgb = Hct::from(142.0, chroma, 75.0).into();
-        let green_bright: MaterialRgb = Hct::from(142.0, chroma + 4.0, 85.0).into();
+        // Base semantic ANSI hues (Red, Green, Yellow, Blue, Magenta, Cyan)
+        let base_hues = [
+            25.0,  // Red
+            140.0, // Green
+            85.0,  // Yellow
+            250.0, // Blue
+            310.0, // Magenta
+            195.0, // Cyan
+        ];
 
-        let yellow_normal: MaterialRgb = Hct::from(95.0, chroma, 80.0).into();
-        let yellow_bright: MaterialRgb = Hct::from(95.0, chroma + 4.0, 90.0).into();
+        // Harmonize each semantic hue towards the wallpaper seed color via Google MCU
+        let mut harm_hues = [0.0f64; 6];
+        for (i, &base_hue) in base_hues.iter().enumerate() {
+            let base_rgb: MaterialRgb = Hct::from(base_hue, 40.0, 50.0).into();
+            let harmonized_rgb = harmonize(base_rgb, seed);
+            let harmonized_hct = Hct::new(harmonized_rgb);
+            harm_hues[i] = harmonized_hct.get_hue();
+        }
 
-        let cyan_normal: MaterialRgb = Hct::from(195.0, chroma, 80.0).into();
-        let cyan_bright: MaterialRgb = Hct::from(195.0, chroma + 4.0, 90.0).into();
+        let normal_tone = 72.0;
+        let bright_tone = 86.0;
+        let bright_chroma = chroma + 6.0;
+
+        let red_normal: MaterialRgb = Hct::from(harm_hues[0], chroma, normal_tone).into();
+        let red_bright: MaterialRgb = Hct::from(harm_hues[0], bright_chroma, bright_tone).into();
+
+        let green_normal: MaterialRgb = Hct::from(harm_hues[1], chroma, normal_tone).into();
+        let green_bright: MaterialRgb = Hct::from(harm_hues[1], bright_chroma, bright_tone).into();
+
+        let yellow_normal: MaterialRgb = Hct::from(harm_hues[2], chroma, normal_tone).into();
+        let yellow_bright: MaterialRgb = Hct::from(harm_hues[2], bright_chroma, bright_tone).into();
+
+        let blue_normal: MaterialRgb = Hct::from(harm_hues[3], chroma, normal_tone).into();
+        let blue_bright: MaterialRgb = Hct::from(harm_hues[3], bright_chroma, bright_tone).into();
+
+        let magenta_normal: MaterialRgb = Hct::from(harm_hues[4], chroma, normal_tone).into();
+        let magenta_bright: MaterialRgb = Hct::from(harm_hues[4], bright_chroma, bright_tone).into();
+
+        let cyan_normal: MaterialRgb = Hct::from(harm_hues[5], chroma, normal_tone).into();
+        let cyan_bright: MaterialRgb = Hct::from(harm_hues[5], bright_chroma, bright_tone).into();
+
+        let muted_black: MaterialRgb = Hct::from(seed_hct.get_hue(), chroma * 0.3, 45.0).into();
+        let bright_white: MaterialRgb = Hct::from(seed_hct.get_hue(), chroma * 0.1, 95.0).into();
 
         let terminal = TerminalPalette {
             // Normal 0..7
             color0: dark_scheme.surface_container_lowest.into(),
-            color1: dark_scheme.error.into(),
+            color1: red_normal.into(),
             color2: green_normal.into(),
             color3: yellow_normal.into(),
-            color4: dark_scheme.primary.into(),
-            color5: dark_scheme.tertiary.into(),
+            color4: blue_normal.into(),
+            color5: magenta_normal.into(),
             color6: cyan_normal.into(),
             color7: dark_scheme.on_surface.into(),
 
             // Bright 8..15
-            color8: dark_scheme.outline.into(),
-            color9: dark_scheme.error_container.into(),
+            color8: muted_black.into(),
+            color9: red_bright.into(),
             color10: green_bright.into(),
             color11: yellow_bright.into(),
-            color12: dark_scheme.primary_container.into(),
-            color13: dark_scheme.tertiary_container.into(),
+            color12: blue_bright.into(),
+            color13: magenta_bright.into(),
             color14: cyan_bright.into(),
-            color15: dark_scheme.on_primary_fixed.into(),
+            color15: bright_white.into(),
 
             // Special
             background: dark_scheme.background.into(),

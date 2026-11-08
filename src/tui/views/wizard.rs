@@ -475,15 +475,7 @@ fn render_step_programs(
         .border_style(Style::default().fg(primary_color))
         .title(t.wizard_programs_title);
 
-    let programs = [
-        ("Kitty", "~/.config/kitty/colors-termonet.conf", "kitty"),
-        ("Waybar", "~/.config/waybar/colors.css", "waybar"),
-        ("Rofi", "~/.config/rofi/colors.rasi", "rofi"),
-        ("Hyprland", "~/.config/hypr/colors.conf", "hyprland"),
-        ("Alacritty", "~/.config/alacritty/colors.toml", "alacritty"),
-        ("Dunst", "~/.config/dunst/dunstrc.d/colors.conf", "dunst"),
-        ("Sway", "~/.config/sway/colors.conf", "sway"),
-    ];
+    let rules = crate::template::ProgramRule::load_all().unwrap_or_default();
 
     let mut lines = vec![
         Line::raw(""),
@@ -493,9 +485,9 @@ fn render_step_programs(
         Line::raw(""),
     ];
 
-    for (idx, (name, path, id)) in programs.into_iter().enumerate() {
+    for (idx, rule) in rules.into_iter().enumerate() {
         let is_current_cursor = wizard.selected_idx == idx;
-        let is_checked = wizard.config.enabled_programs.iter().any(|p| p.to_lowercase() == id);
+        let is_checked = wizard.config.enabled_programs.iter().any(|p| p.eq_ignore_ascii_case(&rule.name));
 
         let cursor_span = if is_current_cursor {
             Span::styled("   ➔  ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD))
@@ -514,16 +506,17 @@ fn render_step_programs(
         } else if is_checked {
             Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(Color::DarkGray)
+            Style::default().fg(Color::Rgb(170, 170, 170))
         };
+
+        let output_str = rule.output_path.to_string_lossy();
 
         lines.push(Line::from(vec![
             cursor_span,
             check_span,
-            Span::styled(name, name_style),
-            Span::styled(format!("{:<12}", ""), Style::default()),
+            Span::styled(format!("{:<14}", rule.name), name_style),
             Span::styled(" ➔  ", Style::default().fg(secondary_color)),
-            Span::styled(path, Style::default().fg(Color::Gray)),
+            Span::styled(output_str.to_string(), Style::default().fg(Color::Rgb(200, 200, 200))),
         ]));
     }
 

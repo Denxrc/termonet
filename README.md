@@ -11,7 +11,7 @@
 **Fast, dynamic Material You system theme and palette generator for Linux**
 
 [![Rust Edition 2024](https://img.shields.io/badge/rust-edition_2024-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/version-0.3.0-blue.svg)](Cargo.toml)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](Cargo.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20(Wayland%20%2F%20X11)-lightgrey.svg)]()
 
@@ -173,6 +173,141 @@ enabled_programs = [
 
 ---
 
+## 🎨 Creating Custom Rules & Templates
+
+Termonet is designed from the ground up to be fully modular: you can add dynamic theme generation for **any** application (terminal emulators, status bars, launchers, editors) simply by adding two files in `~/.config/termonet/`.
+
+### 1. Theme Architecture
+
+Each application integration consists of two files:
+1. **Rule File** (`~/.config/termonet/rules/<app>.toml`): Defines metadata, target file paths, position, and reload commands.
+2. **Template File** (`~/.config/termonet/templates/<app>.tmpl`): MiniJinja template rendered with Material You color roles.
+
+### 2. Rule File Specification (`rules/<name>.toml`)
+
+```toml
+# Rule schema version (enables automatic default migrations)
+version = 2
+
+# Application display name (shown in TUI and Wizard)
+name = "Foot"
+
+# Template file located in ~/.config/termonet/templates/
+template = "foot.tmpl"
+
+# Destination path where rendered colors will be written
+output_path = "~/.config/foot/colors-termonet.ini"
+
+# (Optional) Main configuration file where import directive is injected
+target_config = "~/.config/foot/foot.ini"
+
+# (Optional) Import directive line injected into target_config
+import_line = "include = ~/.config/foot/colors-termonet.ini"
+
+# Insertion position ("top" or "bottom")
+import_position = "bottom"
+
+# (Optional) Comment style override ("hash" | "blockcss" | "slash" | "doubledash")
+# If omitted, auto-detected from target_config extension
+comment_style = "hash"
+
+# (Optional) Shell command to reload colors without restarting the app
+reload_cmd = ""
+```
+
+### 3. Template Variables & Filters (`templates/<name>.tmpl`)
+
+Templates have access to all **Google Material You (Material 3)** roles (in both Dark and Light variants) as well as the harmonized 16-color ANSI terminal palette.
+
+#### Available Context Variables
+
+- **Material You Roles (`dark.*` and `light.*`)**:
+  - `dark.primary`, `dark.on_primary`, `dark.primary_container`, `dark.on_primary_container`
+  - `dark.secondary`, `dark.on_secondary`, `dark.secondary_container`, `dark.on_secondary_container`
+  - `dark.tertiary`, `dark.on_tertiary`
+  - `dark.surface`, `dark.on_surface`, `dark.surface_variant`, `dark.on_surface_variant`
+  - `dark.background`, `dark.on_background`, `dark.outline`
+- **Terminal ANSI Palette (`terminal.*`)**:
+  - `terminal.color0` ... `terminal.color15`
+  - `terminal.background`, `terminal.foreground`, `terminal.cursor`
+- **Wallpaper Seed Color**: `seed_color`
+
+#### Color Formatting Properties
+
+Every color object exposes direct properties:
+- `.hex`: Lowercase hex with leading hash (`#adc6ff`)
+- `.strip`: Lowercase hex without hash (`adc6ff`)
+- `.rgb`: Comma-separated channels (`173, 198, 255`)
+- `.r`, `.g`, `.b`: Individual 8-bit integer channels (`0..255`)
+
+#### Built-in MiniJinja Filters
+
+- `{{ dark.primary | hex }}` ➔ Guaranteed `#adc6ff`
+- `{{ dark.primary | strip }}` (or `stripped`) ➔ `adc6ff`
+- `{{ dark.primary | rgb }}` ➔ `173, 198, 255`
+- `{{ dark.primary | hypr_rgb }}` ➔ `rgb(adc6ff)`
+- `{{ dark.primary | hypr_rgba("ee") }}` ➔ `rgba(adc6ffee)`
+
+### 4. Practical Example: Adding Foot Terminal
+
+1. Create `~/.config/termonet/rules/foot.toml`:
+   ```toml
+   version = 2
+   name = "Foot"
+   template = "foot.tmpl"
+   output_path = "~/.config/foot/colors-termonet.ini"
+   target_config = "~/.config/foot/foot.ini"
+   import_line = "include = ~/.config/foot/colors-termonet.ini"
+   import_position = "bottom"
+   ```
+
+2. Create `~/.config/termonet/templates/foot.tmpl`:
+   ```ini
+   # Termonet Foot Terminal Theme
+   # termonet-version: 2
+
+   [colors]
+   background = {{ terminal.background.strip }}
+   foreground = {{ terminal.foreground.strip }}
+   regular0 = {{ terminal.color0.strip }}
+   regular1 = {{ terminal.color1.strip }}
+   regular2 = {{ terminal.color2.strip }}
+   regular3 = {{ terminal.color3.strip }}
+   regular4 = {{ terminal.color4.strip }}
+   regular5 = {{ terminal.color5.strip }}
+   regular6 = {{ terminal.color6.strip }}
+   regular7 = {{ terminal.color7.strip }}
+   bright0 = {{ terminal.color8.strip }}
+   bright1 = {{ terminal.color9.strip }}
+   bright2 = {{ terminal.color10.strip }}
+   bright3 = {{ terminal.color11.strip }}
+   bright4 = {{ terminal.color12.strip }}
+   bright5 = {{ terminal.color13.strip }}
+   bright6 = {{ terminal.color14.strip }}
+   bright7 = {{ terminal.color15.strip }}
+   ```
+
+3. Launch `termonet` — your new application will immediately appear in the step 2 list!
+
+### 5. Non-Destructive Safety & Auto-Backups
+
+Termonet guarantees configuration safety:
+- **Master Backup (`.original`)**: Created once on the very first injection and **never overwritten**, ensuring your untouched original configs can always be restored.
+- **Safety Backup (`.bak`)**: Created prior to every file write.
+- **Managed Marker Blocks**: Import lines are wrapped in recognizable comments:
+  ```ini
+  # >>> termonet colors >>>
+  include colors-termonet.conf
+  # <<< termonet colors <<<
+  ```
+  If a legacy Pywal import was present, Termonet replaces it cleanly in-place without duplicating lines.
+- **Automatic Asset Sync**: Force-sync or upgrade embedded defaults at any time:
+  ```bash
+  termonet --update-rules
+  ```
+
+---
+
 ## 🗺️ Roadmap
 
 - [x] **v0.x (Prototype & Core Base)**:
@@ -182,7 +317,10 @@ enabled_programs = [
   - [x] Bilingual interface (Russian & English)
   - [x] In-app manual wallpaper path input and auto-loading
 - [ ] **v1.x (Full Wayland Release)**:
-  - [ ] Template engine integration (`minijinja`) and bundled templates unpacking
+  - [x] MiniJinja template engine with custom filters and TrueColor / ANSI roles
+  - [x] Built-in out-of-the-box rules and templates (Kitty, Waybar, Rofi, Hyprland Lua)
+  - [x] Safe marker injection, legacy theme (Pywal) replacement, and `.original` master backups
+  - [x] Two-tier asset versioning and automatic migration (`--update-rules`)
   - [ ] Automatic Wayland wallpaper extraction (`swww`, `hyprpaper`, `awww`, `wpaperd`, `swaybg`, `GNOME`, `KDE`)
   - [ ] Multi-monitor duplicate filter with primary monitor selection
   - [ ] Headless CLI auto-apply flag (`--apply`) for systemd timers and scripts

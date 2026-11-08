@@ -3,11 +3,28 @@
 use serde::{Deserialize, Serialize};
 
 /// Represents an sRGB color with 8-bit channels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 pub struct RgbColor {
     pub r: u8,
     pub g: u8,
     pub b: u8,
+}
+
+impl Serialize for RgbColor {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("RgbColor", 6)?;
+        state.serialize_field("r", &self.r)?;
+        state.serialize_field("g", &self.g)?;
+        state.serialize_field("b", &self.b)?;
+        state.serialize_field("hex", &self.to_hex())?;
+        state.serialize_field("strip", &self.to_stripped_hex())?;
+        state.serialize_field("rgb", &self.to_rgb_string())?;
+        state.end()
+    }
 }
 
 impl RgbColor {
