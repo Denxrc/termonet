@@ -1,43 +1,43 @@
 -- ==============================================================================
 -- Termonet Hyprland Lua Color Palette
 -- Generated automatically by Termonet
--- termonet-version: 2
+-- termonet-version: 3
 -- ==============================================================================
 
 return {
     -- Core Material You roles
-    primary = "{{ dark.primary.hex }}",
-    on_primary = "{{ dark.on_primary.hex }}",
-    primary_container = "{{ dark.primary_container.hex }}",
-    on_primary_container = "{{ dark.on_primary_container.hex }}",
+    primary = "{{ active.primary.hex }}",
+    on_primary = "{{ active.on_primary.hex }}",
+    primary_container = "{{ active.primary_container.hex }}",
+    on_primary_container = "{{ active.on_primary_container.hex }}",
 
-    secondary = "{{ dark.secondary.hex }}",
-    on_secondary = "{{ dark.on_secondary.hex }}",
-    secondary_container = "{{ dark.secondary_container.hex }}",
-    on_secondary_container = "{{ dark.on_secondary_container.hex }}",
+    secondary = "{{ active.secondary.hex }}",
+    on_secondary = "{{ active.on_secondary.hex }}",
+    secondary_container = "{{ active.secondary_container.hex }}",
+    on_secondary_container = "{{ active.on_secondary_container.hex }}",
 
-    tertiary = "{{ dark.tertiary.hex }}",
-    on_tertiary = "{{ dark.on_tertiary.hex }}",
+    tertiary = "{{ active.tertiary.hex }}",
+    on_tertiary = "{{ active.on_tertiary.hex }}",
 
-    surface = "{{ dark.surface.hex }}",
-    on_surface = "{{ dark.on_surface.hex }}",
-    surface_variant = "{{ dark.surface_variant.hex }}",
-    on_surface_variant = "{{ dark.on_surface_variant.hex }}",
+    surface = "{{ active.surface.hex }}",
+    on_surface = "{{ active.on_surface.hex }}",
+    surface_variant = "{{ active.surface_variant.hex }}",
+    on_surface_variant = "{{ active.on_surface_variant.hex }}",
 
     background = "{{ terminal.background.hex }}",
     foreground = "{{ terminal.foreground.hex }}",
-    outline = "{{ dark.outline.hex }}",
+    outline = "{{ active.outline.hex }}",
 
     -- Hyprland window border formats (hl.config general.col)
-    active_border_1 = "rgba({{ dark.primary.strip }}ee)",
-    active_border_2 = "rgba({{ dark.secondary.strip }}ee)",
-    inactive_border = "rgba({{ dark.surface_variant.strip }}aa)",
+    active_border_1 = "rgba({{ active.primary.strip }}ee)",
+    active_border_2 = "rgba({{ active.secondary.strip }}ee)",
+    inactive_border = "rgba({{ active.surface_variant.strip }}aa)",
 
     -- Raw hex values without '#' prefix
     raw = {
-        primary = "{{ dark.primary.strip }}",
-        secondary = "{{ dark.secondary.strip }}",
-        surface = "{{ dark.surface.strip }}",
+        primary = "{{ active.primary.strip }}",
+        secondary = "{{ active.secondary.strip }}",
+        surface = "{{ active.surface.strip }}",
         background = "{{ terminal.background.strip }}",
     },
 }

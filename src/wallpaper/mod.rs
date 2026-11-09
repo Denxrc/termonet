@@ -65,6 +65,11 @@ pub fn get_current_wallpaper(
                 if fehbg.exists()
                     && let Ok(content) = std::fs::read_to_string(&fehbg)
                 {
+                    if let Some(path) = wayland::extract_wallpaper_path_from_str(&content)
+                        && path.exists()
+                    {
+                        return Ok(path);
+                    }
                     for token in content.split_whitespace() {
                         let clean = token.trim_matches(|c| c == '\'' || c == '"');
                         if clean.starts_with('/') || clean.starts_with('~') {
@@ -122,30 +127,26 @@ pub fn query_auto(primary_monitor: Option<&str>) -> Result<PathBuf> {
             let h_hypr = s.spawn(wayland::query_hyprpaper);
             let h_swaybg = s.spawn(wayland::query_swaybg);
             let h_wpaperd = s.spawn(wayland::query_wpaperd);
-            let h_gnome = s.spawn(|| {
-                // Only query GNOME if session indicates GNOME or as fallback
-                if is_gnome {
-                    de::query_gnome()
-                } else {
-                    Err(TermonetError::WallpaperNotFound("Not in GNOME session".into()))
-                }
-            });
-            let h_kde = s.spawn(|| {
-                // Only query KDE if session indicates KDE
-                if is_kde {
-                    de::query_kde()
-                } else {
-                    Err(TermonetError::WallpaperNotFound("Not in KDE session".into()))
-                }
-            });
+            let h_gnome = if is_gnome {
+                Some(s.spawn(de::query_gnome))
+            } else {
+                None
+            };
+            let h_kde = if is_kde {
+                Some(s.spawn(de::query_kde))
+            } else {
+                None
+            };
 
             (
                 h_awww.join().unwrap_or_else(|_| Err(TermonetError::WallpaperNotFound("awww thread panicked".into()))),
                 h_hypr.join().unwrap_or_else(|_| Err(TermonetError::WallpaperNotFound("hyprpaper thread panicked".into()))),
                 h_swaybg.join().unwrap_or_else(|_| Err(TermonetError::WallpaperNotFound("swaybg thread panicked".into()))),
                 h_wpaperd.join().unwrap_or_else(|_| Err(TermonetError::WallpaperNotFound("wpaperd thread panicked".into()))),
-                h_gnome.join().unwrap_or_else(|_| Err(TermonetError::WallpaperNotFound("gnome thread panicked".into()))),
-                h_kde.join().unwrap_or_else(|_| Err(TermonetError::WallpaperNotFound("kde thread panicked".into()))),
+                h_gnome.map(|h| h.join().unwrap_or_else(|_| Err(TermonetError::WallpaperNotFound("gnome thread panicked".into()))))
+                    .unwrap_or_else(|| Err(TermonetError::WallpaperNotFound("Not in GNOME session".into()))),
+                h_kde.map(|h| h.join().unwrap_or_else(|_| Err(TermonetError::WallpaperNotFound("kde thread panicked".into()))))
+                    .unwrap_or_else(|| Err(TermonetError::WallpaperNotFound("Not in KDE session".into()))),
             )
         });
 

@@ -15,17 +15,17 @@ use crate::tui::app::AppState;
 pub fn render_apply(frame: &mut Frame, area: Rect, state: &AppState) {
     let t = get_translations(state.config.language);
 
-    let primary_color = state
-        .palette
-        .as_ref()
-        .map(|p| Color::from(p.dark.primary))
-        .unwrap_or(Color::Rgb(173, 198, 255));
-
-    let secondary_color = state
-        .palette
-        .as_ref()
-        .map(|p| Color::from(p.dark.secondary))
-        .unwrap_or(Color::Rgb(191, 198, 220));
+    let (primary_color, secondary_color) = state.ui_colors();
+    let text_color = state.text_color();
+    let text_muted = state.text_muted();
+    let text_dim = state.text_dim();
+    let cmd_color = if state.is_dark_mode() {
+        Color::Rgb(255, 204, 102)
+    } else if let Some(scheme) = state.active_scheme() {
+        Color::from(scheme.tertiary)
+    } else {
+        Color::Rgb(180, 100, 20)
+    };
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -46,7 +46,7 @@ pub fn render_apply(frame: &mut Frame, area: Rect, state: &AppState) {
             Span::styled(format!("{} ", t.apply_status), Style::default().fg(secondary_color)),
             Span::styled(
                 state.status_message.as_deref().unwrap_or(t.apply_ready),
-                Style::default().fg(Color::White).add_modifier(Modifier::ITALIC),
+                Style::default().fg(text_color).add_modifier(Modifier::ITALIC),
             ),
         ]),
     ];
@@ -67,15 +67,15 @@ pub fn render_apply(frame: &mut Frame, area: Rect, state: &AppState) {
     let active_programs: Vec<_> = state.programs.iter().filter(|p| p.enabled).collect();
     if active_programs.is_empty() {
         summary_lines.push(Line::from(vec![
-            Span::styled(format!("   {}", t.apply_no_programs), Style::default().fg(Color::DarkGray)),
+            Span::styled(format!("   {}", t.apply_no_programs), Style::default().fg(text_dim)),
         ]));
     } else {
         for prog in &active_programs {
             summary_lines.push(Line::from(vec![
                 Span::styled("   • ", Style::default().fg(primary_color)),
-                Span::styled(format!("{:<14}", prog.name), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                Span::styled(format!("{:<14}", prog.name), Style::default().fg(text_color).add_modifier(Modifier::BOLD)),
                 Span::styled(" ➔  ", Style::default().fg(secondary_color)),
-                Span::styled(&prog.output_path, Style::default().fg(Color::Gray)),
+                Span::styled(&prog.output_path, Style::default().fg(text_muted)),
             ]));
         }
     }
@@ -95,16 +95,16 @@ pub fn render_apply(frame: &mut Frame, area: Rect, state: &AppState) {
 
     if active_hooks.is_empty() {
         summary_lines.push(Line::from(vec![
-            Span::styled(format!("   {}", t.apply_no_hooks), Style::default().fg(Color::DarkGray)),
+            Span::styled(format!("   {}", t.apply_no_hooks), Style::default().fg(text_dim)),
         ]));
     } else {
         for prog in active_hooks {
             if let Some(cmd) = &prog.reload_cmd {
                 summary_lines.push(Line::from(vec![
                     Span::styled("   • ", Style::default().fg(primary_color)),
-                    Span::styled(format!("{:<14}", prog.name), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                    Span::styled(format!("{:<14}", prog.name), Style::default().fg(text_color).add_modifier(Modifier::BOLD)),
                     Span::styled(" ➔  ", Style::default().fg(secondary_color)),
-                    Span::styled(cmd, Style::default().fg(Color::Rgb(255, 204, 102))),
+                    Span::styled(cmd, Style::default().fg(cmd_color)),
                 ]));
             }
         }
@@ -112,7 +112,7 @@ pub fn render_apply(frame: &mut Frame, area: Rect, state: &AppState) {
 
     let summary_block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::DarkGray))
+        .border_style(Style::default().fg(text_dim))
         .title(t.apply_summary);
     frame.render_widget(Paragraph::new(summary_lines).block(summary_block), chunks[1]);
 }

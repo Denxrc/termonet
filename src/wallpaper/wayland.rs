@@ -33,8 +33,14 @@ pub fn extract_wallpaper_path_from_str(s: &str) -> Option<PathBuf> {
         return Some(AppPaths::expand_tilde(trimmed));
     }
 
-    // Search for the first occurrence of '/' or '~/'
-    if let Some(idx) = trimmed.find('/').or_else(|| trimmed.find("~/")) {
+    // Search for the first occurrence of '~/' or '/' (prioritize '~/' so flags don't strip tilde)
+    let path_start_idx = match (trimmed.find("~/"), trimmed.find('/')) {
+        (Some(tilde_idx), Some(slash_idx)) => Some(tilde_idx.min(slash_idx)),
+        (Some(tilde_idx), None) => Some(tilde_idx),
+        (None, Some(slash_idx)) => Some(slash_idx),
+        (None, None) => None,
+    };
+    if let Some(idx) = path_start_idx {
         let candidate = trimmed[idx..].trim_matches(|c| c == '\'' || c == '"' || c == ' ');
         if !candidate.is_empty() {
             let clean_candidate = candidate.split_once('(').map(|(b, _)| b.trim()).unwrap_or(candidate);
@@ -196,7 +202,13 @@ pub fn query_hyprpaper() -> Result<MonitorWallpapers> {
     if let Some(signature) = std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE") {
         let runtime_dir = std::env::var_os("XDG_RUNTIME_DIR")
             .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("/run/user/1000"));
+            .unwrap_or_else(|| {
+                use std::os::unix::fs::MetadataExt;
+                let uid = std::fs::metadata("/proc/self")
+                    .map(|m| m.uid())
+                    .unwrap_or(1000);
+                PathBuf::from(format!("/run/user/{}", uid))
+            });
         let socket_path = runtime_dir
             .join("hypr")
             .join(signature)
@@ -332,6 +344,12 @@ pub fn query_swaybg_from_proc(proc_root: &Path) -> Result<MonitorWallpapers> {
             continue;
         }
 
+        // Fast-path rejection: check if the binary ends with swaybg before allocating Vec<String>
+        let first_arg = cmdline_bytes.split(|&b| b == 0).next().unwrap_or(&[]);
+        if !first_arg.ends_with(b"swaybg") {
+            continue;
+        }
+
         let args: Vec<String> = cmdline_bytes
             .split(|&b| b == 0)
             .filter(|slice| !slice.is_empty())
@@ -453,6 +471,14 @@ mod tests {
             extract_wallpaper_path_from_str(raw),
             Some(PathBuf::from("/home/Denxrc/Pictures/wallp.png"))
         );
+
+        if let Ok(home) = std::env::var("HOME") {
+            let tilde_with_crop = " crop:center Lanczos3 ~/Pictures/wallp.png";
+            assert_eq!(
+                extract_wallpaper_path_from_str(tilde_with_crop),
+                Some(PathBuf::from(home).join("Pictures/wallp.png"))
+            );
+        }
 
         let with_spaces = "image: '/home/user/Pictures/wall with space.jpg'";
         assert_eq!(

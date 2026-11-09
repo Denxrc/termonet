@@ -220,13 +220,21 @@ impl ProgramRule {
 
     /// Renders the template in memory, writes the output color palette,
     /// and safely injects the import directive into target configuration file.
-    pub fn apply(&self, engine: &TemplateEngine, palette: &GeneratedPalette) -> Result<()> {
+    /// If `create_backups` is true, creates `.bak` and `.original` files;
+    /// if false, updates target files cleanly and directly without backup clutter.
+    pub fn apply(
+        &self,
+        engine: &TemplateEngine,
+        palette: &GeneratedPalette,
+        is_dark: bool,
+        create_backups: bool,
+    ) -> Result<()> {
         let template_content = self.load_template_content()?;
-        let rendered = engine.render_string(&template_content, palette)?;
+        let rendered = engine.render_string(&template_content, palette, is_dark)?;
 
         // 1. Write the rendered palette file
         let output_dest = self.resolve_output_path();
-        safe_write(&output_dest, &rendered)?;
+        safe_write(&output_dest, &rendered, create_backups)?;
 
         // 2. Inject import line into target config if configured
         if let (Some(target_path), Some(import_line)) =
@@ -235,7 +243,7 @@ impl ProgramRule {
             let comment_style = self.effective_comment_style();
 
             let original_content = if target_path.exists() {
-                ensure_master_backup(&target_path)?;
+                ensure_master_backup(&target_path, create_backups)?;
                 fs::read_to_string(&target_path)?
             } else {
                 String::new()
@@ -248,7 +256,7 @@ impl ProgramRule {
                 comment_style,
             );
 
-            safe_write(&target_path, &updated_content)?;
+            safe_write(&target_path, &updated_content, create_backups)?;
         }
 
         Ok(())
@@ -291,7 +299,9 @@ pub fn inject_import(
         && let Some(end_rel_idx) = content[begin_idx..].find(end_marker)
     {
         let end_idx = begin_idx + end_rel_idx + end_marker.len();
-        let mut result = String::with_capacity(content.len() + 32);
+        let old_block_len = end_idx - begin_idx;
+        let needed_cap = content.len() + block.len() - old_block_len;
+        let mut result = String::with_capacity(needed_cap);
         result.push_str(&content[..begin_idx]);
         result.push_str(&block);
         result.push_str(&content[end_idx..]);
@@ -299,11 +309,10 @@ pub fn inject_import(
     }
 
     // Case 2: Check for foreign / legacy color imports (e.g. pywal, old color includes)
-    let lines: Vec<&str> = content.lines().collect();
     let mut replaced = false;
-    let mut new_lines: Vec<String> = Vec::with_capacity(lines.len() + 4);
+    let mut result = String::with_capacity(content.len() + block.len() + 8);
 
-    for line in &lines {
+    for line in content.lines() {
         let trimmed = line.trim();
         let is_legacy_color_import = (trimmed.contains("colors")
             || trimmed.contains("wal")
@@ -316,19 +325,20 @@ pub fn inject_import(
                 || trimmed.contains("require"));
 
         if !replaced && is_legacy_color_import {
-            new_lines.push(block.clone());
+            result.push_str(&block);
+            result.push('\n');
             replaced = true;
         } else {
-            new_lines.push((*line).to_string());
+            result.push_str(line);
+            result.push('\n');
         }
     }
 
     if replaced {
-        let mut res = new_lines.join("\n");
-        if content.ends_with('\n') {
-            res.push('\n');
+        if !content.ends_with('\n') && result.ends_with('\n') {
+            result.pop();
         }
-        return res;
+        return result;
     }
 
     // Case 3: Fresh insertion at Top or Bottom
@@ -457,7 +467,7 @@ cursor_shape beam
         let engine = TemplateEngine::new();
 
         for &(name, content) in DEFAULT_TEMPLATES {
-            let rendered = engine.render_string(content, &palette).unwrap();
+            let rendered = engine.render_string(content, &palette, true).unwrap();
 
             assert!(!rendered.is_empty(), "Rendered template for {} was empty", name);
             match name {

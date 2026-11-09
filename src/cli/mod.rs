@@ -11,6 +11,8 @@ pub struct CliArgs {
     pub apply: bool,
     pub force: bool,
     pub wallpaper: Option<String>,
+    pub no_backup: bool,
+    pub backup: bool,
 }
 
 /// Executes headless apply without TUI if `--apply` flag is passed.
@@ -20,7 +22,12 @@ pub fn run_cli_mode(args: &CliArgs) -> crate::error::Result<bool> {
         return Ok(false);
     }
 
-    let config = crate::config::AppConfig::load()?.unwrap_or_default();
+    let mut config = crate::config::AppConfig::load()?.unwrap_or_default();
+    if args.no_backup {
+        config.create_backups = false;
+    } else if args.backup {
+        config.create_backups = true;
+    }
 
     // 1. Resolve wallpaper path
     let wallpaper_path: PathBuf = if let Some(ref manual) = args.wallpaper {
@@ -61,8 +68,8 @@ pub fn run_cli_mode(args: &CliArgs) -> crate::error::Result<bool> {
     let rules = crate::template::ProgramRule::load_all()?;
     let mut applied_count = 0;
     for rule in &rules {
-        if config.enabled_programs.contains(&rule.name) {
-            rule.apply(&engine, &palette)?;
+        if config.enabled_programs.iter().any(|p| p.eq_ignore_ascii_case(&rule.name)) {
+            rule.apply(&engine, &palette, config.tui_theme.is_dark(), config.create_backups)?;
             applied_count += 1;
             println!("  ✔ Applied theme for: {}", rule.name);
 
@@ -106,8 +113,9 @@ mod tests {
             apply: false,
             force: false,
             wallpaper: None,
+            ..Default::default()
         };
         let res = run_cli_mode(&args);
-        assert_eq!(res.unwrap(), false);
+        assert!(!res.unwrap());
     }
 }

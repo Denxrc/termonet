@@ -34,7 +34,12 @@ impl PixelFont {
     /// Renders text into 3 terminal text lines using Unicode half-blocks.
     #[must_use]
     pub fn render(text: &str) -> [String; 3] {
-        let mut lines = [String::new(), String::new(), String::new()];
+        let cap = text.len() * 18;
+        let mut lines = [
+            String::with_capacity(cap),
+            String::with_capacity(cap),
+            String::with_capacity(cap),
+        ];
 
         for ch in text.chars() {
             let glyph = Self::lookup_glyph(ch);
@@ -73,7 +78,11 @@ impl PixelFont {
     }
 
     fn lookup_glyph(c: char) -> Glyph {
-        let upper = c.to_uppercase().next().unwrap_or(c);
+        let upper = if c.is_ascii() {
+            c.to_ascii_uppercase()
+        } else {
+            c.to_uppercase().next().unwrap_or(c)
+        };
         match upper {
             // Latin
             'A' => Glyph::new(0b0110, 0b1001, 0b1111, 0b1001, 0b1001, 4),

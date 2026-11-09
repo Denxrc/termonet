@@ -17,10 +17,15 @@ pub fn render_palette(frame: &mut Frame, area: Rect, state: &AppState) {
     let t = get_translations(state.config.language);
 
     let Some(ref palette) = state.palette else {
+        let warn_color = if state.is_dark_mode() {
+            Color::Yellow
+        } else {
+            Color::Rgb(170, 90, 0)
+        };
         let no_palette_msg = Paragraph::new(Line::from(vec![
             Span::styled(
                 t.no_wallpaper,
-                Style::default().fg(Color::Yellow),
+                Style::default().fg(warn_color),
             ),
         ]))
         .alignment(ratatui::layout::Alignment::Center)
@@ -29,13 +34,11 @@ pub fn render_palette(frame: &mut Frame, area: Rect, state: &AppState) {
         return;
     };
 
-    let scheme = match state.config.tui_theme {
-        crate::config::TuiTheme::Light => &palette.light,
-        _ => &palette.dark,
-    };
-
-    let primary_color = Color::from(scheme.primary);
-    let secondary_color = Color::from(scheme.secondary);
+    let (primary_color, secondary_color) = state.ui_colors();
+    let is_dark = state.is_dark_mode();
+    let scheme = palette.scheme_for(is_dark);
+    let text_color = state.text_color();
+    let text_dim = state.text_dim();
 
     // Split vertically: top wallpaper source card (2 lines) and main palette columns
     let v_chunks = Layout::default()
@@ -47,7 +50,7 @@ pub fn render_palette(frame: &mut Frame, area: Rect, state: &AppState) {
     let wp_text = state.wallpaper_path.as_deref().unwrap_or(t.no_wallpaper);
     let wp_line = Line::from(vec![
         Span::styled(format!(" {} ", t.wallpaper_source), Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
-        Span::styled(wp_text, Style::default().fg(Color::White)),
+        Span::styled(wp_text, Style::default().fg(text_color)),
         Span::raw("   "),
         Span::styled(format!("{} ", t.wallpaper_change_btn), Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
         Span::raw(" "),
@@ -55,7 +58,7 @@ pub fn render_palette(frame: &mut Frame, area: Rect, state: &AppState) {
         Span::raw("    "),
         Span::styled(format!("{} ", t.seed_color), Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
         color_badge(&palette.seed_color),
-        Span::styled(format!(" {} ", palette.seed_color.to_hex()), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled(format!(" {} ", palette.seed_color.to_hex()), Style::default().fg(text_color).add_modifier(Modifier::BOLD)),
     ]);
     frame.render_widget(Paragraph::new(wp_line), v_chunks[0]);
 
@@ -67,16 +70,16 @@ pub fn render_palette(frame: &mut Frame, area: Rect, state: &AppState) {
 
     // --- Left Column: Material You Theme ---
     let material_lines = vec![
-        render_role_line(t.role_primary, &scheme.primary),
-        render_role_line(t.role_on_primary, &scheme.on_primary),
-        render_role_line(t.role_primary_container, &scheme.primary_container),
-        render_role_line(t.role_secondary, &scheme.secondary),
-        render_role_line(t.role_tertiary, &scheme.tertiary),
-        render_role_line(t.role_surface, &scheme.surface),
-        render_role_line(t.role_surface_variant, &scheme.surface_variant),
-        render_role_line(t.role_background, &scheme.background),
-        render_role_line(t.role_outline, &scheme.outline),
-        render_role_line(t.role_error, &scheme.error),
+        render_role_line(t.role_primary, &scheme.primary, text_color, text_dim),
+        render_role_line(t.role_on_primary, &scheme.on_primary, text_color, text_dim),
+        render_role_line(t.role_primary_container, &scheme.primary_container, text_color, text_dim),
+        render_role_line(t.role_secondary, &scheme.secondary, text_color, text_dim),
+        render_role_line(t.role_tertiary, &scheme.tertiary, text_color, text_dim),
+        render_role_line(t.role_surface, &scheme.surface, text_color, text_dim),
+        render_role_line(t.role_surface_variant, &scheme.surface_variant, text_color, text_dim),
+        render_role_line(t.role_background, &scheme.background, text_color, text_dim),
+        render_role_line(t.role_outline, &scheme.outline, text_color, text_dim),
+        render_role_line(t.role_error, &scheme.error, text_color, text_dim),
     ];
 
     let material_block = Block::default()
@@ -87,27 +90,27 @@ pub fn render_palette(frame: &mut Frame, area: Rect, state: &AppState) {
     frame.render_widget(Paragraph::new(material_lines).block(material_block), columns[0]);
 
     // --- Right Column: Terminal ANSI Palette ---
-    let term = &palette.terminal;
+    let term = palette.terminal_for(is_dark);
     let terminal_lines = vec![
         Line::from(vec![Span::styled(t.normal_colors, Style::default().fg(primary_color).add_modifier(Modifier::BOLD))]),
-        render_terminal_line("0. Black", &term.color0),
-        render_terminal_line("1. Red", &term.color1),
-        render_terminal_line("2. Green", &term.color2),
-        render_terminal_line("3. Yellow", &term.color3),
-        render_terminal_line("4. Blue", &term.color4),
-        render_terminal_line("5. Magenta", &term.color5),
-        render_terminal_line("6. Cyan", &term.color6),
-        render_terminal_line("7. White", &term.color7),
+        render_terminal_line("0. Black", &term.color0, text_color, text_dim),
+        render_terminal_line("1. Red", &term.color1, text_color, text_dim),
+        render_terminal_line("2. Green", &term.color2, text_color, text_dim),
+        render_terminal_line("3. Yellow", &term.color3, text_color, text_dim),
+        render_terminal_line("4. Blue", &term.color4, text_color, text_dim),
+        render_terminal_line("5. Magenta", &term.color5, text_color, text_dim),
+        render_terminal_line("6. Cyan", &term.color6, text_color, text_dim),
+        render_terminal_line("7. White", &term.color7, text_color, text_dim),
         Line::raw(""),
         Line::from(vec![Span::styled(t.bright_colors, Style::default().fg(primary_color).add_modifier(Modifier::BOLD))]),
-        render_terminal_line("8. Bright Black", &term.color8),
-        render_terminal_line("9. Bright Red", &term.color9),
-        render_terminal_line("10. Bright Green", &term.color10),
-        render_terminal_line("11. Bright Yellow", &term.color11),
-        render_terminal_line("12. Bright Blue", &term.color12),
-        render_terminal_line("13. Bright Magenta", &term.color13),
-        render_terminal_line("14. Bright Cyan", &term.color14),
-        render_terminal_line("15. Bright White", &term.color15),
+        render_terminal_line("8. Bright Black", &term.color8, text_color, text_dim),
+        render_terminal_line("9. Bright Red", &term.color9, text_color, text_dim),
+        render_terminal_line("10. Bright Green", &term.color10, text_color, text_dim),
+        render_terminal_line("11. Bright Yellow", &term.color11, text_color, text_dim),
+        render_terminal_line("12. Bright Blue", &term.color12, text_color, text_dim),
+        render_terminal_line("13. Bright Magenta", &term.color13, text_color, text_dim),
+        render_terminal_line("14. Bright Cyan", &term.color14, text_color, text_dim),
+        render_terminal_line("15. Bright White", &term.color15, text_color, text_dim),
     ];
 
     let terminal_block = Block::default()
@@ -130,11 +133,10 @@ pub fn render_wallpaper_input_modal(frame: &mut Frame, area: Rect, state: &AppSt
     };
     let t = get_translations(state.config.language);
 
-    let primary_color = state
-        .palette
-        .as_ref()
-        .map(|p| Color::from(p.dark.primary))
-        .unwrap_or(Color::Rgb(173, 198, 255));
+    let (primary_color, _) = state.ui_colors();
+    let text_color = state.text_color();
+    let text_muted = state.text_muted();
+    let text_dim = state.text_dim();
 
     // Centered modal window: 72 columns wide or 75% width, 7 lines height
     let popup_area = centered_rect(75, 7, area);
@@ -142,27 +144,32 @@ pub fn render_wallpaper_input_modal(frame: &mut Frame, area: Rect, state: &AppSt
 
     let mut lines = vec![
         Line::from(vec![
-            Span::styled(format!("  {} ", t.wallpaper_input_prompt), Style::default().fg(Color::Gray)),
+            Span::styled(format!("  {} ", t.wallpaper_input_prompt), Style::default().fg(text_muted)),
         ]),
         Line::raw(""),
         Line::from(vec![
             Span::styled("  > ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
-            Span::styled(&input_state.input[..input_state.cursor_pos], Style::default().fg(Color::White)),
+            Span::styled(&input_state.input[..input_state.cursor_pos], Style::default().fg(text_color)),
             Span::styled("█", Style::default().fg(primary_color).add_modifier(Modifier::SLOW_BLINK)),
-            Span::styled(&input_state.input[input_state.cursor_pos..], Style::default().fg(Color::White)),
+            Span::styled(&input_state.input[input_state.cursor_pos..], Style::default().fg(text_color)),
         ]),
     ];
 
     if let Some(ref err) = input_state.error_msg {
+        let err_color = if state.is_dark_mode() {
+            Color::LightRed
+        } else {
+            Color::Rgb(180, 20, 20)
+        };
         lines.push(Line::from(vec![
-            Span::styled(format!("  ✗ {}", err), Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("  ✗ {}", err), Style::default().fg(err_color).add_modifier(Modifier::BOLD)),
         ]));
     } else {
         lines.push(Line::raw(""));
     }
 
     lines.push(Line::from(vec![
-        Span::styled(format!("  {}", t.wallpaper_input_hint), Style::default().fg(Color::DarkGray)),
+        Span::styled(format!("  {}", t.wallpaper_input_hint), Style::default().fg(text_dim)),
     ]));
 
     let block = Block::default()
@@ -202,20 +209,20 @@ fn color_badge(color: &RgbColor) -> Span<'static> {
     )
 }
 
-fn render_role_line<'a>(label: &'static str, color: &RgbColor) -> Line<'a> {
+fn render_role_line<'a>(label: &'static str, color: &RgbColor, text_color: Color, text_dim: Color) -> Line<'a> {
     Line::from(vec![
         color_badge(color),
-        Span::styled(format!(" {:<20}", label), Style::default().add_modifier(Modifier::BOLD)),
-        Span::styled(format!(" {} ", color.to_hex()), Style::default().fg(Color::White)),
-        Span::styled(format!("({})", color.to_rgb_string()), Style::default().fg(Color::DarkGray)),
+        Span::styled(format!(" {:<20}", label), Style::default().fg(text_color).add_modifier(Modifier::BOLD)),
+        Span::styled(format!(" {} ", color.to_hex()), Style::default().fg(text_color)),
+        Span::styled(format!("({})", color.to_rgb_string()), Style::default().fg(text_dim)),
     ])
 }
 
-fn render_terminal_line<'a>(label: &'static str, color: &RgbColor) -> Line<'a> {
+fn render_terminal_line<'a>(label: &'static str, color: &RgbColor, text_color: Color, text_dim: Color) -> Line<'a> {
     Line::from(vec![
         color_badge(color),
-        Span::styled(format!(" {:<17}", label), Style::default()),
-        Span::styled(format!(" {} ", color.to_hex()), Style::default().fg(Color::White)),
-        Span::styled(format!("({})", color.to_rgb_string()), Style::default().fg(Color::DarkGray)),
+        Span::styled(format!(" {:<17}", label), Style::default().fg(text_color)),
+        Span::styled(format!(" {} ", color.to_hex()), Style::default().fg(text_color)),
+        Span::styled(format!("({})", color.to_rgb_string()), Style::default().fg(text_dim)),
     ])
 }

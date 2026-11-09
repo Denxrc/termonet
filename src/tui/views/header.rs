@@ -16,16 +16,8 @@ use crate::tui::font::PixelFont;
 pub fn render_header(frame: &mut Frame, area: Rect, state: &AppState) {
     let t = get_translations(state.config.language);
 
-    // Accent colors from generated palette if available, or vibrant Material defaults
-    let (primary_color, secondary_color) = if let Some(ref pal) = state.palette {
-        let scheme = match state.config.tui_theme {
-            crate::config::TuiTheme::Light => &pal.light,
-            _ => &pal.dark,
-        };
-        (Color::from(scheme.primary), Color::from(scheme.secondary))
-    } else {
-        (Color::Rgb(173, 198, 255), Color::Rgb(191, 198, 220))
-    };
+    // Accent colors from generated palette matching active theme
+    let (primary_color, secondary_color) = state.ui_colors();
 
     // Responsive check: if area height is large enough and width >= 48, render 3-line pixel logo
     let use_pixel = area.height >= 5 && area.width >= 48;
@@ -111,7 +103,7 @@ fn render_step_tabs(
         .block(
             Block::default()
                 .borders(Borders::BOTTOM)
-                .border_style(Style::default().fg(Color::DarkGray)),
+                .border_style(Style::default().fg(state.text_dim())),
         );
 
     frame.render_widget(tabs_paragraph, area);

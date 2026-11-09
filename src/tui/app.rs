@@ -129,7 +129,7 @@ impl WizardState {
             WizardStep::Appearance => 5,
             WizardStep::Environment => 13,
             WizardStep::Programs => crate::template::ProgramRule::load_all().map(|r| r.len()).unwrap_or(4),
-            WizardStep::Finish => 1,
+            WizardStep::Finish => 3,
         }
     }
 }
@@ -204,7 +204,7 @@ impl AppState {
                 let is_enabled = if enabled_list.is_empty() {
                     matches!(name_lower.as_str(), "kitty" | "waybar" | "rofi" | "hyprland")
                 } else {
-                    enabled_list.iter().any(|p| p.to_lowercase() == name_lower)
+                    enabled_list.iter().any(|p| p.eq_ignore_ascii_case(&rule.name))
                 };
 
                 let reload_desc = match name_lower.as_str() {
@@ -283,8 +283,7 @@ impl AppState {
 
             // Synchronize program items with the finalized configuration
             for prog in &mut self.programs {
-                let name_lower = prog.name.to_lowercase();
-                prog.enabled = self.config.enabled_programs.iter().any(|p| p.to_lowercase() == name_lower);
+                prog.enabled = self.config.enabled_programs.iter().any(|p| p.eq_ignore_ascii_case(&prog.name));
             }
 
             self.is_wizard = false;
@@ -428,12 +427,21 @@ impl AppState {
             .collect()
     }
 
+    /// Returns the number of programs that are enabled and have an associated reload command.
+    #[must_use]
+    pub fn active_hook_count(&self) -> usize {
+        self.programs
+            .iter()
+            .filter(|p| p.enabled && p.reload_cmd.is_some())
+            .count()
+    }
+
     fn ensure_hook_index_valid(&mut self) {
-        let active = self.active_hook_indices();
-        if active.is_empty() {
+        let active_count = self.active_hook_count();
+        if active_count == 0 {
             self.selected_hook_idx = 0;
-        } else if self.selected_hook_idx >= active.len() {
-            self.selected_hook_idx = active.len().saturating_sub(1);
+        } else if self.selected_hook_idx >= active_count {
+            self.selected_hook_idx = active_count.saturating_sub(1);
         }
     }
 
@@ -503,15 +511,21 @@ impl AppState {
             WizardStep::Programs => {
                 let rules = crate::template::ProgramRule::load_all().unwrap_or_default();
                 if let Some(rule) = rules.get(wizard.selected_idx) {
-                    let name_lower = rule.name.to_lowercase();
-                    if let Some(pos) = wizard.config.enabled_programs.iter().position(|p| p.to_lowercase() == name_lower) {
+                    if let Some(pos) = wizard.config.enabled_programs.iter().position(|p| p.eq_ignore_ascii_case(&rule.name)) {
                         wizard.config.enabled_programs.remove(pos);
                     } else {
-                        wizard.config.enabled_programs.push(name_lower);
+                        wizard.config.enabled_programs.push(rule.name.to_lowercase());
                     }
                 }
             }
-            WizardStep::Finish => {}
+            WizardStep::Finish => {
+                match wizard.selected_idx {
+                    0 => wizard.config.create_backups = false,
+                    1 => wizard.config.create_backups = true,
+                    _ => {}
+                }
+                self.config.create_backups = wizard.config.create_backups;
+            }
         }
     }
 
@@ -536,13 +550,13 @@ impl AppState {
             KeyCode::Right | KeyCode::Char('l') => {
                 if let Some(ref mut wizard) = self.wizard_state {
                     wizard.step = wizard.step.next();
-                    wizard.selected_idx = 0;
+                    wizard.selected_idx = if wizard.step == WizardStep::Finish { 2 } else { 0 };
                 }
             }
             KeyCode::Left | KeyCode::Char('h') => {
                 if let Some(ref mut wizard) = self.wizard_state {
                     wizard.step = wizard.step.prev();
-                    wizard.selected_idx = 0;
+                    wizard.selected_idx = if wizard.step == WizardStep::Finish { 2 } else { 0 };
                 }
             }
             KeyCode::Char('1') => {
@@ -558,7 +572,7 @@ impl AppState {
                 if let Some(ref mut wizard) = self.wizard_state { wizard.step = WizardStep::Programs; wizard.selected_idx = 0; }
             }
             KeyCode::Char('5') => {
-                if let Some(ref mut wizard) = self.wizard_state { wizard.step = WizardStep::Finish; wizard.selected_idx = 0; }
+                if let Some(ref mut wizard) = self.wizard_state { wizard.step = WizardStep::Finish; wizard.selected_idx = 2; }
             }
 
             // Move cursor between options inside active step
@@ -581,7 +595,8 @@ impl AppState {
             // Select or toggle current option
             KeyCode::Char(' ') => {
                 let current_step = self.wizard_state.as_ref().map(|w| w.step);
-                if current_step == Some(WizardStep::Finish) {
+                let selected_idx = self.wizard_state.as_ref().map(|w| w.selected_idx).unwrap_or(0);
+                if current_step == Some(WizardStep::Finish) && selected_idx == 2 {
                     if let Err(e) = self.finish_wizard() {
                         self.status_message = Some(format!("Error: {}", e));
                     }
@@ -599,8 +614,15 @@ impl AppState {
                 let selected_idx = self.wizard_state.as_ref().map(|w| w.selected_idx).unwrap_or(0);
 
                 if current_step == Some(WizardStep::Finish) {
-                    if let Err(e) = self.finish_wizard() {
-                        self.status_message = Some(format!("Error: {}", e));
+                    if selected_idx == 2 {
+                        if let Err(e) = self.finish_wizard() {
+                            self.status_message = Some(format!("Error: {}", e));
+                        }
+                    } else {
+                        self.toggle_wizard_option();
+                        if let Some(ref mut wizard) = self.wizard_state {
+                            wizard.selected_idx = 2;
+                        }
                     }
                 } else if current_step == Some(WizardStep::Environment) && selected_idx == 12 {
                     // Option 12 in Environment is Manual path -> trigger input dialog
@@ -679,13 +701,14 @@ impl AppState {
         };
 
         let engine = TemplateEngine::new();
+        let is_dark = self.is_dark_mode();
 
         // 1. Render and apply each enabled program
         for prog in &self.programs {
             if prog.enabled
                 && let Some(ref rule) = prog.rule
             {
-                rule.apply(&engine, palette)?;
+                rule.apply(&engine, palette, is_dark, self.config.create_backups)?;
             }
         }
 
@@ -714,6 +737,72 @@ impl AppState {
 
         self.status_message = Some("Theme applied and hooks triggered successfully!".to_string());
         Ok(())
+    }
+
+    /// Returns true if the active theme mode resolves to Dark.
+    #[must_use]
+    pub fn is_dark_mode(&self) -> bool {
+        self.config.tui_theme.is_dark()
+    }
+
+    /// Returns the active MaterialScheme based on configuration and system settings.
+    #[must_use]
+    pub fn active_scheme(&self) -> Option<&crate::core::MaterialScheme> {
+        self.palette.as_ref().map(|p| p.scheme_for(self.is_dark_mode()))
+    }
+
+    /// Returns the active TerminalPalette based on configuration and system settings.
+    #[must_use]
+    pub fn active_terminal(&self) -> Option<&crate::core::TerminalPalette> {
+        self.palette.as_ref().map(|p| p.terminal_for(self.is_dark_mode()))
+    }
+
+    /// Primary and secondary UI accent colors for TUI rendering.
+    #[must_use]
+    pub fn ui_colors(&self) -> (ratatui::style::Color, ratatui::style::Color) {
+        if let Some(scheme) = self.active_scheme() {
+            (
+                ratatui::style::Color::from(scheme.primary),
+                ratatui::style::Color::from(scheme.secondary),
+            )
+        } else {
+            (
+                ratatui::style::Color::Rgb(173, 198, 255),
+                ratatui::style::Color::Rgb(191, 198, 220),
+            )
+        }
+    }
+
+    /// Primary text color (high contrast against active theme background).
+    #[must_use]
+    pub fn text_color(&self) -> ratatui::style::Color {
+        if self.is_dark_mode() {
+            ratatui::style::Color::White
+        } else if let Some(scheme) = self.active_scheme() {
+            ratatui::style::Color::from(scheme.on_surface)
+        } else {
+            ratatui::style::Color::Rgb(25, 28, 32)
+        }
+    }
+
+    /// Secondary / muted text color (medium contrast).
+    #[must_use]
+    pub fn text_muted(&self) -> ratatui::style::Color {
+        if self.is_dark_mode() {
+            ratatui::style::Color::Gray
+        } else {
+            ratatui::style::Color::Rgb(70, 75, 80)
+        }
+    }
+
+    /// Dim / disabled text color (low contrast).
+    #[must_use]
+    pub fn text_dim(&self) -> ratatui::style::Color {
+        if self.is_dark_mode() {
+            ratatui::style::Color::DarkGray
+        } else {
+            ratatui::style::Color::Rgb(115, 120, 125)
+        }
     }
 
     /// Handles keyboard events.
@@ -761,7 +850,7 @@ impl AppState {
                     self.selected_program_idx += 1;
                 }
                 Step::Hooks => {
-                    let active_len = self.active_hook_indices().len();
+                    let active_len = self.active_hook_count();
                     if active_len > 0 && self.selected_hook_idx + 1 < active_len {
                         self.selected_hook_idx += 1;
                     }

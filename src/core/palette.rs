@@ -25,11 +25,33 @@ pub struct GeneratedPalette {
     pub light: MaterialScheme,
     /// Dark theme variant of Material You scheme.
     pub dark: MaterialScheme,
-    /// Terminal ANSI colors derived from tonal palettes and HCT color space.
+    /// Terminal ANSI colors derived from tonal palettes and HCT color space (Dark theme).
     pub terminal: TerminalPalette,
+    /// Terminal ANSI colors derived for Light theme.
+    #[serde(default)]
+    pub terminal_light: TerminalPalette,
 }
 
 impl GeneratedPalette {
+    /// Returns the active MaterialScheme based on dark vs light preference.
+    #[must_use]
+    pub fn scheme_for(&self, is_dark: bool) -> &MaterialScheme {
+        if is_dark {
+            &self.dark
+        } else {
+            &self.light
+        }
+    }
+
+    /// Returns the active TerminalPalette based on dark vs light preference.
+    #[must_use]
+    pub fn terminal_for(&self, is_dark: bool) -> &TerminalPalette {
+        if is_dark {
+            &self.terminal
+        } else {
+            &self.terminal_light
+        }
+    }
     /// Extracts colors and generates a complete Material You palette from an image file.
     ///
     /// # Arguments
@@ -78,7 +100,6 @@ impl GeneratedPalette {
                 let hct: Hct = c.into();
                 hct.get_chroma() >= 25.0
             })
-            .or_else(|| ranked.first())
             .copied()
             .unwrap_or(ranked[0])
     }
@@ -168,11 +189,66 @@ impl GeneratedPalette {
             cursor: dark_scheme.primary.into(),
         };
 
+        // --- Light Terminal ANSI Colors ---
+        let normal_tone_light = 38.0;
+        let bright_tone_light = 52.0;
+
+        let red_normal_light: MaterialRgb = Hct::from(harm_hues[0], chroma + 4.0, normal_tone_light).into();
+        let red_bright_light: MaterialRgb = Hct::from(harm_hues[0], bright_chroma, bright_tone_light).into();
+
+        let green_normal_light: MaterialRgb = Hct::from(harm_hues[1], chroma + 4.0, normal_tone_light).into();
+        let green_bright_light: MaterialRgb = Hct::from(harm_hues[1], bright_chroma, bright_tone_light).into();
+
+        let yellow_normal_light: MaterialRgb = Hct::from(harm_hues[2], chroma + 4.0, normal_tone_light).into();
+        let yellow_bright_light: MaterialRgb = Hct::from(harm_hues[2], bright_chroma, bright_tone_light).into();
+
+        let blue_normal_light: MaterialRgb = Hct::from(harm_hues[3], chroma + 4.0, normal_tone_light).into();
+        let blue_bright_light: MaterialRgb = Hct::from(harm_hues[3], bright_chroma, bright_tone_light).into();
+
+        let magenta_normal_light: MaterialRgb = Hct::from(harm_hues[4], chroma + 4.0, normal_tone_light).into();
+        let magenta_bright_light: MaterialRgb = Hct::from(harm_hues[4], bright_chroma, bright_tone_light).into();
+
+        let cyan_normal_light: MaterialRgb = Hct::from(harm_hues[5], chroma + 4.0, normal_tone_light).into();
+        let cyan_bright_light: MaterialRgb = Hct::from(harm_hues[5], bright_chroma, bright_tone_light).into();
+
+        let dark_gray_light: MaterialRgb = Hct::from(seed_hct.get_hue(), chroma * 0.2, 20.0).into();
+        let soft_gray_light: MaterialRgb = Hct::from(seed_hct.get_hue(), chroma * 0.2, 50.0).into();
+        let light_gray_light: MaterialRgb = Hct::from(seed_hct.get_hue(), chroma * 0.1, 85.0).into();
+        let pure_white_light: MaterialRgb = Hct::from(seed_hct.get_hue(), chroma * 0.05, 98.0).into();
+
+        let terminal_light = TerminalPalette {
+            // Normal 0..7
+            color0: dark_gray_light.into(),
+            color1: red_normal_light.into(),
+            color2: green_normal_light.into(),
+            color3: yellow_normal_light.into(),
+            color4: blue_normal_light.into(),
+            color5: magenta_normal_light.into(),
+            color6: cyan_normal_light.into(),
+            color7: light_gray_light.into(),
+
+            // Bright 8..15
+            color8: soft_gray_light.into(),
+            color9: red_bright_light.into(),
+            color10: green_bright_light.into(),
+            color11: yellow_bright_light.into(),
+            color12: blue_bright_light.into(),
+            color13: magenta_bright_light.into(),
+            color14: cyan_bright_light.into(),
+            color15: pure_white_light.into(),
+
+            // Special
+            background: light_scheme.background.into(),
+            foreground: light_scheme.on_surface.into(),
+            cursor: light_scheme.primary.into(),
+        };
+
         Self {
             seed_color: seed.into(),
             light: light_scheme.into(),
             dark: dark_scheme.into(),
             terminal,
+            terminal_light,
         }
     }
 }
@@ -231,6 +307,17 @@ mod tests {
         // Verify terminal colors exist
         assert_ne!(palette.terminal.color0.to_hex(), "");
         assert_ne!(palette.terminal.color15.to_hex(), "");
+
+        // Verify light terminal palette contrast and properties
+        assert_ne!(palette.terminal_light.color0.to_hex(), "");
+        assert_ne!(palette.terminal_light.background.to_hex(), "");
+        assert_ne!(palette.terminal.background.to_hex(), palette.terminal_light.background.to_hex());
+
+        // Verify scheme_for and terminal_for
+        assert_eq!(palette.scheme_for(true).primary, palette.dark.primary);
+        assert_eq!(palette.scheme_for(false).primary, palette.light.primary);
+        assert_eq!(palette.terminal_for(true).background, palette.terminal.background);
+        assert_eq!(palette.terminal_for(false).background, palette.terminal_light.background);
     }
 
     #[test]

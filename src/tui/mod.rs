@@ -8,10 +8,11 @@ pub mod views;
 use std::time::Duration;
 use crossterm::event::{self, Event};
 use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout},
-    style::{Color, Modifier, Style},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
+    Frame,
 };
 
 pub use app::{AppState, ProgramItem, Step, WizardState, WizardStep};
@@ -63,42 +64,7 @@ pub fn run_tui(mut state: AppState) -> Result<()> {
             }
 
             // 3. Render Footer Bar with localized hints
-            let t = get_translations(state.config.language);
-            let primary_color = state
-                .palette
-                .as_ref()
-                .map(|p| Color::from(p.dark.primary))
-                .unwrap_or(Color::Rgb(173, 198, 255));
-
-            let secondary_color = state
-                .palette
-                .as_ref()
-                .map(|p| Color::from(p.dark.secondary))
-                .unwrap_or(Color::Rgb(191, 198, 220));
-
-            let mut footer_spans = vec![
-                Span::styled(" [← / →] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
-                Span::styled(format!("{}  ", t.hint_steps_nav), Style::default().fg(Color::Gray)),
-                Span::styled(" [1-4] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
-                Span::styled(format!("{}  ", t.hint_jump), Style::default().fg(Color::Gray)),
-            ];
-
-            if state.current_step == Step::Palette {
-                footer_spans.push(Span::styled(" [w] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
-                footer_spans.push(Span::styled(format!("{}  ", t.hint_wallpaper), Style::default().fg(Color::Gray)));
-                footer_spans.push(Span::styled(" [r] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
-                footer_spans.push(Span::styled(format!("{}  ", t.hint_auto_detect), Style::default().fg(Color::Gray)));
-            } else {
-                footer_spans.push(Span::styled(" [Space] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
-                footer_spans.push(Span::styled(format!("{}  ", t.hint_space), Style::default().fg(Color::Gray)));
-            }
-
-            footer_spans.push(Span::styled(" [s] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
-            footer_spans.push(Span::styled(format!("{}  ", t.hint_settings), Style::default().fg(Color::Gray)));
-            footer_spans.push(Span::styled(" [q/Esc] ", Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)));
-            footer_spans.push(Span::styled(t.hint_quit, Style::default().fg(Color::Gray)));
-
-            frame.render_widget(Paragraph::new(Line::from(footer_spans)).alignment(Alignment::Center), root_layout[2]);
+            render_footer(frame, root_layout[2], &state);
         })?;
 
         // 50ms polling (~20 FPS) for responsive interaction without high CPU usage
@@ -112,10 +78,51 @@ pub fn run_tui(mut state: AppState) -> Result<()> {
     Ok(())
 }
 
+/// Renders the bottom footer bar with navigation hints based on the active step.
+fn render_footer(frame: &mut Frame, area: Rect, state: &AppState) {
+    let t = get_translations(state.config.language);
+    let (primary_color, secondary_color) = state.ui_colors();
+    let text_muted = state.text_muted();
+
+    let mut footer_spans = vec![
+        Span::styled(" [← / →] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("{}  ", t.hint_steps_nav), Style::default().fg(text_muted)),
+        Span::styled(" [1-4] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("{}  ", t.hint_jump), Style::default().fg(text_muted)),
+    ];
+
+    match state.current_step {
+        Step::Palette => {
+            footer_spans.push(Span::styled(" [w] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
+            footer_spans.push(Span::styled(format!("{}  ", t.hint_wallpaper), Style::default().fg(text_muted)));
+            footer_spans.push(Span::styled(" [r] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
+            footer_spans.push(Span::styled(format!("{}  ", t.hint_auto_detect), Style::default().fg(text_muted)));
+        }
+        Step::Programs | Step::Hooks => {
+            footer_spans.push(Span::styled(" [↑/↓] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
+            footer_spans.push(Span::styled(format!("{}  ", t.hint_select), Style::default().fg(text_muted)));
+            footer_spans.push(Span::styled(" [Space] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
+            footer_spans.push(Span::styled(format!("{}  ", t.hint_space), Style::default().fg(text_muted)));
+        }
+        Step::Apply => {
+            footer_spans.push(Span::styled(" [Enter] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
+            footer_spans.push(Span::styled(format!("{}  ", t.hint_choose), Style::default().fg(text_muted)));
+        }
+    }
+
+    footer_spans.push(Span::styled(" [s] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
+    footer_spans.push(Span::styled(format!("{}  ", t.hint_settings), Style::default().fg(text_muted)));
+    footer_spans.push(Span::styled(" [q/Esc] ", Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)));
+    footer_spans.push(Span::styled(t.hint_quit, Style::default().fg(text_muted)));
+
+    frame.render_widget(Paragraph::new(Line::from(footer_spans)).alignment(Alignment::Center), area);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use ratatui::backend::TestBackend;
+    use ratatui::style::Color;
     use ratatui::Terminal;
     use crate::config::AppConfig;
     use crate::core::GeneratedPalette;
@@ -229,8 +236,10 @@ mod tests {
         let mut terminal = Terminal::new(backend).expect("failed to create test terminal");
 
         for lang in [crate::config::Language::Ru, crate::config::Language::En] {
-            let mut config = AppConfig::default();
-            config.language = lang;
+            let config = AppConfig {
+                language: lang,
+                ..Default::default()
+            };
             let state = AppState::new_wizard(config);
 
             terminal
@@ -304,6 +313,40 @@ mod tests {
     }
 
     #[test]
+    fn test_wizard_finish_step_backup_selection() {
+        let config = AppConfig::default();
+        let mut state = AppState::new_wizard(config);
+
+        // Jump to Step 5 (Finish)
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char('5')));
+        assert_eq!(state.wizard_state.as_ref().unwrap().step, WizardStep::Finish);
+        assert_eq!(state.wizard_state.as_ref().unwrap().selected_idx, 2); // Default focused on Save button
+        assert!(!state.wizard_state.as_ref().unwrap().config.create_backups);
+
+        // Move Up to Safe Mode (index 1)
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Up));
+        assert_eq!(state.wizard_state.as_ref().unwrap().selected_idx, 1);
+
+        // Press Space to toggle
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char(' ')));
+        assert!(state.wizard_state.as_ref().unwrap().config.create_backups);
+
+        // Move Up to Clean Mode (index 0)
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Up));
+        assert_eq!(state.wizard_state.as_ref().unwrap().selected_idx, 0);
+
+        // Press Enter on Clean Mode: selects Clean mode and auto-focuses Save button (index 2)
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Enter));
+        assert!(!state.wizard_state.as_ref().unwrap().config.create_backups);
+        assert_eq!(state.wizard_state.as_ref().unwrap().selected_idx, 2);
+
+        // Press Enter on Save button: finishes wizard
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Enter));
+        assert!(!state.is_wizard);
+        assert!(!state.config.create_backups);
+    }
+
+    #[test]
     fn test_render_palette_with_input_modal() {
         let backend = TestBackend::new(100, 30);
         let mut terminal = Terminal::new(backend).expect("failed to create test terminal");
@@ -372,5 +415,71 @@ mod tests {
 
         // Clean up
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_footer_hints_per_step() {
+        let backend = TestBackend::new(120, 30);
+        let mut terminal = Terminal::new(backend).expect("failed to create test terminal");
+
+        let config = AppConfig::default();
+        let mut state = AppState::new(config);
+
+        for step in [Step::Palette, Step::Programs, Step::Hooks, Step::Apply] {
+            state.current_step = step;
+            terminal
+                .draw(|f| {
+                    render_footer(f, f.area(), &state);
+                })
+                .expect("draw footer succeeded");
+
+            let buffer = terminal.backend().buffer();
+            let footer_row: String = (0..120).map(|x| buffer[(x, 0)].symbol()).collect();
+
+            match step {
+                Step::Palette => {
+                    assert!(footer_row.contains("[w]"), "Palette footer should contain [w]");
+                    assert!(footer_row.contains("[r]"), "Palette footer should contain [r]");
+                }
+                Step::Programs | Step::Hooks => {
+                    assert!(footer_row.contains("[↑/↓]"), "Programs/Hooks footer should contain [↑/↓]");
+                    assert!(footer_row.contains("[Space]"), "Programs/Hooks footer should contain [Space]");
+                }
+                Step::Apply => {
+                    assert!(footer_row.contains("[Enter]"), "Apply footer should contain [Enter]");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_ui_colors_respect_tui_theme() {
+        let seed = material_colors::color::Rgb::new(0x21, 0x96, 0xf3);
+        let palette = GeneratedPalette::from_seed_color(seed);
+
+        let dark_config = AppConfig {
+            tui_theme: crate::config::TuiTheme::Dark,
+            ..Default::default()
+        };
+        let mut dark_state = AppState::new(dark_config);
+        dark_state.palette = Some(palette.clone());
+
+        assert!(dark_state.is_dark_mode());
+        let (dark_prim, dark_sec) = dark_state.ui_colors();
+        assert_eq!(dark_prim, Color::from(palette.dark.primary));
+        assert_eq!(dark_sec, Color::from(palette.dark.secondary));
+
+        let light_config = AppConfig {
+            tui_theme: crate::config::TuiTheme::Light,
+            ..Default::default()
+        };
+        let mut light_state = AppState::new(light_config);
+        light_state.palette = Some(palette.clone());
+
+        assert!(!light_state.is_dark_mode());
+        let (light_prim, light_sec) = light_state.ui_colors();
+        assert_eq!(light_prim, Color::from(palette.light.primary));
+        assert_eq!(light_sec, Color::from(palette.light.secondary));
+        assert_ne!(dark_prim, light_prim);
     }
 }

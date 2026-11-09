@@ -2,7 +2,7 @@
 
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
     Frame,
@@ -11,21 +11,16 @@ use ratatui::{
 use crate::i18n::get_translations;
 use crate::tui::app::AppState;
 
+const SPACES: &str = "              ";
+
 /// Renders the Step 2 view (interactive program selection and paths).
 pub fn render_programs(frame: &mut Frame, area: Rect, state: &AppState) {
     let t = get_translations(state.config.language);
 
-    let primary_color = state
-        .palette
-        .as_ref()
-        .map(|p| Color::from(p.dark.primary))
-        .unwrap_or(Color::Rgb(173, 198, 255));
-
-    let secondary_color = state
-        .palette
-        .as_ref()
-        .map(|p| Color::from(p.dark.secondary))
-        .unwrap_or(Color::Rgb(191, 198, 220));
+    let (primary_color, secondary_color) = state.ui_colors();
+    let text_color = state.text_color();
+    let text_muted = state.text_muted();
+    let text_dim = state.text_dim();
 
     let selected_count = state.programs.iter().filter(|p| p.enabled).count();
     let total_count = state.programs.len();
@@ -36,8 +31,8 @@ pub fn render_programs(frame: &mut Frame, area: Rect, state: &AppState) {
         .split(area);
 
     let counter_line = Line::from(vec![
-        Span::styled(format!(" {}/{}  ", selected_count, total_count), Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
-        Span::styled(t.programs_hint, Style::default().fg(secondary_color)),
+        Span::styled(format!(" {}/{} ", selected_count, total_count), Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
+        Span::styled(t.programs_desc, Style::default().fg(secondary_color)),
     ]);
     frame.render_widget(Paragraph::new(counter_line), chunks[0]);
 
@@ -54,27 +49,29 @@ pub fn render_programs(frame: &mut Frame, area: Rect, state: &AppState) {
         let checkbox = if program.enabled {
             Span::styled("[✔] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD))
         } else {
-            Span::styled("[ ] ", Style::default().fg(Color::DarkGray))
+            Span::styled("[ ] ", Style::default().fg(text_dim))
         };
 
         // Underline ONLY the name itself dynamically without trailing padding
         let name_style = if is_cursor {
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+            Style::default().fg(text_color).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
         } else if program.enabled {
-            Style::default().fg(Color::White)
+            Style::default().fg(text_color)
         } else {
-            Style::default().fg(Color::DarkGray)
+            Style::default().fg(text_dim)
         };
 
-        let pad_len = 14usize.saturating_sub(program.name.len());
+        let pad_len = 14usize.saturating_sub(program.name.len()).min(SPACES.len());
 
         program_lines.push(Line::from(vec![
             cursor_marker,
             checkbox,
             Span::styled(&program.name, name_style),
-            Span::raw(" ".repeat(pad_len)),
-            Span::styled(format!(" {} ", t.programs_output), Style::default().fg(secondary_color)),
-            Span::styled(&program.output_path, Style::default().fg(Color::Gray)),
+            Span::raw(&SPACES[..pad_len]),
+            Span::raw(" "),
+            Span::styled(t.programs_output, Style::default().fg(secondary_color)),
+            Span::raw(" "),
+            Span::styled(&program.output_path, Style::default().fg(text_muted)),
         ]));
         program_lines.push(Line::raw(""));
     }

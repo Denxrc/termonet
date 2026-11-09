@@ -30,7 +30,7 @@ pub const DEFAULT_TEMPLATES: &[(&str, &str)] = &[
 ///   - If current or newer, user's customizations are preserved untouched.
 ///
 /// Returns a list of filenames that were newly installed or upgraded.
-pub fn sync_default_assets<P: AsRef<Path>>(config_dir: P, force: bool) -> Result<Vec<String>> {
+pub fn sync_default_assets<P: AsRef<Path>>(config_dir: P, force: bool, create_backups: bool) -> Result<Vec<String>> {
     let rules_dir = config_dir.as_ref().join("rules");
     let templates_dir = config_dir.as_ref().join("templates");
 
@@ -62,8 +62,10 @@ pub fn sync_default_assets<P: AsRef<Path>>(config_dir: P, force: bool) -> Result
             let disk_ver = disk_rule.map(|r| r.version).unwrap_or(1);
 
             if force || disk_ver < embedded_rule.version {
-                let backup_path = rules_dir.join(format!("{}.v{}.bak", name, disk_ver));
-                let _ = fs::write(&backup_path, &disk_content);
+                if create_backups {
+                    let backup_path = rules_dir.join(format!("{}.v{}.bak", name, disk_ver));
+                    let _ = fs::write(&backup_path, &disk_content);
+                }
                 let _ = fs::write(&dest, embedded_content);
                 updated.push(format!("{} (v{} -> v{})", name, disk_ver, embedded_rule.version));
             }
@@ -83,8 +85,10 @@ pub fn sync_default_assets<P: AsRef<Path>>(config_dir: P, force: bool) -> Result
             let disk_ver = extract_template_version(&disk_content);
 
             if force || disk_ver < embedded_ver {
-                let backup_path = templates_dir.join(format!("{}.v{}.bak", name, disk_ver));
-                let _ = fs::write(&backup_path, &disk_content);
+                if create_backups {
+                    let backup_path = templates_dir.join(format!("{}.v{}.bak", name, disk_ver));
+                    let _ = fs::write(&backup_path, &disk_content);
+                }
                 let _ = fs::write(&dest, embedded_content);
                 updated.push(format!("{} (v{} -> v{})", name, disk_ver, embedded_ver));
             }
@@ -96,7 +100,7 @@ pub fn sync_default_assets<P: AsRef<Path>>(config_dir: P, force: bool) -> Result
 
 /// Unpacks default embedded rules and templates to user's config directory if not already present.
 pub fn unpack_default_assets<P: AsRef<Path>>(config_dir: P) -> Result<()> {
-    sync_default_assets(config_dir, false)?;
+    sync_default_assets(config_dir, false, false)?;
     Ok(())
 }
 
@@ -119,7 +123,7 @@ mod tests {
         for (name, content) in DEFAULT_TEMPLATES {
             assert!(!name.is_empty());
             assert!(!content.is_empty());
-            assert!(content.contains("termonet-version: 2"));
+            assert!(content.contains("termonet-version: 3"));
         }
     }
 
@@ -147,10 +151,10 @@ import_line = "source = ~/.config/hypr/colors.conf"
         fs::write(rules_dir.join("hyprland.toml"), old_rule).unwrap();
         fs::write(templates_dir.join("hyprland.tmpl"), old_template).unwrap();
 
-        // Run sync
-        let updated = sync_default_assets(&temp_dir, false).unwrap();
+        // Run sync with create_backups = true
+        let updated = sync_default_assets(&temp_dir, false, true).unwrap();
         assert!(updated.iter().any(|s| s.contains("hyprland.toml (v1 -> v2)")));
-        assert!(updated.iter().any(|s| s.contains("hyprland.tmpl (v1 -> v2)")));
+        assert!(updated.iter().any(|s| s.contains("hyprland.tmpl (v1 -> v3)")));
 
         // Check that backup was created
         assert!(rules_dir.join("hyprland.toml.v1.bak").exists());
@@ -163,11 +167,18 @@ import_line = "source = ~/.config/hypr/colors.conf"
 
         let upgraded_template = fs::read_to_string(templates_dir.join("hyprland.tmpl")).unwrap();
         assert!(upgraded_template.contains("return {"));
-        assert!(upgraded_template.contains("termonet-version: 2"));
+        assert!(upgraded_template.contains("termonet-version: 3"));
 
         // Second sync: should NOT update again since version is already current
-        let updated_second = sync_default_assets(&temp_dir, false).unwrap();
+        let updated_second = sync_default_assets(&temp_dir, false, true).unwrap();
         assert!(updated_second.is_empty());
+
+        // Test sync with create_backups = false on a new outdated file
+        fs::write(rules_dir.join("hyprland.toml"), old_rule).unwrap();
+        let _ = fs::remove_file(rules_dir.join("hyprland.toml.v1.bak"));
+        let updated_clean = sync_default_assets(&temp_dir, false, false).unwrap();
+        assert!(updated_clean.iter().any(|s| s.contains("hyprland.toml (v1 -> v2)")));
+        assert!(!rules_dir.join("hyprland.toml.v1.bak").exists(), "No .bak file when create_backups is false");
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

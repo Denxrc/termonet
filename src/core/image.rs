@@ -34,7 +34,10 @@ pub fn load_and_preprocess_image<P: AsRef<Path>>(path: P) -> Result<DynamicImage
 pub fn to_material_pixels(image: &DynamicImage) -> Vec<material_colors::color::Rgb> {
     let rgb_image = image.to_rgb8();
     rgb_image
-        .pixels()
-        .map(|p| material_colors::color::Rgb::new(p[0], p[1], p[2]))
+        .as_raw()
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .map(|c| material_colors::color::Rgb::new(c[0], c[1], c[2]))
         .collect()
 }

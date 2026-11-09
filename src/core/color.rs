@@ -2,8 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 
+const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
+
 /// Represents an sRGB color with 8-bit channels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 pub struct RgbColor {
     pub r: u8,
     pub g: u8,
@@ -20,9 +22,41 @@ impl Serialize for RgbColor {
         state.serialize_field("r", &self.r)?;
         state.serialize_field("g", &self.g)?;
         state.serialize_field("b", &self.b)?;
-        state.serialize_field("hex", &self.to_hex())?;
-        state.serialize_field("strip", &self.to_stripped_hex())?;
-        state.serialize_field("rgb", &self.to_rgb_string())?;
+
+        // Zero-allocation HEX string slice
+        let hex_bytes = [
+            b'#',
+            HEX_DIGITS[(self.r >> 4) as usize],
+            HEX_DIGITS[(self.r & 0xf) as usize],
+            HEX_DIGITS[(self.g >> 4) as usize],
+            HEX_DIGITS[(self.g & 0xf) as usize],
+            HEX_DIGITS[(self.b >> 4) as usize],
+            HEX_DIGITS[(self.b & 0xf) as usize],
+        ];
+        let hex_str = std::str::from_utf8(&hex_bytes).unwrap_or("");
+        state.serialize_field("hex", hex_str)?;
+
+        // Zero-allocation stripped HEX string slice
+        let strip_bytes = [
+            HEX_DIGITS[(self.r >> 4) as usize],
+            HEX_DIGITS[(self.r & 0xf) as usize],
+            HEX_DIGITS[(self.g >> 4) as usize],
+            HEX_DIGITS[(self.g & 0xf) as usize],
+            HEX_DIGITS[(self.b >> 4) as usize],
+            HEX_DIGITS[(self.b & 0xf) as usize],
+        ];
+        let strip_str = std::str::from_utf8(&strip_bytes).unwrap_or("");
+        state.serialize_field("strip", strip_str)?;
+
+        // Zero-allocation RGB comma-separated string slice via stack cursor
+        use std::io::Write;
+        let mut rgb_buf = [0u8; 16];
+        let mut cursor = std::io::Cursor::new(&mut rgb_buf[..]);
+        let _ = write!(cursor, "{}, {}, {}", self.r, self.g, self.b);
+        let len = cursor.position() as usize;
+        let rgb_str = std::str::from_utf8(&rgb_buf[..len]).unwrap_or("");
+        state.serialize_field("rgb", rgb_str)?;
+
         state.end()
     }
 }
@@ -37,13 +71,30 @@ impl RgbColor {
     /// Formats the color as a standard lowercase HEX string with a leading hash (e.g. "#1a2b3c").
     #[must_use]
     pub fn to_hex(&self) -> String {
-        format!("#{:02x}{:02x}{:02x}", self.r, self.g, self.b)
+        let bytes = [
+            b'#',
+            HEX_DIGITS[(self.r >> 4) as usize],
+            HEX_DIGITS[(self.r & 0xf) as usize],
+            HEX_DIGITS[(self.g >> 4) as usize],
+            HEX_DIGITS[(self.g & 0xf) as usize],
+            HEX_DIGITS[(self.b >> 4) as usize],
+            HEX_DIGITS[(self.b & 0xf) as usize],
+        ];
+        String::from_utf8(bytes.to_vec()).unwrap_or_default()
     }
 
     /// Formats the color as a lowercase HEX string without a leading hash (e.g. "1a2b3c").
     #[must_use]
     pub fn to_stripped_hex(&self) -> String {
-        format!("{:02x}{:02x}{:02x}", self.r, self.g, self.b)
+        let bytes = [
+            HEX_DIGITS[(self.r >> 4) as usize],
+            HEX_DIGITS[(self.r & 0xf) as usize],
+            HEX_DIGITS[(self.g >> 4) as usize],
+            HEX_DIGITS[(self.g & 0xf) as usize],
+            HEX_DIGITS[(self.b >> 4) as usize],
+            HEX_DIGITS[(self.b & 0xf) as usize],
+        ];
+        String::from_utf8(bytes.to_vec()).unwrap_or_default()
     }
 
     /// Formats the color as a comma-separated RGB string (e.g. "26, 43, 60").
@@ -66,7 +117,7 @@ impl From<RgbColor> for ratatui::style::Color {
 }
 
 /// Represents the standard 16 terminal ANSI colors (color0 through color15).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct TerminalPalette {
     pub color0: RgbColor,
     pub color1: RgbColor,
@@ -138,3 +189,39 @@ impl From<material_colors::scheme::Scheme> for MaterialScheme {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rgb_color_formatting_and_lut() {
+        let color = RgbColor::new(0x1a, 0x2b, 0x3c);
+        assert_eq!(color.to_hex(), "#1a2b3c");
+        assert_eq!(color.to_stripped_hex(), "1a2b3c");
+        assert_eq!(color.to_rgb_string(), "26, 43, 60");
+
+        let black = RgbColor::new(0, 0, 0);
+        assert_eq!(black.to_hex(), "#000000");
+        assert_eq!(black.to_stripped_hex(), "000000");
+        assert_eq!(black.to_rgb_string(), "0, 0, 0");
+
+        let white = RgbColor::new(255, 255, 255);
+        assert_eq!(white.to_hex(), "#ffffff");
+        assert_eq!(white.to_stripped_hex(), "ffffff");
+        assert_eq!(white.to_rgb_string(), "255, 255, 255");
+    }
+
+    #[test]
+    fn test_rgb_color_serialization_roundtrip() {
+        let color = RgbColor::new(0x21, 0x96, 0xf3);
+        let serialized = toml::to_string(&color).expect("serialize color");
+        assert!(serialized.contains("hex = \"#2196f3\""));
+        assert!(serialized.contains("strip = \"2196f3\""));
+        assert!(serialized.contains("rgb = \"33, 150, 243\""));
+        assert!(serialized.contains("r = 33"));
+        assert!(serialized.contains("g = 150"));
+        assert!(serialized.contains("b = 243"));
+    }
+}
+

@@ -11,33 +11,25 @@ use crate::wallpaper::monitor::MonitorWallpapers;
 /// Helper function to decode percent-encoded URI strings (e.g. `%20` -> ` `).
 #[must_use]
 pub fn percent_decode(input: &str) -> String {
-    let mut bytes = Vec::with_capacity(input.len());
-    let mut chars = input.bytes().peekable();
-    while let Some(b) = chars.next() {
-        if b == b'%' {
-            let mut matched = false;
-            if let Some(&h1) = chars.peek()
-                && hex_digit(h1).is_some()
-            {
-                let mut iter_clone = chars.clone();
-                iter_clone.next(); // skip h1
-                if let Some(h2) = iter_clone.next()
-                    && let (Some(v1), Some(v2)) = (hex_digit(h1), hex_digit(h2))
-                {
-                    bytes.push((v1 << 4) | v2);
-                    chars.next(); // consume h1
-                    chars.next(); // consume h2
-                    matched = true;
-                }
-            }
-            if !matched {
-                bytes.push(b);
-            }
-        } else {
-            bytes.push(b);
-        }
+    if !input.contains('%') {
+        return input.to_string();
     }
-    String::from_utf8_lossy(&bytes).into_owned()
+
+    let bytes = input.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len()
+            && let (Some(v1), Some(v2)) = (hex_digit(bytes[i + 1]), hex_digit(bytes[i + 2]))
+        {
+            decoded.push((v1 << 4) | v2);
+            i += 3;
+            continue;
+        }
+        decoded.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&decoded).into_owned()
 }
 
 fn hex_digit(b: u8) -> Option<u8> {

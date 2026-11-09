@@ -27,6 +27,8 @@ fn main() -> Result<()> {
                 println!("\nGeneral Options:");
                 println!("  -w, --wallpaper <PATH>   Path to wallpaper image (PNG, JPG, GIF, WebP)");
                 println!("  -i, --wizard, --init     Launch first-run configuration wizard");
+                println!("      --no-backup          Disable creation of backup copies (.bak, .original)");
+                println!("      --backup             Enable creation of backup copies (.bak, .original)");
                 println!("      --reset-rules        Force reset default rules and templates to latest");
                 println!("  -h, --help               Print help information");
                 println!("\nTUI Controls:");
@@ -55,9 +57,16 @@ fn main() -> Result<()> {
             "-i" | "--wizard" | "--init" => {
                 force_wizard = true;
             }
+            "--no-backup" => {
+                cli_args.no_backup = true;
+            }
+            "--backup" => {
+                cli_args.backup = true;
+            }
             "--reset-rules" | "--update-rules" => {
                 if let Ok(config_dir) = termonet::config::AppPaths::config_dir() {
-                    let updated = termonet::template::sync_default_assets(config_dir, true)?;
+                    let cfg = AppConfig::load()?.unwrap_or_default();
+                    let updated = termonet::template::sync_default_assets(config_dir, true, cfg.create_backups)?;
                     println!("Default rules and templates synchronized:");
                     if updated.is_empty() {
                         println!("  All rules and templates are already up to date.");
@@ -79,9 +88,19 @@ fn main() -> Result<()> {
 
     cli_args.wallpaper = wallpaper_path.clone();
 
+    // Load configuration (auto-migrating outdated schemas if needed)
+    let loaded_config = AppConfig::load()?;
+    let is_first_run = loaded_config.is_none();
+    let mut config = loaded_config.unwrap_or_default();
+    if cli_args.no_backup {
+        config.create_backups = false;
+    } else if cli_args.backup {
+        config.create_backups = true;
+    }
+
     // Synchronize and auto-migrate default templates and rules into ~/.config/termonet/
     if let Ok(config_dir) = termonet::config::AppPaths::config_dir() {
-        let _ = termonet::template::sync_default_assets(config_dir, false);
+        let _ = termonet::template::sync_default_assets(config_dir, false, config.create_backups);
     }
 
     // 1. Check if headless CLI mode was requested
@@ -91,10 +110,6 @@ fn main() -> Result<()> {
     }
 
     // 2. Interactive TUI mode
-    let loaded_config = AppConfig::load()?;
-    let is_first_run = loaded_config.is_none();
-    let config = loaded_config.unwrap_or_default();
-
     let mut state = if force_wizard || is_first_run {
         AppState::new_wizard(config)
     } else {
