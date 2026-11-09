@@ -11,7 +11,7 @@
 **Быстрый и динамический генератор системных тем и палитр Material You для Linux**
 
 [![Rust Edition 2024](https://img.shields.io/badge/rust-edition_2024-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/версия-1.0.0-blue.svg)](Cargo.toml)
+[![Version](https://img.shields.io/badge/версия-1.2.0-blue.svg)](Cargo.toml)
 [![License: MIT](https://img.shields.io/badge/лицензия-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/платформа-Linux%20(Wayland%20%2F%20X11)-lightgrey.svg)]()
 
@@ -59,7 +59,7 @@
 | Шаг | Экран | Описание |
 | :---: | :--- | :--- |
 | **1** | **Палитра** | Просмотр ролей Material You и 16 цветов ANSI; нажатие `w` открывает ввод пути к обоям |
-| **2** | **Программы** | Выбор поддерживаемых приложений (Kitty, Waybar, Rofi, Hyprland, Alacritty, Dunst, Sway) |
+| **2** | **Программы** | Выбор поддерживаемых приложений (Kitty, Waybar, Rofi, Hyprland) и кастомных целей |
 | **3** | **Хуки** | Просмотр и переключение команд перезапуска сервисов (напр. `hyprctl reload`, `killall -SIGUSR2 waybar`) |
 | **4** | **Применение** | Сводка обновляемых файлов и запускаемых хуков перед записью |
 
@@ -171,6 +171,9 @@ enabled_programs = [
     "rofi",
     "hyprland"
 ]
+
+# Создание резервных копий (false — чистое обновление без мусора .bak)
+create_backups = false
 ```
 
 ---

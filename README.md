@@ -11,7 +11,7 @@
 **Fast, dynamic Material You system theme and palette generator for Linux**
 
 [![Rust Edition 2024](https://img.shields.io/badge/rust-edition_2024-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](Cargo.toml)
+[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](Cargo.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20(Wayland%20%2F%20X11)-lightgrey.svg)]()
 
@@ -59,7 +59,7 @@ Termonet organizes its workflow into 4 focused steps:
 | Step | Screen | Description |
 | :---: | :--- | :--- |
 | **1** | **Palette** | Preview Material You color roles and ANSI terminal swatches; press `w` to enter a new wallpaper path |
-| **2** | **Programs** | Toggle supported applications (Kitty, Waybar, Rofi, Hyprland, Alacritty, Dunst, Sway) |
+| **2** | **Programs** | Toggle supported applications (Kitty, Waybar, Rofi, Hyprland) or custom targets |
 | **3** | **Hooks** | Configure application reload hooks and commands (e.g. `hyprctl reload`, `killall -SIGUSR2 waybar`) |
 | **4** | **Apply** | Review planned file writes and service reload commands before final execution |
 
@@ -138,6 +138,8 @@ Usage: termonet [OPTIONS] [WALLPAPER_PATH]
 Headless / Automation Options:
   -a, --apply              Headless mode: apply theme from active wallpaper and exit
   -f, --force              Force re-application ignoring cached wallpaper state
+      --no-backup          Disable creation of backup copies (.bak, .original)
+      --backup             Enable creation of backup copies (.bak, .original)
 
 General Options:
   -w, --wallpaper <PATH>   Path to wallpaper image (PNG, JPG, GIF, WebP)
@@ -187,6 +189,9 @@ enabled_programs = [
     "rofi",
     "hyprland"
 ]
+
+# Safety & backups (set to false for clean direct overwrites without .bak clutter)
+create_backups = false
 ```
 
 ---
