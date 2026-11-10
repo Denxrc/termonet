@@ -14,6 +14,7 @@
 [![Version](https://img.shields.io/badge/версия-1.2.0-blue.svg)](Cargo.toml)
 [![License: MIT](https://img.shields.io/badge/лицензия-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/платформа-Linux%20(Wayland%20%2F%20X11)-lightgrey.svg)]()
+[![XERJ Corpus Hub автор](https://hub.xerj.org/contributors/Denxrc/badge.svg)](https://hub.xerj.org/contributors/Denxrc)
 
 [English](README.md) | [Русский](README.ru.md)
 
@@ -22,6 +23,9 @@
 ---
 
 ## 🌟 О проекте
+
+> [!NOTE]
+> **XERJ Corpus Hub**: Termonet включен в базу [XERJ Corpus Hub](https://hub.xerj.org/contributors/Denxrc) как практический пример реализации TUI, работы с путями и темами на Rust.
 
 **Termonet** — легковесный, безопасный генератор динамических тем оформления и цветовых палитр для графических окружений Linux (Wayland и X11), написанный на **Rust** (edition 2024).
 

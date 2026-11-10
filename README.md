@@ -14,6 +14,7 @@
 [![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](Cargo.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20(Wayland%20%2F%20X11)-lightgrey.svg)]()
+[![XERJ Corpus Hub](https://hub.xerj.org/contributors/Denxrc/badge.svg)](https://hub.xerj.org/contributors/Denxrc)
 
 [English](README.md) | [Русский](README.ru.md)
 
@@ -22,6 +23,9 @@
 ---
 
 ## 🌟 Overview
+
+> [!NOTE]
+> **XERJ Corpus Hub**: Termonet is indexed in the [XERJ Corpus Hub](https://hub.xerj.org/contributors/Denxrc) as a worked example for Rust TUI architecture, path handling, and dynamic theming.
 
 **Termonet** is a lightweight, zero-privilege, dynamic theme engine and palette generator for Linux desktop environments (Wayland and X11), written in **Rust** (edition 2024).
 
