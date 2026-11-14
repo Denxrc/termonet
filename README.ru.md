@@ -11,7 +11,7 @@
 **Быстрый и динамический генератор системных тем и палитр Material You для Linux**
 
 [![Rust Edition 2024](https://img.shields.io/badge/rust-edition_2024-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/версия-1.2.0-blue.svg)](Cargo.toml)
+[![Version](https://img.shields.io/badge/версия-1.3.0-blue.svg)](Cargo.toml)
 [![License: MIT](https://img.shields.io/badge/лицензия-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/платформа-Linux%20(Wayland%20%2F%20X11)-lightgrey.svg)]()
 [![XERJ Corpus Hub автор](https://hub.xerj.org/contributors/Denxrc/badge.svg)](https://hub.xerj.org/contributors/Denxrc)
@@ -132,6 +132,9 @@ termonet --init
 
 # Принудительная синхронизация и обновление шаблонов/правил до актуальных
 termonet --reset-rules
+
+# Диагностика: проверка и вывод данных всех поддерживаемых менеджеров обоев
+termonet --debug-wallpaper
 ```
 
 ---

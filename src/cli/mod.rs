@@ -13,6 +13,7 @@ pub struct CliArgs {
     pub wallpaper: Option<String>,
     pub no_backup: bool,
     pub backup: bool,
+    pub debug_wallpaper: bool,
 }
 
 /// Executes headless apply without TUI if `--apply` flag is passed.
@@ -117,5 +118,12 @@ mod tests {
         };
         let res = run_cli_mode(&args);
         assert!(!res.unwrap());
+    }
+
+    #[test]
+    fn test_diagnostic_report_generation() {
+        let report = crate::wallpaper::provider::run_all_diagnostics();
+        assert!(!report.is_empty());
+        assert!(report.contains("Termonet Wallpaper Diagnostics"));
     }
 }

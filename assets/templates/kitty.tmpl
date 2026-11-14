@@ -1,7 +1,7 @@
 # ==============================================================================
 # Termonet Kitty Color Scheme
 # Generated automatically by Termonet
-# termonet-version: 3
+# termonet-version: 4
 # ==============================================================================
 
 background {{ terminal.background.hex }}
@@ -10,6 +10,21 @@ selection_background {{ active.secondary_container.hex }}
 selection_foreground {{ active.on_secondary_container.hex }}
 cursor {{ terminal.cursor.hex }}
 cursor_text_color {{ terminal.background.hex }}
+
+# Tab Bar (Material You)
+active_tab_foreground {{ active.on_primary_container.hex }}
+active_tab_background {{ active.primary_container.hex }}
+inactive_tab_foreground {{ active.on_surface_variant.hex }}
+inactive_tab_background {{ active.surface_variant.hex }}
+tab_bar_background {{ active.surface.hex }}
+
+# Window Borders & Alerts
+active_border_color {{ active.primary.hex }}
+inactive_border_color {{ active.surface_variant.hex }}
+bell_border_color {{ active.error.hex }}
+
+# URL & Highlights
+url_color {{ active.primary.hex }}
 
 # ANSI 16 Colors
 # Black

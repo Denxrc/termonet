@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-use crate::config::paths::AppPaths;
 use crate::error::{Result, TermonetError};
 use crate::wallpaper::monitor::MonitorWallpapers;
 
@@ -15,55 +14,14 @@ use crate::wallpaper::monitor::MonitorWallpapers;
 /// crop modes, scaling filters, or surrounding quotes (e.g. `crop:center Lanczos3 /path/to/wall.png`).
 #[must_use]
 pub fn extract_wallpaper_path_from_str(s: &str) -> Option<PathBuf> {
-    let mut trimmed = s.trim().trim_matches(|c| c == '\'' || c == '"');
-    if trimmed.is_empty() {
-        return None;
-    }
-
-    // If string contains trailing parentheses like (scale: 1.0), strip them
-    if let Some((before_paren, _)) = trimmed.split_once('(') {
-        let before_trimmed = before_paren.trim();
-        if !before_trimmed.is_empty() && (before_trimmed.starts_with('/') || before_trimmed.starts_with('~')) {
-            trimmed = before_trimmed;
-        }
-    }
-
-    // Direct path starting with / or ~
-    if trimmed.starts_with('/') || trimmed.starts_with('~') {
-        return Some(AppPaths::expand_tilde(trimmed));
-    }
-
-    // Search for the first occurrence of '~/' or '/' (prioritize '~/' so flags don't strip tilde)
-    let path_start_idx = match (trimmed.find("~/"), trimmed.find('/')) {
-        (Some(tilde_idx), Some(slash_idx)) => Some(tilde_idx.min(slash_idx)),
-        (Some(tilde_idx), None) => Some(tilde_idx),
-        (None, Some(slash_idx)) => Some(slash_idx),
-        (None, None) => None,
-    };
-    if let Some(idx) = path_start_idx {
-        let candidate = trimmed[idx..].trim_matches(|c| c == '\'' || c == '"' || c == ' ');
-        if !candidate.is_empty() {
-            let clean_candidate = candidate.split_once('(').map(|(b, _)| b.trim()).unwrap_or(candidate);
-            return Some(AppPaths::expand_tilde(clean_candidate));
-        }
-    }
-
-    // Fallback: check whitespace-separated tokens in reverse
-    for token in trimmed.split_whitespace().rev() {
-        let clean = token.trim_matches(|c| c == '\'' || c == '"' || c == '(' || c == ')');
-        if clean.starts_with('/') || clean.starts_with('~') {
-            return Some(AppPaths::expand_tilde(clean));
-        }
-    }
-
-    None
+    crate::wallpaper::path::sanitize_wallpaper_path(s)
 }
 
 /// Queries active wallpapers from `awww` or `swww` CLI or disk cache.
 /// Prioritizes the modern `awww` binary, falling back to `swww` and finally inspecting ~/.cache/awww.
 pub fn query_awww_or_swww() -> Result<MonitorWallpapers> {
-    // 1. Try awww query CLI
-    if let Ok(output) = Command::new("awww").arg("query").output()
+    // 1. Try awww query CLI (with --all to capture all namespaces)
+    if let Ok(output) = Command::new("awww").args(["query", "--all"]).output()
         && output.status.success()
     {
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -84,8 +42,15 @@ pub fn query_awww_or_swww() -> Result<MonitorWallpapers> {
         }
     }
 
-    // 3. Fallback: inspect disk cache in ~/.cache/awww and ~/.cache/swww
-    if let Ok(cached) = query_awww_or_swww_cache() {
+    // 3. Fallback: inspect disk cache in ~/.cache/awww and ~/.cache/swww only if runtime socket/dir exists
+    let runtime_dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
+    let daemon_running = runtime_dir.as_ref().is_some_and(|rt| {
+        rt.join("awww.sock").exists()
+            || rt.join("swww.sock").exists()
+            || rt.join("swww").is_dir()
+            || rt.join("awww").is_dir()
+    });
+    if daemon_running && let Ok(cached) = query_awww_or_swww_cache() {
         return Ok(cached);
     }
 
@@ -162,36 +127,81 @@ pub fn query_swww() -> Result<MonitorWallpapers> {
     query_awww_or_swww()
 }
 
-/// Parses output from `awww query` or `swww query`.
+/// Parses output from `awww query --all` or `swww query`.
 /// Example formats:
 /// - `DP-1: 2560x1440, scale: 1, currently displaying: /path/to/image.png`
 /// - `DP-1: 2560x1440\t, scale: 1, currently displaying:  crop:center Lanczos3 /path/to/image.png`
-/// - `eDP-1: currently displaying: /path/to/image.png`
+/// - `: DP-1: 2560x1440, scale: 1, currently displaying: image: /path/to/image.png`
+/// - `test: DP-1: 2560x1440, scale: 1, currently displaying: color: 000000`
 /// - `HDMI-A-1: /path/to/image.png`
 #[must_use]
 pub fn parse_awww_or_swww_output(raw: &str) -> HashMap<String, PathBuf> {
-    let mut map = HashMap::new();
+    let mut default_ns_map = HashMap::new();
+    let mut custom_ns_map = HashMap::new();
+
     for line in raw.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.to_lowercase().starts_with("error") {
             continue;
         }
 
-        let Some((mon_part, rest)) = trimmed.split_once(':') else {
+        // Ignore solid color layers
+        if trimmed.contains("currently displaying: color:") {
+            continue;
+        }
+
+        // Extract path portion
+        let (prefix, path_part) = if let Some((pfx, path)) = trimmed.split_once("currently displaying:") {
+            let clean_path = path.trim().strip_prefix("image:").unwrap_or(path).trim();
+            (pfx.trim(), clean_path)
+        } else {
+            // Short or comma-separated format
+            let parts: Vec<&str> = trimmed.split(',').map(str::trim).collect();
+            let last = parts.last().copied().unwrap_or(trimmed);
+            (trimmed, last)
+        };
+
+        let Some(path) = extract_wallpaper_path_from_str(path_part) else {
             continue;
         };
-        let monitor = mon_part.trim().to_string();
 
-        let path_str = if let Some((_, path_part)) = rest.split_once("currently displaying:") {
-            path_part.trim()
+        // Determine namespace and monitor name from prefix
+        // Format examples for prefix:
+        // 1. ": DP-1: 2560x1440, scale: 1," -> namespace is default (""), monitor is "DP-1"
+        // 2. "test: DP-1: 2560x1440, scale: 1," -> namespace is "test", monitor is "DP-1"
+        // 3. "DP-1: 2560x1440, scale: 1," -> namespace is default (""), monitor is "DP-1"
+        // 4. "HDMI-A-1: /path" -> monitor is "HDMI-A-1"
+        let (is_default_ns, monitor) = if prefix.starts_with(':') {
+            let after = prefix.strip_prefix(':').unwrap_or(prefix).trim();
+            let mon = after.split_once(':').map(|(m, _)| m.trim()).unwrap_or(after);
+            (true, mon.to_string())
         } else {
-            let parts: Vec<&str> = rest.split(',').map(str::trim).collect();
-            parts.last().copied().unwrap_or(rest.trim())
+            let parts: Vec<&str> = prefix.split(':').map(str::trim).collect();
+            let is_geometry = parts.get(1).is_some_and(|p| {
+                p.contains(',')
+                    || p.contains("scale")
+                    || (p.contains('x') && p.split('x').all(|s| s.trim().chars().any(|c| c.is_ascii_digit())))
+            });
+            if parts.len() >= 3 && !is_geometry && !parts[1].is_empty() {
+                (false, parts[1].to_string())
+            } else if let Some(first) = parts.first() && !first.is_empty() {
+                (true, first.to_string())
+            } else {
+                continue;
+            }
         };
 
-        if let Some(path) = extract_wallpaper_path_from_str(path_str) {
-            map.insert(monitor, path);
+        if is_default_ns {
+            default_ns_map.insert(monitor, path);
+        } else {
+            custom_ns_map.insert(monitor, path);
         }
+    }
+
+    // Default namespace has precedence on conflict
+    let mut map = custom_ns_map;
+    for (mon, path) in default_ns_map {
+        map.insert(mon, path);
     }
     map
 }
@@ -293,25 +303,73 @@ pub fn parse_hyprpaper_active_output(raw: &str) -> HashMap<String, PathBuf> {
 }
 
 /// Parses static wallpaper declarations from `hyprpaper.conf`.
-/// Example: `wallpaper = DP-1,/path/to/wallpaper.png` or `wallpaper = ,/path/to/wallpaper.png`
+/// Supports:
+/// - Single-line legacy syntax: `wallpaper = DP-1,/path` or `wallpaper = ,/path`
+/// - Modern block syntax: `wallpaper { monitor = DP-1 \n path = /path }`
+///
+/// Ignores `preload = ...` and comments starting with `#`.
 #[must_use]
 pub fn parse_hyprpaper_conf(content: &str) -> HashMap<String, PathBuf> {
     let mut map = HashMap::new();
+    let mut in_wallpaper_block = false;
+    let mut current_block_monitor: Option<String> = None;
+    let mut current_block_path: Option<String> = None;
+
     for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with('#') || !trimmed.starts_with("wallpaper") {
+        let line_clean = if let Some((before_hash, _)) = line.split_once('#') {
+            before_hash
+        } else {
+            line
+        };
+        let trimmed = line_clean.trim();
+        if trimmed.is_empty() {
             continue;
         }
 
-        let Some((_, rest)) = trimmed.split_once('=') else {
+        if in_wallpaper_block {
+            if trimmed == "}" || trimmed.starts_with('}') {
+                in_wallpaper_block = false;
+                if let Some(path_str) = current_block_path.take() {
+                    let mon = current_block_monitor.take().unwrap_or_else(|| "default".to_string());
+                    let key = if mon.is_empty() { "default".to_string() } else { mon };
+                    if let Some(path) = extract_wallpaper_path_from_str(&path_str) {
+                        map.insert(key, path);
+                    }
+                }
+                continue;
+            }
+            if let Some((k, v)) = trimmed.split_once('=') {
+                let k = k.trim();
+                let v = v.trim();
+                if k == "monitor" {
+                    current_block_monitor = Some(v.to_string());
+                } else if k == "path" {
+                    current_block_path = Some(v.to_string());
+                }
+            }
             continue;
-        };
-        let rest = rest.trim();
-        if let Some((mon, path_str)) = rest.split_once(',') {
-            let mon = mon.trim();
-            let key = if mon.is_empty() { "default".to_string() } else { mon.to_string() };
-            if let Some(path) = extract_wallpaper_path_from_str(path_str) {
-                map.insert(key, path);
+        }
+
+        if trimmed.starts_with("wallpaper") && trimmed.contains('{') {
+            in_wallpaper_block = true;
+            current_block_monitor = None;
+            current_block_path = None;
+            continue;
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("wallpaper") {
+            let rest = rest.trim();
+            if let Some(after_eq) = rest.strip_prefix('=') {
+                let after_eq = after_eq.trim();
+                let (mon, path_str) = if let Some((m, p)) = after_eq.split_once(',') {
+                    (m.trim(), p)
+                } else {
+                    ("default", after_eq)
+                };
+                let key = if mon.is_empty() { "default".to_string() } else { mon.to_string() };
+                if let Some(path) = extract_wallpaper_path_from_str(path_str) {
+                    map.insert(key, path);
+                }
             }
         }
     }
@@ -325,13 +383,28 @@ pub fn query_swaybg() -> Result<MonitorWallpapers> {
 
 /// Helper function to inspect a custom `/proc` directory (facilitates mock unit testing).
 pub fn query_swaybg_from_proc(proc_root: &Path) -> Result<MonitorWallpapers> {
+    use std::os::unix::fs::MetadataExt;
+
     let entries = std::fs::read_dir(proc_root)
         .map_err(|e| TermonetError::WallpaperNotFound(format!("Failed to read {}: {e}", proc_root.display())))?;
+
+    let current_uid = std::fs::metadata("/proc/self")
+        .map(|m| m.uid())
+        .unwrap_or(1000);
+
+    let mut outputs = HashMap::new();
 
     for entry in entries.flatten() {
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
         if !name_str.chars().all(|c| c.is_ascii_digit()) {
+            continue;
+        }
+
+        // Verify process UID ownership matches current user
+        if let Ok(meta) = entry.metadata()
+            && meta.uid() != current_uid
+        {
             continue;
         }
 
@@ -344,9 +417,9 @@ pub fn query_swaybg_from_proc(proc_root: &Path) -> Result<MonitorWallpapers> {
             continue;
         }
 
-        // Fast-path rejection: check if the binary ends with swaybg before allocating Vec<String>
+        // Fast-path rejection: check if the binary is swaybg or path ends with /swaybg
         let first_arg = cmdline_bytes.split(|&b| b == 0).next().unwrap_or(&[]);
-        if !first_arg.ends_with(b"swaybg") {
+        if !(first_arg == b"swaybg" || first_arg.ends_with(b"/swaybg")) {
             continue;
         }
 
@@ -361,19 +434,24 @@ pub fn query_swaybg_from_proc(proc_root: &Path) -> Result<MonitorWallpapers> {
         }
 
         let exec = &args[0];
-        if exec.ends_with("swaybg") {
-            let outputs = parse_swaybg_args(&args[1..]);
-            if !outputs.is_empty() {
-                return Ok(MonitorWallpapers { outputs });
+        if exec == "swaybg" || exec.ends_with("/swaybg") {
+            let proc_outputs = parse_swaybg_args(&args[1..]);
+            for (mon, path) in proc_outputs {
+                outputs.insert(mon, path);
             }
         }
     }
 
-    Err(TermonetError::WallpaperNotFound("No active swaybg process found in proc".into()))
+    if outputs.is_empty() {
+        Err(TermonetError::WallpaperNotFound("No active swaybg process found in proc".into()))
+    } else {
+        Ok(MonitorWallpapers { outputs })
+    }
 }
 
 /// Parses CLI arguments passed to `swaybg`.
-/// Handles `-o <output> -i <path>`, `--output <output> --image <path>`, and `-i <path>`.
+/// Handles `-o <output> -i <path>`, `--output=<output> --image=<path>`, and `-i <path>`.
+/// Ignores color arguments (`-c`, `--color`, `--color=...`).
 #[must_use]
 pub fn parse_swaybg_args(args: &[String]) -> HashMap<String, PathBuf> {
     let mut outputs = HashMap::new();
@@ -381,19 +459,31 @@ pub fn parse_swaybg_args(args: &[String]) -> HashMap<String, PathBuf> {
     let mut i = 0;
 
     while i < args.len() {
-        match args[i].as_str() {
-            "-o" | "--output" if i + 1 < args.len() => {
-                current_output = Some(args[i + 1].clone());
+        let arg = &args[i];
+        if let Some(val) = arg.strip_prefix("--output=") {
+            let mon = val.trim();
+            current_output = Some(if mon == "*" { "default".to_string() } else { mon.to_string() });
+        } else if arg == "-o" || arg == "--output" {
+            if i + 1 < args.len() {
+                let mon = args[i + 1].trim();
+                current_output = Some(if mon == "*" { "default".to_string() } else { mon.to_string() });
                 i += 1;
             }
-            "-i" | "--image" if i + 1 < args.len() => {
+        } else if let Some(val) = arg.strip_prefix("--image=") {
+            if let Some(img_path) = extract_wallpaper_path_from_str(val) {
+                let mon = current_output.take().unwrap_or_else(|| "default".to_string());
+                outputs.insert(mon, img_path);
+            }
+        } else if arg == "-i" || arg == "--image" {
+            if i + 1 < args.len() {
                 if let Some(img_path) = extract_wallpaper_path_from_str(&args[i + 1]) {
                     let mon = current_output.take().unwrap_or_else(|| "default".to_string());
                     outputs.insert(mon, img_path);
                 }
                 i += 1;
             }
-            _ => {}
+        } else if (arg == "-c" || arg == "--color") && i + 1 < args.len() {
+            i += 1;
         }
         i += 1;
     }
@@ -401,8 +491,41 @@ pub fn parse_swaybg_args(args: &[String]) -> HashMap<String, PathBuf> {
     outputs
 }
 
-/// Queries active wallpapers from `wpaperd` by inspecting symlinks in its state/cache directory.
+/// Parses output from `wpaperctl all-wallpapers`.
+/// Format: `MONITOR: /path/to/wallpaper`
+#[must_use]
+pub fn parse_wpaperctl_output(raw: &str) -> HashMap<String, PathBuf> {
+    let mut map = HashMap::new();
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.to_lowercase().starts_with("error") {
+            continue;
+        }
+        if let Some((mon, path_str)) = trimmed.split_once(':') {
+            let mon = mon.trim();
+            if let Some(path) = extract_wallpaper_path_from_str(path_str) {
+                map.insert(mon.to_string(), path);
+            }
+        }
+    }
+    map
+}
+
+/// Queries active wallpapers from `wpaperd` by trying `wpaperctl all-wallpapers` first,
+/// falling back to inspecting symlinks in its state/cache directory.
 pub fn query_wpaperd() -> Result<MonitorWallpapers> {
+    // 1. Try wpaperctl all-wallpapers CLI
+    if let Ok(output) = Command::new("wpaperctl").arg("all-wallpapers").output()
+        && output.status.success()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let parsed = parse_wpaperctl_output(&stdout);
+        if !parsed.is_empty() {
+            return Ok(MonitorWallpapers { outputs: parsed });
+        }
+    }
+
+    // 2. Fallback: inspect symlinks in state directory
     let mut candidates = Vec::new();
     if let Some(state_dir) = std::env::var_os("XDG_STATE_HOME").map(PathBuf::from) {
         candidates.push(state_dir.join("wpaperd/wallpapers"));
@@ -574,5 +697,67 @@ wallpaper = ,/home/user/fallback.png
         assert_eq!(res.outputs.get("DP-2"), Some(&PathBuf::from("/tmp/swaywall.png")));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_parse_awww_namespaces_and_color_skipping() {
+        let raw = "\
+test: DP-1: 2560x1440, scale: 1, currently displaying: color: 000000
+test: HDMI-A-1: 960x540, scale: 2, currently displaying: color: 000000
+: DP-1: 2560x1440, scale: 1, currently displaying: image: /home/user/Pictures/wall_dp.png
+: HDMI-A-1: 960x540, scale: 2, currently displaying: image: /home/user/Pictures/wall_hdmi.gif
+";
+        let parsed = parse_awww_or_swww_output(raw);
+        assert_eq!(parsed.get("DP-1"), Some(&PathBuf::from("/home/user/Pictures/wall_dp.png")));
+        assert_eq!(parsed.get("HDMI-A-1"), Some(&PathBuf::from("/home/user/Pictures/wall_hdmi.gif")));
+    }
+
+    #[test]
+    fn test_parse_hyprpaper_block_and_legacy_syntax() {
+        let raw = "\
+# Hyprpaper config sample
+preload = /home/user/Pictures/preload.png
+
+wallpaper {
+    monitor = DP-1
+    path = /home/user/Pictures/block_dp.png
+}
+
+wallpaper {
+    monitor =
+    path = /home/user/Pictures/default_wall.png
+}
+";
+        let parsed = parse_hyprpaper_conf(raw);
+        assert_eq!(parsed.get("DP-1"), Some(&PathBuf::from("/home/user/Pictures/block_dp.png")));
+        assert_eq!(parsed.get("default"), Some(&PathBuf::from("/home/user/Pictures/default_wall.png")));
+    }
+
+    #[test]
+    fn test_parse_wpaperctl_output() {
+        let raw = "\
+HDMI-A-1: /home/user/Pictures/wallp.gif
+DP-1: /home/user/Pictures/wallp.png
+";
+        let parsed = parse_wpaperctl_output(raw);
+        assert_eq!(parsed.get("DP-1"), Some(&PathBuf::from("/home/user/Pictures/wallp.png")));
+        assert_eq!(parsed.get("HDMI-A-1"), Some(&PathBuf::from("/home/user/Pictures/wallp.gif")));
+    }
+
+    #[test]
+    fn test_parse_swaybg_equals_and_colors() {
+        let args = vec![
+            "--output=DP-1".into(),
+            "--image=/home/user/wall1.png".into(),
+            "-c".into(),
+            "#000000".into(),
+            "-o".into(),
+            "HDMI-A-1".into(),
+            "-i".into(),
+            "/home/user/wall2.png".into(),
+        ];
+        let parsed = parse_swaybg_args(&args);
+        assert_eq!(parsed.get("DP-1"), Some(&PathBuf::from("/home/user/wall1.png")));
+        assert_eq!(parsed.get("HDMI-A-1"), Some(&PathBuf::from("/home/user/wall2.png")));
     }
 }

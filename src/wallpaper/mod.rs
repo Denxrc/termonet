@@ -2,9 +2,13 @@
 
 pub mod de;
 pub mod monitor;
+pub mod path;
+pub mod provider;
 pub mod wayland;
 
 pub use monitor::MonitorWallpapers;
+pub use path::{clean_wallpaper_path, percent_decode, sanitize_wallpaper_path, validate_wallpaper_path};
+pub use provider::{all_providers, WallpaperProvider};
 
 use std::path::PathBuf;
 use crate::config::WallpaperBackend;
@@ -60,50 +64,20 @@ pub fn get_current_wallpaper(
                 .ok_or_else(|| TermonetError::WallpaperNotFound("No active KDE Plasma wallpaper detected".into()))
         }
         WallpaperBackend::Feh => {
-            if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
-                let fehbg = home.join(".fehbg");
-                if fehbg.exists()
-                    && let Ok(content) = std::fs::read_to_string(&fehbg)
-                {
-                    if let Some(path) = wayland::extract_wallpaper_path_from_str(&content)
-                        && path.exists()
-                    {
-                        return Ok(path);
-                    }
-                    for token in content.split_whitespace() {
-                        let clean = token.trim_matches(|c| c == '\'' || c == '"');
-                        if clean.starts_with('/') || clean.starts_with('~') {
-                            let p = crate::config::paths::AppPaths::expand_tilde(clean);
-                            if p.exists() {
-                                return Ok(p);
-                            }
-                        }
-                    }
-                }
-            }
-            Err(TermonetError::WallpaperNotFound("No active feh wallpaper found in ~/.fehbg".into()))
+            let monitors = provider::FehProvider.query()?;
+            monitors
+                .resolve_primary(primary_monitor)
+                .ok_or_else(|| TermonetError::WallpaperNotFound("No active feh wallpaper found in ~/.fehbg".into()))
         }
         WallpaperBackend::Nitrogen => {
-            if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
-                let nitrogen_cfg = home.join(".config/nitrogen/bg-saved.cfg");
-                if nitrogen_cfg.exists()
-                    && let Ok(content) = std::fs::read_to_string(&nitrogen_cfg)
-                {
-                    for line in content.lines() {
-                        if let Some((k, v)) = line.split_once('=')
-                            && k.trim() == "file"
-                        {
-                            let p = crate::config::paths::AppPaths::expand_tilde(v.trim());
-                            if p.exists() {
-                                return Ok(p);
-                            }
-                        }
-                    }
-                }
-            }
-            Err(TermonetError::WallpaperNotFound(
-                "No active nitrogen wallpaper found in ~/.config/nitrogen/bg-saved.cfg".into(),
-            ))
+            let monitors = provider::NitrogenProvider.query()?;
+            monitors
+                .resolve_primary(primary_monitor)
+                .ok_or_else(|| {
+                    TermonetError::WallpaperNotFound(
+                        "No active nitrogen wallpaper found in ~/.config/nitrogen/bg-saved.cfg".into(),
+                    )
+                })
         }
     }
 }

@@ -1,7 +1,7 @@
 /* ==============================================================================
  * Termonet Rofi Color Scheme
  * Generated automatically by Termonet
- * termonet-version: 3
+ * termonet-version: 4
  * ============================================================================== */
 
 * {
@@ -23,6 +23,15 @@
     background: {{ terminal.background.hex }};
     foreground: {{ terminal.foreground.hex }};
     outline: {{ active.outline.hex }};
+    error: {{ active.error.hex }};
+    on-error: {{ active.on_error.hex }};
+
+    /* Material You Glassmorphism Roles (8-digit hex #rrggbbaa) */
+    bg-glass: {{ active.surface.hex }}b3;
+    input-glass: {{ active.surface.hex }}80;
+    border-glass: {{ active.primary.hex }}33;
+    selected-bg: {{ active.primary.hex }}26;
+    selected-border: {{ active.primary.hex }}73;
 
     color0: {{ terminal.color0.hex }};
     color1: {{ terminal.color1.hex }};

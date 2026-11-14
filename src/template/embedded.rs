@@ -123,7 +123,7 @@ mod tests {
         for (name, content) in DEFAULT_TEMPLATES {
             assert!(!name.is_empty());
             assert!(!content.is_empty());
-            assert!(content.contains("termonet-version: 3"));
+            assert!(content.contains("termonet-version: 4"));
         }
     }
 
@@ -154,7 +154,7 @@ import_line = "source = ~/.config/hypr/colors.conf"
         // Run sync with create_backups = true
         let updated = sync_default_assets(&temp_dir, false, true).unwrap();
         assert!(updated.iter().any(|s| s.contains("hyprland.toml (v1 -> v2)")));
-        assert!(updated.iter().any(|s| s.contains("hyprland.tmpl (v1 -> v3)")));
+        assert!(updated.iter().any(|s| s.contains("hyprland.tmpl (v1 -> v4)")));
 
         // Check that backup was created
         assert!(rules_dir.join("hyprland.toml.v1.bak").exists());
@@ -167,7 +167,7 @@ import_line = "source = ~/.config/hypr/colors.conf"
 
         let upgraded_template = fs::read_to_string(templates_dir.join("hyprland.tmpl")).unwrap();
         assert!(upgraded_template.contains("return {"));
-        assert!(upgraded_template.contains("termonet-version: 3"));
+        assert!(upgraded_template.contains("termonet-version: 4"));
 
         // Second sync: should NOT update again since version is already current
         let updated_second = sync_default_assets(&temp_dir, false, true).unwrap();

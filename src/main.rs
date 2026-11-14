@@ -30,6 +30,7 @@ fn main() -> Result<()> {
                 println!("      --no-backup          Disable creation of backup copies (.bak, .original)");
                 println!("      --backup             Enable creation of backup copies (.bak, .original)");
                 println!("      --reset-rules        Force reset default rules and templates to latest");
+                println!("      --debug-wallpaper    Print active wallpaper managers diagnostic report");
                 println!("  -h, --help               Print help information");
                 println!("\nTUI Controls:");
                 println!("  Left / Right (h / l)     Switch between steps / windows (1..4)");
@@ -76,6 +77,11 @@ fn main() -> Result<()> {
                         }
                     }
                 }
+                return Ok(());
+            }
+            "--debug-wallpaper" => {
+                let report = termonet::wallpaper::provider::run_all_diagnostics();
+                println!("{report}");
                 return Ok(());
             }
             arg if !arg.starts_with('-') => {

@@ -11,7 +11,7 @@
 **Fast, dynamic Material You system theme and palette generator for Linux**
 
 [![Rust Edition 2024](https://img.shields.io/badge/rust-edition_2024-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](Cargo.toml)
+[![Version](https://img.shields.io/badge/version-1.3.0-blue.svg)](Cargo.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20(Wayland%20%2F%20X11)-lightgrey.svg)]()
 [![XERJ Corpus Hub](https://hub.xerj.org/contributors/Denxrc/badge.svg)](https://hub.xerj.org/contributors/Denxrc)
@@ -132,6 +132,9 @@ termonet --init
 
 # Synchronize default rules and templates to latest version
 termonet --reset-rules
+
+# Diagnostics: print raw status and detected wallpapers across all managers
+termonet --debug-wallpaper
 ```
 
 ### CLI Options
@@ -149,6 +152,7 @@ General Options:
   -w, --wallpaper <PATH>   Path to wallpaper image (PNG, JPG, GIF, WebP)
   -i, --wizard, --init     Launch first-run configuration wizard
       --reset-rules        Force reset default rules and templates to latest
+      --debug-wallpaper    Print active wallpaper managers diagnostic report
   -h, --help               Print help information
 ```
 
