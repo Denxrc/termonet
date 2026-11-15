@@ -498,8 +498,7 @@ enabled_programs = [
     #[test]
     fn test_stress_corrupted_config_parsing() {
         let massive_garbage = "[termonet]\n".repeat(1_000);
-        let corrupted_configs: Vec<&str> = vec![
-            "",
+        let strictly_invalid_configs: Vec<&str> = vec![
             "This is totally invalid TOML ][ ][ #$@!",
             "language = \"klingon\"\ntui_theme = 99999",
             "wallpaper_backend = \"hyper-quantum-daemon\"",
@@ -508,11 +507,17 @@ enabled_programs = [
             &massive_garbage,
         ];
 
-        for cfg_str in corrupted_configs {
+        for cfg_str in strictly_invalid_configs {
             let res = toml::from_str::<AppConfig>(cfg_str);
-            if let Ok(config) = res {
-                assert!(!config.enabled_programs.is_empty() || config.enabled_programs.is_empty());
-            }
+            assert!(res.is_err(), "Corrupted configuration must fail deserialization: {cfg_str}");
         }
+
+        // An empty config string must safely parse and provide default values for missing fields
+        let empty_res = toml::from_str::<AppConfig>("");
+        assert!(empty_res.is_ok());
+        let empty_config = empty_res.unwrap();
+        assert_eq!(empty_config.language, Language::default());
+        assert_eq!(empty_config.tui_theme, TuiTheme::default());
+        assert!(empty_config.enabled_programs.is_empty());
     }
 }

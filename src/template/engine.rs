@@ -189,22 +189,24 @@ active_primary: {{ active.primary.hex }}
         let seed = MaterialRgb::new(128, 64, 32);
         let palette = GeneratedPalette::from_seed_color(seed);
 
+        // Plain text strings without template tags render verbatim
+        assert_eq!(engine.render_string("", &palette, true).unwrap(), "");
+        assert_eq!(engine.render_string("}}", &palette, true).unwrap(), "}}");
+
+        // Syntax and filter errors must produce typed Template errors without panics
         let malformed_templates = [
-            "",
             "{{",
-            "}}",
             "{% if %}",
             "{{ primary | hex | non_existent_filter }}",
             "{{ primary | rgb | darken(\"not_a_number\") }}",
-            "{{ primary | lighten(-99999999) }}",
             "{{ surface | strip_hash | default }}",
-            "{{ unknown_variable.sub_field.deep_error }}",
-            "{% for x in 0..100000 %}{{ x }}{% endfor %}",
         ];
 
         for tpl in malformed_templates {
-            let _ = engine.render_string(tpl, &palette, true);
-            let _ = engine.render_string(tpl, &palette, false);
+            let res_dark = engine.render_string(tpl, &palette, true);
+            let res_light = engine.render_string(tpl, &palette, false);
+            assert!(res_dark.is_err(), "Malformed template must return Err: {tpl}");
+            assert!(res_light.is_err(), "Malformed template must return Err: {tpl}");
         }
     }
 

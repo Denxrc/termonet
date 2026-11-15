@@ -14,6 +14,19 @@ use crate::i18n::get_translations;
 use crate::tui::app::{AppState, EnvSubStep, WizardStep};
 use crate::tui::font::PixelFont;
 
+const SPACES: &str = "                          ";
+
+fn summary_item_line<'a>(label: &'static str, val: &'a str, val_style: Style, text_muted: Color) -> Line<'a> {
+    let pad_len = 26usize.saturating_sub(label.chars().count()).min(SPACES.len());
+    Line::from(vec![
+        Span::styled("      • ", Style::default().fg(text_muted)),
+        Span::styled(label, Style::default().fg(text_muted)),
+        Span::raw(&SPACES[..pad_len]),
+        Span::styled(val, val_style),
+    ])
+}
+
+
 /// Renders the complete First-Run Wizard interface.
 pub fn render_wizard(frame: &mut Frame, area: Rect, state: &AppState) {
     let t = get_translations(state.config.language);
@@ -48,18 +61,23 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, state: &AppState) {
 
     let mut footer_spans = vec![
         Span::styled(" [← / →] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
-        Span::styled(format!("{}  ", t.hint_steps_nav), Style::default().fg(text_muted)),
+        Span::styled(t.hint_steps_nav, Style::default().fg(text_muted)),
+        Span::raw("  "),
         Span::styled(" [1-5] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
-        Span::styled(format!("{}  ", t.hint_jump), Style::default().fg(text_muted)),
+        Span::styled(t.hint_jump, Style::default().fg(text_muted)),
+        Span::raw("  "),
         Span::styled(" [↑/↓] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
-        Span::styled(format!("{}  ", t.hint_select), Style::default().fg(text_muted)),
+        Span::styled(t.hint_select, Style::default().fg(text_muted)),
+        Span::raw("  "),
         Span::styled(" [Space/Enter] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
-        Span::styled(format!("{}  ", t.hint_choose), Style::default().fg(text_muted)),
+        Span::styled(t.hint_choose, Style::default().fg(text_muted)),
+        Span::raw("  "),
     ];
 
     if is_opened_from_main {
         footer_spans.push(Span::styled(" [Esc] ", Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)));
-        footer_spans.push(Span::styled(format!("{}  ", t.hint_cancel), Style::default().fg(text_muted)));
+        footer_spans.push(Span::styled(t.hint_cancel, Style::default().fg(text_muted)));
+        footer_spans.push(Span::raw("  "));
         footer_spans.push(Span::styled(" [q] ", Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)));
         footer_spans.push(Span::styled(t.hint_quit, Style::default().fg(text_muted)));
     } else {
@@ -229,7 +247,9 @@ fn render_step_language(
     let mut lines = vec![
         Line::raw(""),
         Line::from(vec![
-            Span::styled(format!("   {} ", t.wizard_lang_prompt), Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+            Span::raw("   "),
+            Span::styled(t.wizard_lang_prompt, Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+            Span::raw(" "),
         ]),
         Line::raw(""),
     ];
@@ -263,7 +283,8 @@ fn render_step_language(
     }
 
     lines.push(Line::from(vec![
-        Span::styled(format!("   {}", t.wizard_lang_hint), Style::default().fg(text_dim)),
+        Span::raw("   "),
+        Span::styled(t.wizard_lang_hint, Style::default().fg(text_dim)),
     ]));
 
     frame.render_widget(Paragraph::new(lines).block(block), area);
@@ -290,7 +311,9 @@ fn render_step_appearance(
     let mut lines = vec![
         Line::raw(""),
         Line::from(vec![
-            Span::styled(format!("   ── {} ──────────────────────────────────", t.wizard_theme_sec), Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+            Span::raw("   ── "),
+            Span::styled(t.wizard_theme_sec, Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+            Span::styled(" ──────────────────────────────────", Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
         ]),
         Line::raw(""),
     ];
@@ -330,7 +353,9 @@ fn render_step_appearance(
 
     lines.push(Line::raw(""));
     lines.push(Line::from(vec![
-        Span::styled(format!("   ── {} ────────────────────────────────────────", t.wizard_font_sec), Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+        Span::raw("   ── "),
+        Span::styled(t.wizard_font_sec, Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+        Span::styled(" ────────────────────────────────────────", Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
     ]));
     lines.push(Line::raw(""));
 
@@ -390,7 +415,9 @@ fn render_step_environment(
 
     let mut lines = vec![
         Line::from(vec![
-            Span::styled(format!("   ── {} ─────────────────────────────────", t.wizard_server_sec), Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+            Span::raw("   ── "),
+            Span::styled(t.wizard_server_sec, Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+            Span::styled(" ─────────────────────────────────", Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
         ]),
     ];
 
@@ -427,7 +454,9 @@ fn render_step_environment(
     }
 
     lines.push(Line::from(vec![
-        Span::styled(format!("   ── {} ────────────────────", t.wizard_backend_sec), Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+        Span::raw("   ── "),
+        Span::styled(t.wizard_backend_sec, Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+        Span::styled(" ────────────────────", Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
     ]));
 
     let backend_options = [
@@ -469,17 +498,27 @@ fn render_step_environment(
             Style::default().fg(text_muted)
         };
 
-        let label_text = if backend == WallpaperBackend::Manual {
+        if backend == WallpaperBackend::Manual {
             if let Some(ref p) = wizard.config.manual_wallpaper_path {
-                format!("{} ({})", label, p)
+                lines.push(Line::from(vec![
+                    cursor_span,
+                    radio_span,
+                    Span::styled(label, label_style),
+                    Span::raw(" ("),
+                    Span::styled(p.as_str(), label_style),
+                    Span::raw(")"),
+                ]));
             } else {
-                format!("{} — [w]", label)
+                lines.push(Line::from(vec![
+                    cursor_span,
+                    radio_span,
+                    Span::styled(label, label_style),
+                    Span::styled(" — [w]", label_style),
+                ]));
             }
         } else {
-            label.to_string()
-        };
-
-        lines.push(Line::from(vec![cursor_span, radio_span, Span::styled(label_text, label_style)]));
+            lines.push(Line::from(vec![cursor_span, radio_span, Span::styled(label, label_style)]));
+        }
     }
 
     frame.render_widget(Paragraph::new(lines).block(block), area);
@@ -506,11 +545,15 @@ fn render_step_monitors(
     let mut lines = vec![
         Line::raw(""),
         Line::from(vec![
-            Span::styled(format!("   ── {} ─────────────────────────────────", t.wizard_monitors_sec), Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+            Span::raw("   ── "),
+            Span::styled(t.wizard_monitors_sec, Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+            Span::styled(" ─────────────────────────────────", Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
         ]),
         Line::raw(""),
         Line::from(vec![
-            Span::styled(format!("   {} ", t.wizard_monitors_desc), Style::default().fg(text_muted)),
+            Span::raw("   "),
+            Span::styled(t.wizard_monitors_desc, Style::default().fg(text_muted)),
+            Span::raw(" "),
         ]),
         Line::raw(""),
     ];
@@ -541,13 +584,14 @@ fn render_step_monitors(
             };
 
             let path_str = path.to_string_lossy();
-            let path_span = Span::styled(format!(" ({})", path_str), Style::default().fg(text_muted));
 
             lines.push(Line::from(vec![
                 cursor_span,
                 radio_span,
                 Span::styled(name, name_style),
-                path_span,
+                Span::raw(" ("),
+                Span::styled(path_str, Style::default().fg(text_muted)),
+                Span::raw(")"),
             ]));
         }
     }
@@ -578,12 +622,14 @@ fn render_step_programs(
     let mut lines = vec![
         Line::raw(""),
         Line::from(vec![
-            Span::styled(format!("   {} ", t.wizard_programs_desc), Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+            Span::raw("   "),
+            Span::styled(t.wizard_programs_desc, Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+            Span::raw(" "),
         ]),
         Line::raw(""),
     ];
 
-    for (idx, rule) in rules.into_iter().enumerate() {
+    for (idx, rule) in rules.iter().enumerate() {
         let is_current_cursor = wizard.selected_idx == idx;
         let is_checked = wizard.config.enabled_programs.iter().any(|p| p.eq_ignore_ascii_case(&rule.name));
 
@@ -607,14 +653,16 @@ fn render_step_programs(
             Style::default().fg(text_dim)
         };
 
+        let pad_len = 14usize.saturating_sub(rule.name.chars().count()).min(SPACES.len());
         let output_str = rule.output_path.to_string_lossy();
 
         lines.push(Line::from(vec![
             cursor_span,
             check_span,
-            Span::styled(format!("{:<14}", rule.name), name_style),
+            Span::styled(&rule.name, name_style),
+            Span::raw(&SPACES[..pad_len]),
             Span::styled(" ➔  ", Style::default().fg(secondary_color)),
-            Span::styled(output_str.to_string(), Style::default().fg(text_muted)),
+            Span::styled(output_str, Style::default().fg(text_muted)),
         ]));
     }
 
@@ -696,41 +744,25 @@ fn render_step_finish(
         (t.wizard_backup_safe, true),
     ];
 
+    let val_bold = Style::default().fg(text_color).add_modifier(Modifier::BOLD);
     let mut lines = vec![
         Line::from(vec![
-            Span::styled(format!("   ── {} ──────────────────────────", t.wizard_summary_sec), Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+            Span::raw("   ── "),
+            Span::styled(t.wizard_summary_sec, Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+            Span::styled(" ──────────────────────────", Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
         ]),
-        Line::from(vec![
-            Span::styled(format!("      • {:<26}", t.wizard_summary_lang), Style::default().fg(text_muted)),
-            Span::styled(lang_str, Style::default().fg(text_color).add_modifier(Modifier::BOLD)),
-        ]),
-        Line::from(vec![
-            Span::styled(format!("      • {:<26}", t.wizard_summary_theme), Style::default().fg(text_muted)),
-            Span::styled(theme_str, Style::default().fg(text_color).add_modifier(Modifier::BOLD)),
-        ]),
-        Line::from(vec![
-            Span::styled(format!("      • {:<26}", t.wizard_summary_font), Style::default().fg(text_muted)),
-            Span::styled(font_str, Style::default().fg(text_color).add_modifier(Modifier::BOLD)),
-        ]),
-        Line::from(vec![
-            Span::styled(format!("      • {:<26}", t.wizard_summary_server), Style::default().fg(text_muted)),
-            Span::styled(server_str, Style::default().fg(text_color).add_modifier(Modifier::BOLD)),
-        ]),
-        Line::from(vec![
-            Span::styled(format!("      • {:<26}", t.wizard_summary_backend), Style::default().fg(text_muted)),
-            Span::styled(backend_str, Style::default().fg(text_color).add_modifier(Modifier::BOLD)),
-        ]),
-        Line::from(vec![
-            Span::styled(format!("      • {:<26}", t.wizard_summary_programs), Style::default().fg(text_muted)),
-            Span::styled(programs_str, Style::default().fg(text_color).add_modifier(Modifier::BOLD)),
-        ]),
-        Line::from(vec![
-            Span::styled(format!("      • {:<26}", t.wizard_summary_config_path), Style::default().fg(text_muted)),
-            Span::styled(&config_path, Style::default().fg(path_color)),
-        ]),
+        summary_item_line(t.wizard_summary_lang, lang_str, val_bold, text_muted),
+        summary_item_line(t.wizard_summary_theme, theme_str, val_bold, text_muted),
+        summary_item_line(t.wizard_summary_font, font_str, val_bold, text_muted),
+        summary_item_line(t.wizard_summary_server, server_str, val_bold, text_muted),
+        summary_item_line(t.wizard_summary_backend, backend_str, val_bold, text_muted),
+        summary_item_line(t.wizard_summary_programs, &programs_str, val_bold, text_muted),
+        summary_item_line(t.wizard_summary_config_path, &config_path, Style::default().fg(path_color), text_muted),
         Line::raw(""),
         Line::from(vec![
-            Span::styled(format!("   ── {} ──────────────────", t.wizard_backup_sec), Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+            Span::raw("   ── "),
+            Span::styled(t.wizard_backup_sec, Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+            Span::styled(" ──────────────────", Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
         ]),
     ];
 
@@ -779,11 +811,14 @@ fn render_step_finish(
 
     lines.push(Line::from(vec![
         Span::styled(btn_cursor, Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
-        Span::styled(format!(" {} ", t.wizard_finish_btn), btn_style),
+        Span::raw(" "),
+        Span::styled(t.wizard_finish_btn, btn_style),
+        Span::raw(" "),
     ]));
     lines.push(Line::raw(""));
     lines.push(Line::from(vec![
-        Span::styled(format!("   {}", t.wizard_finish_hint), Style::default().fg(text_dim)),
+        Span::raw("   "),
+        Span::styled(t.wizard_finish_hint, Style::default().fg(text_dim)),
     ]));
 
     frame.render_widget(Paragraph::new(lines).block(block), area);

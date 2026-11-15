@@ -622,77 +622,8 @@ impl AppState {
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => self.quit(),
 
             // Wizard step navigation
-            KeyCode::Right | KeyCode::Char('l') => {
-                if let Some(ref mut wizard) = self.wizard_state {
-                    if wizard.step == WizardStep::Environment {
-                        match wizard.env_substep {
-                            EnvSubStep::ServerAndBackend => {
-                                let manual_str = wizard.config.manual_wallpaper_path.as_deref();
-                                match crate::wallpaper::get_wallpaper_monitors(&wizard.config.wallpaper_backend, manual_str) {
-                                    Ok(monitors) if monitors.has_divergent_wallpapers() => {
-                                        let sorted = monitors.sorted_outputs();
-                                        let cur_idx = if let Some(ref primary) = wizard.config.primary_monitor {
-                                            sorted.iter().position(|(name, _)| name == primary).unwrap_or(0)
-                                        } else {
-                                            if let Some(first) = sorted.first() {
-                                                wizard.config.primary_monitor = Some(first.0.clone());
-                                            }
-                                            0
-                                        };
-                                        wizard.discovered_monitors = Some(sorted);
-                                        wizard.env_substep = EnvSubStep::Monitors;
-                                        wizard.selected_idx = cur_idx;
-                                    }
-                                    _ => {
-                                        wizard.discovered_monitors = None;
-                                        wizard.env_substep = EnvSubStep::ServerAndBackend;
-                                        wizard.step = WizardStep::Programs;
-                                        wizard.selected_idx = 0;
-                                    }
-                                }
-                            }
-                            EnvSubStep::Monitors => {
-                                wizard.step = WizardStep::Programs;
-                                wizard.selected_idx = 0;
-                            }
-                        }
-                    } else {
-                        wizard.step = wizard.step.next();
-                        wizard.selected_idx = if wizard.step == WizardStep::Finish { 2 } else { 0 };
-                    }
-                }
-            }
-            KeyCode::Left | KeyCode::Char('h') => {
-                if let Some(ref mut wizard) = self.wizard_state {
-                    if wizard.step == WizardStep::Programs {
-                        if wizard.discovered_monitors.is_some() {
-                            wizard.step = WizardStep::Environment;
-                            wizard.env_substep = EnvSubStep::Monitors;
-                            wizard.selected_idx = wizard.config.primary_monitor.as_ref()
-                                .and_then(|p| wizard.discovered_monitors.as_ref()?.iter().position(|(n, _)| n == p))
-                                .unwrap_or(0);
-                        } else {
-                            wizard.step = WizardStep::Environment;
-                            wizard.env_substep = EnvSubStep::ServerAndBackend;
-                            wizard.selected_idx = 0;
-                        }
-                    } else if wizard.step == WizardStep::Environment {
-                        match wizard.env_substep {
-                            EnvSubStep::Monitors => {
-                                wizard.env_substep = EnvSubStep::ServerAndBackend;
-                                wizard.selected_idx = 0;
-                            }
-                            EnvSubStep::ServerAndBackend => {
-                                wizard.step = WizardStep::Appearance;
-                                wizard.selected_idx = 0;
-                            }
-                        }
-                    } else {
-                        wizard.step = wizard.step.prev();
-                        wizard.selected_idx = if wizard.step == WizardStep::Finish { 2 } else { 0 };
-                    }
-                }
-            }
+            KeyCode::Right | KeyCode::Char('l') => self.handle_wizard_next(),
+            KeyCode::Left | KeyCode::Char('h') => self.handle_wizard_prev(),
             KeyCode::Char('1') => {
                 if let Some(ref mut wizard) = self.wizard_state { wizard.step = WizardStep::Language; wizard.selected_idx = 0; wizard.env_substep = EnvSubStep::ServerAndBackend; }
             }
@@ -743,34 +674,109 @@ impl AppState {
                 self.open_wallpaper_input();
             }
 
-            KeyCode::Enter => {
-                let current_step = self.wizard_state.as_ref().map(|w| w.step);
-                let selected_idx = self.wizard_state.as_ref().map(|w| w.selected_idx).unwrap_or(0);
+            KeyCode::Enter => self.handle_wizard_enter(),
+            _ => {}
+        }
+    }
 
-                if current_step == Some(WizardStep::Finish) {
-                    if selected_idx == 2 {
-                        if let Err(e) = self.finish_wizard() {
-                            self.status_message = Some(format!("Error: {}", e));
-                        }
-                    } else {
-                        self.toggle_wizard_option();
-                        if let Some(ref mut wizard) = self.wizard_state {
-                            wizard.selected_idx = 2;
+    fn handle_wizard_next(&mut self) {
+        if let Some(ref mut wizard) = self.wizard_state {
+            if wizard.step == WizardStep::Environment {
+                match wizard.env_substep {
+                    EnvSubStep::ServerAndBackend => {
+                        let manual_str = wizard.config.manual_wallpaper_path.as_deref();
+                        match crate::wallpaper::get_wallpaper_monitors(&wizard.config.wallpaper_backend, manual_str) {
+                            Ok(monitors) if monitors.has_divergent_wallpapers() => {
+                                let sorted = monitors.sorted_outputs();
+                                let cur_idx = if let Some(ref primary) = wizard.config.primary_monitor {
+                                    sorted.iter().position(|(name, _)| name == primary).unwrap_or(0)
+                                } else {
+                                    if let Some(first) = sorted.first() {
+                                        wizard.config.primary_monitor = Some(first.0.clone());
+                                    }
+                                    0
+                                };
+                                wizard.discovered_monitors = Some(sorted);
+                                wizard.env_substep = EnvSubStep::Monitors;
+                                wizard.selected_idx = cur_idx;
+                            }
+                            _ => {
+                                wizard.discovered_monitors = None;
+                                wizard.env_substep = EnvSubStep::ServerAndBackend;
+                                wizard.step = WizardStep::Programs;
+                                wizard.selected_idx = 0;
+                            }
                         }
                     }
-                } else if current_step == Some(WizardStep::Environment)
-                    && self.wizard_state.as_ref().map(|w| w.env_substep) == Some(EnvSubStep::ServerAndBackend)
-                    && selected_idx == 12
-                {
-                    // Option 12 in Environment is Manual path -> trigger input dialog
-                    self.toggle_wizard_option();
-                    self.open_wallpaper_input();
+                    EnvSubStep::Monitors => {
+                        wizard.step = WizardStep::Programs;
+                        wizard.selected_idx = 0;
+                    }
+                }
+            } else {
+                wizard.step = wizard.step.next();
+                wizard.selected_idx = if wizard.step == WizardStep::Finish { 2 } else { 0 };
+            }
+        }
+    }
+
+    fn handle_wizard_prev(&mut self) {
+        if let Some(ref mut wizard) = self.wizard_state {
+            if wizard.step == WizardStep::Programs {
+                if wizard.discovered_monitors.is_some() {
+                    wizard.step = WizardStep::Environment;
+                    wizard.env_substep = EnvSubStep::Monitors;
+                    wizard.selected_idx = wizard.config.primary_monitor.as_ref()
+                        .and_then(|p| wizard.discovered_monitors.as_ref()?.iter().position(|(n, _)| n == p))
+                        .unwrap_or(0);
                 } else {
-                    // Toggle current option without jumping screens
-                    self.toggle_wizard_option();
+                    wizard.step = WizardStep::Environment;
+                    wizard.env_substep = EnvSubStep::ServerAndBackend;
+                    wizard.selected_idx = 0;
+                }
+            } else if wizard.step == WizardStep::Environment {
+                match wizard.env_substep {
+                    EnvSubStep::Monitors => {
+                        wizard.env_substep = EnvSubStep::ServerAndBackend;
+                        wizard.selected_idx = 0;
+                    }
+                    EnvSubStep::ServerAndBackend => {
+                        wizard.step = WizardStep::Appearance;
+                        wizard.selected_idx = 0;
+                    }
+                }
+            } else {
+                wizard.step = wizard.step.prev();
+                wizard.selected_idx = if wizard.step == WizardStep::Finish { 2 } else { 0 };
+            }
+        }
+    }
+
+    fn handle_wizard_enter(&mut self) {
+        let current_step = self.wizard_state.as_ref().map(|w| w.step);
+        let selected_idx = self.wizard_state.as_ref().map(|w| w.selected_idx).unwrap_or(0);
+
+        if current_step == Some(WizardStep::Finish) {
+            if selected_idx == 2 {
+                if let Err(e) = self.finish_wizard() {
+                    self.status_message = Some(format!("Error: {}", e));
+                }
+            } else {
+                self.toggle_wizard_option();
+                if let Some(ref mut wizard) = self.wizard_state {
+                    wizard.selected_idx = 2;
                 }
             }
-            _ => {}
+        } else if current_step == Some(WizardStep::Environment)
+            && self.wizard_state.as_ref().map(|w| w.env_substep) == Some(EnvSubStep::ServerAndBackend)
+            && selected_idx == 12
+        {
+            // Option 12 in Environment is Manual path -> trigger input dialog
+            self.toggle_wizard_option();
+            self.open_wallpaper_input();
+        } else {
+            // Toggle current option without jumping screens
+            self.toggle_wizard_option();
         }
     }
 
@@ -840,28 +846,12 @@ impl AppState {
         let engine = TemplateEngine::new();
         let is_dark = self.is_dark_mode();
 
-        // 1. Render and apply each enabled program
+        // 1. Render and apply each enabled program, triggering hooks if enabled
         for prog in &self.programs {
             if prog.enabled
                 && let Some(ref rule) = prog.rule
             {
-                rule.apply(&engine, palette, is_dark, self.config.create_backups)?;
-            }
-        }
-
-        // 2. Execute active reload hooks safely with detached stdio
-        for prog in &self.programs {
-            if prog.enabled
-                && prog.hook_enabled
-                && let Some(ref cmd) = prog.reload_cmd
-            {
-                let _ = std::process::Command::new("sh")
-                    .arg("-c")
-                    .arg(cmd)
-                    .stdin(std::process::Stdio::null())
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status();
+                rule.apply_with_hook(&engine, palette, is_dark, self.config.create_backups, prog.hook_enabled)?;
             }
         }
 
@@ -870,7 +860,7 @@ impl AppState {
 
         // 4. Update state cache
         if let Some(ref wall_path) = self.wallpaper_path {
-            let mut cache = crate::cli::AppStateCache::load().unwrap_or_default();
+            let mut cache = crate::config::AppStateCache::load().unwrap_or_default();
             cache.last_wallpaper_path = Some(wall_path.clone());
             let _ = cache.save();
         }

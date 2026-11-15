@@ -49,35 +49,38 @@ pub fn render_palette(frame: &mut Frame, area: Rect, state: &AppState) {
     // 1. Wallpaper & Seed indicator inside Step 1
     let wp_text = state.wallpaper_path.as_deref().unwrap_or(t.no_wallpaper);
     let mut spans = vec![
-        Span::styled(format!(" {} ", t.wallpaper_source), Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+        Span::raw(" "),
+        Span::styled(t.wallpaper_source, Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+        Span::raw(" "),
         Span::styled(wp_text, Style::default().fg(text_color)),
         Span::raw("   "),
-        Span::styled(format!("{} ", t.wallpaper_change_btn), Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
+        Span::styled(t.wallpaper_change_btn, Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
+        Span::raw("  "),
+        Span::styled(t.wallpaper_reload_btn, Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
         Span::raw(" "),
-        Span::styled(format!("{} ", t.wallpaper_reload_btn), Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
     ];
 
     if state.active_monitors.len() > 1 {
         spans.push(Span::raw("   "));
-        spans.push(Span::styled(format!("{} ", t.display_label), Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)));
+        spans.push(Span::styled(t.display_label, Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)));
+        spans.push(Span::raw(" "));
         for (idx, (name, _)) in state.active_monitors.iter().enumerate() {
             let is_active = idx == state.current_monitor_idx;
             if is_active {
-                spans.push(Span::styled(
-                    format!("[● {}] ", name),
-                    Style::default().fg(primary_color).add_modifier(Modifier::BOLD),
-                ));
+                spans.push(Span::styled("[● ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
+                spans.push(Span::styled(name.as_str(), Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
+                spans.push(Span::styled("] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
             } else {
-                spans.push(Span::styled(
-                    format!("[○ {}] ", name),
-                    Style::default().fg(text_dim),
-                ));
+                spans.push(Span::styled("[○ ", Style::default().fg(text_dim)));
+                spans.push(Span::styled(name.as_str(), Style::default().fg(text_dim)));
+                spans.push(Span::styled("] ", Style::default().fg(text_dim)));
             }
         }
     }
 
     spans.push(Span::raw("    "));
-    spans.push(Span::styled(format!("{} ", t.seed_color), Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)));
+    spans.push(Span::styled(t.seed_color, Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)));
+    spans.push(Span::raw(" "));
     spans.push(color_badge(&palette.seed_color));
     spans.push(Span::styled(format!(" {} ", palette.seed_color.to_hex()), Style::default().fg(text_color).add_modifier(Modifier::BOLD)));
 
@@ -115,24 +118,24 @@ pub fn render_palette(frame: &mut Frame, area: Rect, state: &AppState) {
     let term = palette.terminal_for(is_dark);
     let terminal_lines = vec![
         Line::from(vec![Span::styled(t.normal_colors, Style::default().fg(primary_color).add_modifier(Modifier::BOLD))]),
-        render_terminal_line("0. Black", &term.color0, text_color, text_dim),
-        render_terminal_line("1. Red", &term.color1, text_color, text_dim),
-        render_terminal_line("2. Green", &term.color2, text_color, text_dim),
-        render_terminal_line("3. Yellow", &term.color3, text_color, text_dim),
-        render_terminal_line("4. Blue", &term.color4, text_color, text_dim),
-        render_terminal_line("5. Magenta", &term.color5, text_color, text_dim),
-        render_terminal_line("6. Cyan", &term.color6, text_color, text_dim),
-        render_terminal_line("7. White", &term.color7, text_color, text_dim),
+        render_terminal_line(0, &term.color0, text_color, text_dim),
+        render_terminal_line(1, &term.color1, text_color, text_dim),
+        render_terminal_line(2, &term.color2, text_color, text_dim),
+        render_terminal_line(3, &term.color3, text_color, text_dim),
+        render_terminal_line(4, &term.color4, text_color, text_dim),
+        render_terminal_line(5, &term.color5, text_color, text_dim),
+        render_terminal_line(6, &term.color6, text_color, text_dim),
+        render_terminal_line(7, &term.color7, text_color, text_dim),
         Line::raw(""),
         Line::from(vec![Span::styled(t.bright_colors, Style::default().fg(primary_color).add_modifier(Modifier::BOLD))]),
-        render_terminal_line("8. Bright Black", &term.color8, text_color, text_dim),
-        render_terminal_line("9. Bright Red", &term.color9, text_color, text_dim),
-        render_terminal_line("10. Bright Green", &term.color10, text_color, text_dim),
-        render_terminal_line("11. Bright Yellow", &term.color11, text_color, text_dim),
-        render_terminal_line("12. Bright Blue", &term.color12, text_color, text_dim),
-        render_terminal_line("13. Bright Magenta", &term.color13, text_color, text_dim),
-        render_terminal_line("14. Bright Cyan", &term.color14, text_color, text_dim),
-        render_terminal_line("15. Bright White", &term.color15, text_color, text_dim),
+        render_terminal_line(8, &term.color8, text_color, text_dim),
+        render_terminal_line(9, &term.color9, text_color, text_dim),
+        render_terminal_line(10, &term.color10, text_color, text_dim),
+        render_terminal_line(11, &term.color11, text_color, text_dim),
+        render_terminal_line(12, &term.color12, text_color, text_dim),
+        render_terminal_line(13, &term.color13, text_color, text_dim),
+        render_terminal_line(14, &term.color14, text_color, text_dim),
+        render_terminal_line(15, &term.color15, text_color, text_dim),
     ];
 
     let terminal_block = Block::default()
@@ -184,14 +187,16 @@ pub fn render_wallpaper_input_modal(frame: &mut Frame, area: Rect, state: &AppSt
             Color::Rgb(180, 20, 20)
         };
         lines.push(Line::from(vec![
-            Span::styled(format!("  ✗ {}", err), Style::default().fg(err_color).add_modifier(Modifier::BOLD)),
+            Span::styled("  ✗ ", Style::default().fg(err_color).add_modifier(Modifier::BOLD)),
+            Span::styled(err.as_str(), Style::default().fg(err_color).add_modifier(Modifier::BOLD)),
         ]));
     } else {
         lines.push(Line::raw(""));
     }
 
     lines.push(Line::from(vec![
-        Span::styled(format!("  {}", t.wallpaper_input_hint), Style::default().fg(text_dim)),
+        Span::raw("  "),
+        Span::styled(t.wallpaper_input_hint, Style::default().fg(text_dim)),
     ]));
 
     let block = Block::default()
@@ -231,20 +236,50 @@ fn color_badge(color: &RgbColor) -> Span<'static> {
     )
 }
 
+const SPACES: &str = "                    ";
+
+const TERMINAL_LABELS: [&str; 16] = [
+    " 0. Black          ",
+    " 1. Red            ",
+    " 2. Green          ",
+    " 3. Yellow         ",
+    " 4. Blue           ",
+    " 5. Magenta        ",
+    " 6. Cyan           ",
+    " 7. White          ",
+    " 8. Bright Black   ",
+    " 9. Bright Red     ",
+    " 10. Bright Green  ",
+    " 11. Bright Yellow ",
+    " 12. Bright Blue   ",
+    " 13. Bright Magenta",
+    " 14. Bright Cyan   ",
+    " 15. Bright White  ",
+];
+
 fn render_role_line<'a>(label: &'static str, color: &RgbColor, text_color: Color, text_dim: Color) -> Line<'a> {
+    let pad_len = 20usize.saturating_sub(label.chars().count()).min(SPACES.len());
     Line::from(vec![
         color_badge(color),
-        Span::styled(format!(" {:<20}", label), Style::default().fg(text_color).add_modifier(Modifier::BOLD)),
-        Span::styled(format!(" {} ", color.to_hex()), Style::default().fg(text_color)),
-        Span::styled(format!("({})", color.to_rgb_string()), Style::default().fg(text_dim)),
+        Span::raw(" "),
+        Span::styled(label, Style::default().fg(text_color).add_modifier(Modifier::BOLD)),
+        Span::raw(&SPACES[..pad_len]),
+        Span::raw(" "),
+        Span::styled(color.to_hex(), Style::default().fg(text_color)),
+        Span::raw(" ("),
+        Span::styled(format!("{}, {}, {}", color.r, color.g, color.b), Style::default().fg(text_dim)),
+        Span::raw(")"),
     ])
 }
 
-fn render_terminal_line<'a>(label: &'static str, color: &RgbColor, text_color: Color, text_dim: Color) -> Line<'a> {
+fn render_terminal_line<'a>(label_idx: usize, color: &RgbColor, text_color: Color, text_dim: Color) -> Line<'a> {
     Line::from(vec![
         color_badge(color),
-        Span::styled(format!(" {:<17}", label), Style::default().fg(text_color)),
-        Span::styled(format!(" {} ", color.to_hex()), Style::default().fg(text_color)),
-        Span::styled(format!("({})", color.to_rgb_string()), Style::default().fg(text_dim)),
+        Span::styled(TERMINAL_LABELS[label_idx], Style::default().fg(text_color)),
+        Span::raw(" "),
+        Span::styled(color.to_hex(), Style::default().fg(text_color)),
+        Span::raw(" ("),
+        Span::styled(format!("{}, {}, {}", color.r, color.g, color.b), Style::default().fg(text_dim)),
+        Span::raw(")"),
     ])
 }

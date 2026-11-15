@@ -197,7 +197,11 @@ mod tests {
     }
 
     #[test]
-    fn test_percent_decode_cyrillic() {
+    fn test_percent_decode_multibyte_and_ascii() {
+        assert_eq!(percent_decode("hello%20world"), "hello world");
+        assert_eq!(percent_decode("/path/with%2Fslash"), "/path/with/slash");
+        assert_eq!(percent_decode("simple_text.png"), "simple_text.png");
+        assert_eq!(percent_decode("invalid%2"), "invalid%2");
         // %D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82 -> привет
         assert_eq!(percent_decode("%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82"), "привет");
     }

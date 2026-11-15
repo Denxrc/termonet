@@ -222,15 +222,29 @@ mod tests {
 
         for backend in offline_backends {
             let res = get_wallpaper_monitors(&backend, None);
-            if let Err(e) = res {
-                let msg = format!("{}", e);
-                assert!(!msg.is_empty(), "Error message must not be empty");
+            match res {
+                Ok(monitors) => {
+                    assert!(!monitors.outputs.is_empty(), "Resolved monitors map must not be empty");
+                }
+                Err(TermonetError::WallpaperNotFound(msg)) => {
+                    assert!(!msg.is_empty(), "Error message must not be empty");
+                }
+                Err(other) => {
+                    panic!("Daemon query must return WallpaperNotFound when offline, got: {other:?}");
+                }
             }
 
             let curr_res = get_current_wallpaper(&backend, None, None);
-            if let Err(e) = curr_res {
-                let msg = format!("{}", e);
-                assert!(!msg.is_empty(), "Error message must not be empty");
+            match curr_res {
+                Ok(path) => {
+                    assert!(!path.as_os_str().is_empty(), "Resolved wallpaper path must not be empty");
+                }
+                Err(TermonetError::WallpaperNotFound(msg)) => {
+                    assert!(!msg.is_empty(), "Error message must not be empty");
+                }
+                Err(other) => {
+                    panic!("Current wallpaper query must return WallpaperNotFound when offline, got: {other:?}");
+                }
             }
         }
     }

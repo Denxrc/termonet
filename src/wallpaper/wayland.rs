@@ -9,13 +9,7 @@ use std::time::Duration;
 
 use crate::error::{Result, TermonetError};
 use crate::wallpaper::monitor::MonitorWallpapers;
-
-/// Helper function to extract an image file path from a string that may contain flags,
-/// crop modes, scaling filters, or surrounding quotes (e.g. `crop:center Lanczos3 /path/to/wall.png`).
-#[must_use]
-pub fn extract_wallpaper_path_from_str(s: &str) -> Option<PathBuf> {
-    crate::wallpaper::path::sanitize_wallpaper_path(s)
-}
+use crate::wallpaper::path::sanitize_wallpaper_path;
 
 /// Queries active wallpapers from `awww` or `swww` CLI or disk cache.
 /// Prioritizes the modern `awww` binary, falling back to `swww` and finally inspecting ~/.cache/awww.
@@ -94,7 +88,7 @@ pub fn query_awww_or_swww_cache() -> Result<MonitorWallpapers> {
                             continue;
                         }
                         if let Ok(content) = std::fs::read_to_string(sub.path())
-                            && let Some(path) = extract_wallpaper_path_from_str(&content)
+                            && let Some(path) = sanitize_wallpaper_path(&content)
                             && path.exists()
                         {
                             outputs.insert(file_name, path);
@@ -106,7 +100,7 @@ pub fn query_awww_or_swww_cache() -> Result<MonitorWallpapers> {
                 if !file_name.starts_with('_')
                     && !file_name.starts_with('.')
                     && let Ok(content) = std::fs::read_to_string(&p)
-                    && let Some(path) = extract_wallpaper_path_from_str(&content)
+                    && let Some(path) = sanitize_wallpaper_path(&content)
                     && path.exists()
                 {
                     outputs.insert(file_name, path);
@@ -120,11 +114,6 @@ pub fn query_awww_or_swww_cache() -> Result<MonitorWallpapers> {
     }
 
     Err(TermonetError::WallpaperNotFound("No active awww/swww wallpapers found in cache".into()))
-}
-
-/// Backwards compatibility alias for `query_awww_or_swww`.
-pub fn query_swww() -> Result<MonitorWallpapers> {
-    query_awww_or_swww()
 }
 
 /// Parses output from `awww query --all` or `swww query`.
@@ -161,7 +150,7 @@ pub fn parse_awww_or_swww_output(raw: &str) -> HashMap<String, PathBuf> {
             (trimmed, last)
         };
 
-        let Some(path) = extract_wallpaper_path_from_str(path_part) else {
+        let Some(path) = sanitize_wallpaper_path(path_part) else {
             continue;
         };
 
@@ -292,10 +281,10 @@ pub fn parse_hyprpaper_active_output(raw: &str) -> HashMap<String, PathBuf> {
 
         if let Some((mon, path_part)) = trimmed.split_once('=').or_else(|| trimmed.split_once(':')) {
             let mon = mon.trim();
-            if let Some(path) = extract_wallpaper_path_from_str(path_part) {
+            if let Some(path) = sanitize_wallpaper_path(path_part) {
                 map.insert(mon.to_string(), path);
             }
-        } else if let Some(path) = extract_wallpaper_path_from_str(trimmed) {
+        } else if let Some(path) = sanitize_wallpaper_path(trimmed) {
             map.insert("default".to_string(), path);
         }
     }
@@ -332,7 +321,7 @@ pub fn parse_hyprpaper_conf(content: &str) -> HashMap<String, PathBuf> {
                 if let Some(path_str) = current_block_path.take() {
                     let mon = current_block_monitor.take().unwrap_or_else(|| "default".to_string());
                     let key = if mon.is_empty() { "default".to_string() } else { mon };
-                    if let Some(path) = extract_wallpaper_path_from_str(&path_str) {
+                    if let Some(path) = sanitize_wallpaper_path(&path_str) {
                         map.insert(key, path);
                     }
                 }
@@ -367,7 +356,7 @@ pub fn parse_hyprpaper_conf(content: &str) -> HashMap<String, PathBuf> {
                     ("default", after_eq)
                 };
                 let key = if mon.is_empty() { "default".to_string() } else { mon.to_string() };
-                if let Some(path) = extract_wallpaper_path_from_str(path_str) {
+                if let Some(path) = sanitize_wallpaper_path(path_str) {
                     map.insert(key, path);
                 }
             }
@@ -470,13 +459,13 @@ pub fn parse_swaybg_args(args: &[String]) -> HashMap<String, PathBuf> {
                 i += 1;
             }
         } else if let Some(val) = arg.strip_prefix("--image=") {
-            if let Some(img_path) = extract_wallpaper_path_from_str(val) {
+            if let Some(img_path) = sanitize_wallpaper_path(val) {
                 let mon = current_output.take().unwrap_or_else(|| "default".to_string());
                 outputs.insert(mon, img_path);
             }
         } else if arg == "-i" || arg == "--image" {
             if i + 1 < args.len() {
-                if let Some(img_path) = extract_wallpaper_path_from_str(&args[i + 1]) {
+                if let Some(img_path) = sanitize_wallpaper_path(&args[i + 1]) {
                     let mon = current_output.take().unwrap_or_else(|| "default".to_string());
                     outputs.insert(mon, img_path);
                 }
@@ -503,7 +492,7 @@ pub fn parse_wpaperctl_output(raw: &str) -> HashMap<String, PathBuf> {
         }
         if let Some((mon, path_str)) = trimmed.split_once(':') {
             let mon = mon.trim();
-            if let Some(path) = extract_wallpaper_path_from_str(path_str) {
+            if let Some(path) = sanitize_wallpaper_path(path_str) {
                 map.insert(mon.to_string(), path);
             }
         }
@@ -591,21 +580,21 @@ mod tests {
     fn test_extract_wallpaper_path_with_crop_and_filter() {
         let raw = " crop:center Lanczos3 /home/Denxrc/Pictures/wallp.png";
         assert_eq!(
-            extract_wallpaper_path_from_str(raw),
+            sanitize_wallpaper_path(raw),
             Some(PathBuf::from("/home/Denxrc/Pictures/wallp.png"))
         );
 
         if let Ok(home) = std::env::var("HOME") {
             let tilde_with_crop = " crop:center Lanczos3 ~/Pictures/wallp.png";
             assert_eq!(
-                extract_wallpaper_path_from_str(tilde_with_crop),
+                sanitize_wallpaper_path(tilde_with_crop),
                 Some(PathBuf::from(home).join("Pictures/wallp.png"))
             );
         }
 
         let with_spaces = "image: '/home/user/Pictures/wall with space.jpg'";
         assert_eq!(
-            extract_wallpaper_path_from_str(with_spaces),
+            sanitize_wallpaper_path(with_spaces),
             Some(PathBuf::from("/home/user/Pictures/wall with space.jpg"))
         );
     }

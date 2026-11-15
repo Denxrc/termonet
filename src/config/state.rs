@@ -1,10 +1,10 @@
 //! State persistence to avoid redundant executions.
 
+use crate::config::AppPaths;
+use crate::error::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use crate::config::AppPaths;
-use crate::error::Result;
 
 /// State cache tracking the last applied wallpaper.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -77,8 +77,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_state_cache_roundtrip() {
-        let temp_dir = std::env::temp_dir().join("termonet_test_state");
+    fn test_state_cache_roundtrip() -> Result<()> {
+        let temp_dir =
+            std::env::temp_dir().join(format!("termonet_test_state_{}", std::process::id()));
         let _ = fs::create_dir_all(&temp_dir);
         let file = temp_dir.join("state.toml");
 
@@ -87,13 +88,15 @@ mod tests {
             last_wallpaper_hash: Some("abc123hash".into()),
         };
 
-        assert!(cache.save_to_path(&file).is_ok());
+        cache.save_to_path(&file)?;
 
-        let loaded = AppStateCache::load_from_path(&file).unwrap();
+        let loaded = AppStateCache::load_from_path(&file)?;
         assert_eq!(loaded, cache);
         assert!(loaded.is_up_to_date("/home/user/wall.png"));
         assert!(!loaded.is_up_to_date("/home/user/other.png"));
 
-        let _ = fs::remove_file(file);
+        let _ = fs::remove_file(&file);
+        let _ = fs::remove_dir(&temp_dir);
+        Ok(())
     }
 }

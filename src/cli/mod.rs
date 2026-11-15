@@ -1,8 +1,6 @@
 //! Headless CLI trigger mode execution.
 
-pub mod state;
-
-pub use state::AppStateCache;
+pub use crate::config::AppStateCache;
 use std::path::PathBuf;
 
 /// Command line execution arguments.
@@ -70,24 +68,11 @@ pub fn run_cli_mode(args: &CliArgs) -> crate::error::Result<bool> {
     let mut applied_count = 0;
     for rule in &rules {
         if config.enabled_programs.iter().any(|p| p.eq_ignore_ascii_case(&rule.name)) {
-            rule.apply(&engine, &palette, config.tui_theme.is_dark(), config.create_backups)?;
+            let hook_executed = rule.apply_with_hook(&engine, &palette, config.tui_theme.is_dark(), config.create_backups, true)?;
             applied_count += 1;
             println!("  ✔ Applied theme for: {}", rule.name);
-
-            // Execute reload hook if present
-            if let Some(ref cmd) = rule.reload_cmd {
-                let status = std::process::Command::new("sh")
-                    .arg("-c")
-                    .arg(cmd)
-                    .stdin(std::process::Stdio::null())
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status();
-                if let Ok(st) = status
-                    && st.success()
-                {
-                    println!("    Hook executed: {}", cmd);
-                }
+            if hook_executed && let Some(ref cmd) = rule.reload_cmd {
+                println!("    Hook executed: {}", cmd);
             }
         }
     }
@@ -121,9 +106,13 @@ mod tests {
     }
 
     #[test]
-    fn test_diagnostic_report_generation() {
-        let report = crate::wallpaper::provider::run_all_diagnostics();
-        assert!(!report.is_empty());
-        assert!(report.contains("Termonet Wallpaper Diagnostics"));
+    fn test_cli_mode_fails_on_missing_wallpaper() {
+        let args = CliArgs {
+            apply: true,
+            wallpaper: Some("/non_existent_wall_xyz_12345.png".to_string()),
+            ..Default::default()
+        };
+        let res = run_cli_mode(&args);
+        assert!(res.is_err());
     }
 }

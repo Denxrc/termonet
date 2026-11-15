@@ -326,14 +326,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_percent_decode() {
-        assert_eq!(percent_decode("hello%20world"), "hello world");
-        assert_eq!(percent_decode("/path/with%2Fslash"), "/path/with/slash");
-        assert_eq!(percent_decode("simple_text.png"), "simple_text.png");
-        assert_eq!(percent_decode("invalid%2"), "invalid%2");
-    }
-
-    #[test]
     fn test_parse_gnome_uri() {
         let raw = "'file:///usr/share/backgrounds/gnome/adwaita-d.jxl'";
         assert_eq!(

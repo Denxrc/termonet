@@ -261,6 +261,49 @@ impl ProgramRule {
 
         Ok(())
     }
+
+    /// Safely executes an arbitrary shell reload command with detached stdio.
+    /// Returns `true` if the process spawned and completed with a successful exit status.
+    pub fn execute_hook_command(cmd: &str) -> bool {
+        std::process::Command::new("sh")
+            .arg("-c")
+            .arg(cmd)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|st| st.success())
+            .unwrap_or(false)
+    }
+
+    /// Safely executes this rule's reload hook command if defined.
+    /// Returns `true` if the hook command was executed successfully.
+    pub fn execute_reload_hook(&self) -> bool {
+        if let Some(ref cmd) = self.reload_cmd {
+            Self::execute_hook_command(cmd)
+        } else {
+            false
+        }
+    }
+
+    /// Renders the template, writes output files, updates target dotfiles,
+    /// and optionally triggers the configured reload hook.
+    /// Returns `Ok(true)` if the hook was executed successfully, or `Ok(false)` otherwise.
+    pub fn apply_with_hook(
+        &self,
+        engine: &TemplateEngine,
+        palette: &GeneratedPalette,
+        is_dark: bool,
+        create_backups: bool,
+        run_hook: bool,
+    ) -> Result<bool> {
+        self.apply(engine, palette, is_dark, create_backups)?;
+        if run_hook {
+            Ok(self.execute_reload_hook())
+        } else {
+            Ok(false)
+        }
+    }
 }
 
 /// Extracts template version integer from comment headers (e.g. `termonet-version: 2`).
@@ -512,5 +555,12 @@ hl.config({
 
         assert!(injected.starts_with("-- >>> termonet colors >>>\nlocal colors = require(\"colors\")\n-- <<< termonet colors <<<"));
         assert!(injected.contains("hl.config({"));
+    }
+
+    #[test]
+    fn test_execute_hook_command() {
+        assert!(ProgramRule::execute_hook_command("true"));
+        assert!(!ProgramRule::execute_hook_command("false"));
+        assert!(!ProgramRule::execute_hook_command("non_existent_binary_xyz_12345"));
     }
 }
