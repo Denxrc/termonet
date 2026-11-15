@@ -133,13 +133,34 @@ fn main() -> Result<()> {
             None
         }
     } else {
-        termonet::wallpaper::get_current_wallpaper(
-            &state.config.wallpaper_backend,
-            state.config.manual_wallpaper_path.as_deref(),
-            state.config.primary_monitor.as_deref(),
-        )
-        .ok()
-        .or_else(|| {
+        if state.config.wallpaper_backend != termonet::config::WallpaperBackend::Manual
+            && let Ok(monitors) = termonet::wallpaper::get_wallpaper_monitors(
+                &state.config.wallpaper_backend,
+                state.config.manual_wallpaper_path.as_deref(),
+            )
+            && monitors.has_divergent_wallpapers()
+        {
+            let sorted = monitors.sorted_outputs();
+            state.active_monitors = sorted;
+            state.current_monitor_idx = if let Some(ref primary) = state.config.primary_monitor {
+                state.active_monitors.iter().position(|(name, _)| name == primary).unwrap_or(0)
+            } else {
+                0
+            };
+        }
+
+        let wp = if !state.active_monitors.is_empty() {
+            Some(state.active_monitors[state.current_monitor_idx].1.clone())
+        } else {
+            termonet::wallpaper::get_current_wallpaper(
+                &state.config.wallpaper_backend,
+                state.config.manual_wallpaper_path.as_deref(),
+                state.config.primary_monitor.as_deref(),
+            )
+            .ok()
+        };
+
+        wp.or_else(|| {
             state
                 .config
                 .manual_wallpaper_path

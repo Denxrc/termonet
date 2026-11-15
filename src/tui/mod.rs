@@ -97,6 +97,10 @@ fn render_footer(frame: &mut Frame, area: Rect, state: &AppState) {
             footer_spans.push(Span::styled(format!("{}  ", t.hint_wallpaper), Style::default().fg(text_muted)));
             footer_spans.push(Span::styled(" [r] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
             footer_spans.push(Span::styled(format!("{}  ", t.hint_auto_detect), Style::default().fg(text_muted)));
+            if state.active_monitors.len() > 1 {
+                footer_spans.push(Span::styled(" [Tab/m] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
+                footer_spans.push(Span::styled(format!("{}  ", t.hint_switch_monitor), Style::default().fg(text_muted)));
+            }
         }
         Step::Programs | Step::Hooks => {
             footer_spans.push(Span::styled(" [↑/↓] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
@@ -347,6 +351,155 @@ mod tests {
     }
 
     #[test]
+    fn test_wizard_multi_monitor_flow() {
+        use crate::tui::app::EnvSubStep;
+        use std::path::PathBuf;
+
+        let config = AppConfig::default();
+        let mut state = AppState::new_wizard(config);
+
+        // Step 1: Jump to Step 3 (Environment)
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char('3')));
+        let wizard = state.wizard_state.as_ref().unwrap();
+        assert_eq!(wizard.step, WizardStep::Environment);
+        assert_eq!(wizard.env_substep, EnvSubStep::ServerAndBackend);
+
+        // Inject discovered divergent monitors into wizard state
+        if let Some(ref mut w) = state.wizard_state {
+            w.discovered_monitors = Some(vec![
+                ("DP-1".into(), PathBuf::from("/wallpaper_dp.png")),
+                ("HDMI-A-1".into(), PathBuf::from("/wallpaper_hdmi.png")),
+            ]);
+            w.env_substep = EnvSubStep::Monitors;
+            w.selected_idx = 0;
+            w.config.primary_monitor = Some("DP-1".into());
+        }
+
+        // Test cursor move down
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Down));
+        assert_eq!(state.wizard_state.as_ref().unwrap().selected_idx, 1);
+
+        // Test selection with Space
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char(' ')));
+        assert_eq!(
+            state.wizard_state.as_ref().unwrap().config.primary_monitor.as_deref(),
+            Some("HDMI-A-1")
+        );
+
+        // Advance Right -> should move to Programs
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Right));
+        assert_eq!(state.wizard_state.as_ref().unwrap().step, WizardStep::Programs);
+
+        // Move Left -> should return to Environment in EnvSubStep::Monitors
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Left));
+        assert_eq!(state.wizard_state.as_ref().unwrap().step, WizardStep::Environment);
+        assert_eq!(state.wizard_state.as_ref().unwrap().env_substep, EnvSubStep::Monitors);
+        assert_eq!(state.wizard_state.as_ref().unwrap().selected_idx, 1);
+
+        // Move Left again -> should return to ServerAndBackend
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Left));
+        assert_eq!(state.wizard_state.as_ref().unwrap().step, WizardStep::Environment);
+        assert_eq!(state.wizard_state.as_ref().unwrap().env_substep, EnvSubStep::ServerAndBackend);
+
+        // Move Left again -> should return to Appearance
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Left));
+        assert_eq!(state.wizard_state.as_ref().unwrap().step, WizardStep::Appearance);
+    }
+
+    #[test]
+    fn test_render_wizard_monitors_substep() {
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).expect("failed to create test terminal");
+
+        let config = AppConfig::default();
+        let mut state = AppState::new_wizard(config);
+        if let Some(ref mut w) = state.wizard_state {
+            w.step = WizardStep::Environment;
+            w.env_substep = crate::tui::app::EnvSubStep::Monitors;
+            w.discovered_monitors = Some(vec![
+                ("DP-1".into(), std::path::PathBuf::from("/path/to/dp.png")),
+                ("HDMI-A-1".into(), std::path::PathBuf::from("/path/to/hdmi.png")),
+            ]);
+            w.config.primary_monitor = Some("DP-1".into());
+        }
+
+        terminal
+            .draw(|f| {
+                views::render_wizard(f, f.area(), &state);
+            })
+            .expect("draw wizard monitors substep succeeded");
+    }
+
+    #[test]
+    fn test_palette_tab_cycles_monitors() {
+        let temp_dir = std::env::temp_dir();
+        let file_dp = temp_dir.join("termonet_test_tab_dp.png");
+        let file_hdmi = temp_dir.join("termonet_test_tab_hdmi.png");
+
+        let png_bytes = [
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+            0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+            0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xde, 0x00, 0x00, 0x00,
+            0x0c, 0x49, 0x44, 0x41, 0x54, 0x08, 0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0x00,
+            0x00, 0x03, 0x01, 0x01, 0x00, 0x18, 0xdd, 0x8d, 0xb0, 0x00, 0x00, 0x00,
+            0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+        ];
+        std::fs::write(&file_dp, png_bytes).unwrap();
+        std::fs::write(&file_hdmi, png_bytes).unwrap();
+
+        let config = AppConfig::default();
+        let mut state = AppState::new(config);
+        state.current_step = Step::Palette;
+        state.active_monitors = vec![
+            ("DP-1".into(), file_dp.clone()),
+            ("HDMI-A-1".into(), file_hdmi.clone()),
+        ];
+        state.current_monitor_idx = 0;
+        state.wallpaper_path = Some(file_dp.display().to_string());
+
+        // Press Tab to cycle to HDMI-A-1
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Tab));
+        assert_eq!(state.current_monitor_idx, 1);
+        assert_eq!(state.config.primary_monitor.as_deref(), Some("HDMI-A-1"));
+        assert_eq!(state.wallpaper_path.as_deref(), Some(file_hdmi.to_str().unwrap()));
+
+        // Press 'm' to cycle back to DP-1
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char('m')));
+        assert_eq!(state.current_monitor_idx, 0);
+        assert_eq!(state.config.primary_monitor.as_deref(), Some("DP-1"));
+        assert_eq!(state.wallpaper_path.as_deref(), Some(file_dp.to_str().unwrap()));
+
+        let _ = std::fs::remove_file(file_dp);
+        let _ = std::fs::remove_file(file_hdmi);
+    }
+
+    #[test]
+    fn test_render_palette_with_multi_monitors() {
+        let backend = TestBackend::new(140, 30);
+        let mut terminal = Terminal::new(backend).expect("failed to create test terminal");
+
+        let config = AppConfig::default();
+        let mut state = AppState::new(config);
+        let seed = material_colors::color::Rgb::new(0x42, 0x85, 0xf4);
+        state.palette = Some(crate::core::GeneratedPalette::from_seed_color(seed));
+        state.active_monitors = vec![
+            ("DP-1".into(), std::path::PathBuf::from("/path/to/dp.png")),
+            ("HDMI-A-1".into(), std::path::PathBuf::from("/path/to/hdmi.png")),
+        ];
+        state.current_monitor_idx = 0;
+
+        terminal
+            .draw(|f| {
+                render_footer(f, f.area(), &state);
+            })
+            .expect("draw footer with multi-monitors succeeded");
+
+        let buffer = terminal.backend().buffer();
+        let footer_row: String = (0..140).map(|x| buffer[(x, 0)].symbol()).collect();
+        assert!(footer_row.contains("[Tab/m]"), "Palette footer should contain [Tab/m]");
+    }
+
+    #[test]
     fn test_render_palette_with_input_modal() {
         let backend = TestBackend::new(100, 30);
         let mut terminal = Terminal::new(backend).expect("failed to create test terminal");
@@ -481,5 +634,119 @@ mod tests {
         assert_eq!(light_prim, Color::from(palette.light.primary));
         assert_eq!(light_sec, Color::from(palette.light.secondary));
         assert_ne!(dark_prim, light_prim);
+    }
+
+    #[test]
+    fn test_stress_wizard_state_index_overflow_protection() {
+        use crate::tui::app::{EnvSubStep, WizardState, WizardStep};
+
+        let mut wizard = WizardState::new(AppConfig::default());
+        wizard.step = WizardStep::Environment;
+        wizard.env_substep = EnvSubStep::Monitors;
+        wizard.discovered_monitors = None;
+        assert_eq!(wizard.max_options(), 0);
+
+        wizard.discovered_monitors = Some(Vec::new());
+        assert_eq!(wizard.max_options(), 0);
+
+        wizard.selected_idx = usize::MAX;
+        let mut state = AppState::new_wizard(AppConfig::default());
+        state.wizard_state = Some(wizard);
+
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char(' ')));
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Enter));
+        assert!(state.wizard_state.is_some());
+    }
+
+    #[test]
+    fn test_stress_app_state_cycling_with_empty_or_single_monitors() {
+        let mut state = AppState::new(AppConfig::default());
+        state.current_step = Step::Palette;
+
+        // 1. Zero monitors: cycle must be a safe no-op
+        state.active_monitors.clear();
+        state.current_monitor_idx = 999;
+        state.cycle_monitor_wallpaper();
+        assert_eq!(state.current_monitor_idx, 999);
+
+        // 2. Single monitor: cycle must also be a safe no-op
+        state.active_monitors = vec![("DP-1".into(), std::path::PathBuf::from("/fake.png"))];
+        state.current_monitor_idx = 0;
+        state.cycle_monitor_wallpaper();
+        assert_eq!(state.current_monitor_idx, 0);
+
+        // 3. Overflow index wrap-around: current_monitor_idx starting beyond active_monitors.len()
+        state.active_monitors = vec![
+            ("DP-1".into(), std::path::PathBuf::from("/a.png")),
+            ("HDMI-1".into(), std::path::PathBuf::from("/b.png")),
+        ];
+        state.current_monitor_idx = 100;
+        state.cycle_monitor_wallpaper(); // (100 + 1) % 2 == 1
+        assert_eq!(state.current_monitor_idx, 1);
+    }
+
+    #[test]
+    fn test_stress_wallpaper_input_modal_typing_and_backspacing() {
+        let mut state = AppState::new(AppConfig::default());
+        state.open_wallpaper_input();
+        assert!(state.wallpaper_input.is_some());
+
+        // Type 10,000 characters
+        for i in 0..10_000 {
+            let ch = (b'a' + (i % 26) as u8) as char;
+            state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char(ch)));
+        }
+        assert_eq!(state.wallpaper_input.as_ref().unwrap().input.len(), 10_000);
+
+        // Navigate Left 5,000 times
+        for _ in 0..5_000 {
+            state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Left));
+        }
+        assert_eq!(state.wallpaper_input.as_ref().unwrap().cursor_pos, 5_000);
+
+        // Hit Home
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Home));
+        assert_eq!(state.wallpaper_input.as_ref().unwrap().cursor_pos, 0);
+
+        // Delete at index 0 1,000 times
+        for _ in 0..1_000 {
+            state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Delete));
+        }
+        assert_eq!(state.wallpaper_input.as_ref().unwrap().input.len(), 9_000);
+
+        // Hit End
+        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::End));
+        assert_eq!(state.wallpaper_input.as_ref().unwrap().cursor_pos, 9_000);
+
+        // Backspace 15,000 times (more than length) -> cursor must stay at 0, no panic
+        for _ in 0..15_000 {
+            state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Backspace));
+        }
+        assert_eq!(state.wallpaper_input.as_ref().unwrap().cursor_pos, 0);
+        assert!(state.wallpaper_input.as_ref().unwrap().input.is_empty());
+    }
+
+    #[test]
+    fn test_stress_fuzzing_tui_key_router() {
+        let mut state = AppState::new(AppConfig::default());
+
+        let strange_keys = [
+            crossterm::event::KeyCode::F(1),
+            crossterm::event::KeyCode::F(12),
+            crossterm::event::KeyCode::Null,
+            crossterm::event::KeyCode::PageUp,
+            crossterm::event::KeyCode::PageDown,
+            crossterm::event::KeyCode::Insert,
+            crossterm::event::KeyCode::BackTab,
+            crossterm::event::KeyCode::Char('\0'),
+            crossterm::event::KeyCode::Char('я'),
+            crossterm::event::KeyCode::Char('🚀'),
+        ];
+
+        for i in 0..5_000 {
+            let key = strange_keys[i % strange_keys.len()];
+            state.handle_key(crossterm::event::KeyEvent::from(key));
+        }
+        assert!(state.is_running);
     }
 }

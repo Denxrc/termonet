@@ -48,18 +48,40 @@ pub fn render_palette(frame: &mut Frame, area: Rect, state: &AppState) {
 
     // 1. Wallpaper & Seed indicator inside Step 1
     let wp_text = state.wallpaper_path.as_deref().unwrap_or(t.no_wallpaper);
-    let wp_line = Line::from(vec![
+    let mut spans = vec![
         Span::styled(format!(" {} ", t.wallpaper_source), Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
         Span::styled(wp_text, Style::default().fg(text_color)),
         Span::raw("   "),
         Span::styled(format!("{} ", t.wallpaper_change_btn), Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
         Span::raw(" "),
         Span::styled(format!("{} ", t.wallpaper_reload_btn), Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
-        Span::raw("    "),
-        Span::styled(format!("{} ", t.seed_color), Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
-        color_badge(&palette.seed_color),
-        Span::styled(format!(" {} ", palette.seed_color.to_hex()), Style::default().fg(text_color).add_modifier(Modifier::BOLD)),
-    ]);
+    ];
+
+    if state.active_monitors.len() > 1 {
+        spans.push(Span::raw("   "));
+        spans.push(Span::styled(format!("{} ", t.display_label), Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)));
+        for (idx, (name, _)) in state.active_monitors.iter().enumerate() {
+            let is_active = idx == state.current_monitor_idx;
+            if is_active {
+                spans.push(Span::styled(
+                    format!("[● {}] ", name),
+                    Style::default().fg(primary_color).add_modifier(Modifier::BOLD),
+                ));
+            } else {
+                spans.push(Span::styled(
+                    format!("[○ {}] ", name),
+                    Style::default().fg(text_dim),
+                ));
+            }
+        }
+    }
+
+    spans.push(Span::raw("    "));
+    spans.push(Span::styled(format!("{} ", t.seed_color), Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)));
+    spans.push(color_badge(&palette.seed_color));
+    spans.push(Span::styled(format!(" {} ", palette.seed_color.to_hex()), Style::default().fg(text_color).add_modifier(Modifier::BOLD)));
+
+    let wp_line = Line::from(spans);
     frame.render_widget(Paragraph::new(wp_line), v_chunks[0]);
 
     // 2. Split horizontally into 2 columns: Material You Roles (left) and Terminal ANSI Colors (right)

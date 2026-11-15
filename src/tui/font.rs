@@ -2,6 +2,9 @@
 
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
+use std::sync::LazyLock;
+
+static TERMONET_BANNER: LazyLock<[String; 3]> = LazyLock::new(|| PixelFont::render("TERMONET"));
 
 /// 5-pixel height bitmap glyph: 5 rows represented as bitmasks, plus glyph width.
 #[derive(Clone, Copy)]
@@ -75,6 +78,17 @@ impl PixelFont {
             .into_iter()
             .map(|l| Line::from(vec![Span::styled(l, style)]))
             .collect()
+    }
+
+    /// Returns the pre-rendered, cached 3-line banner for "TERMONET".
+    /// Eliminates all per-frame glyph bitmask rendering and String allocations in the TUI render loop.
+    #[must_use]
+    pub fn termonet_banner<'a>(style: Style) -> [Line<'a>; 3] {
+        [
+            Line::from(vec![Span::styled(&TERMONET_BANNER[0], style)]),
+            Line::from(vec![Span::styled(&TERMONET_BANNER[1], style)]),
+            Line::from(vec![Span::styled(&TERMONET_BANNER[2], style)]),
+        ]
     }
 
     fn lookup_glyph(c: char) -> Glyph {

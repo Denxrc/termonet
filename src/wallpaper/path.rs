@@ -227,4 +227,35 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_stress_malformed_and_injection_paths() {
+        let malformed_inputs = [
+            "",
+            "   ",
+            "\t\n\r",
+            "/path/with/\0/null_byte.png",
+            "file://",
+            "file:////",
+            "file:///tmp/../../../../../../etc/shadow",
+            "color: #000000",
+            "color: 123456",
+            "0x112233",
+            "\"\"\"\"\"",
+            "''''''",
+            "%ZZ%YY%XX",
+            "%FF%FE%FD",
+            "%D0%BF%D1",
+            "~/$(rm -rf /)/wallpaper.png",
+            "~/${NON_EXISTENT_ENV_VARIABLE_99999}/wall.png",
+            "crop:unknown_filter_xyz 999999 /valid/path.png",
+        ];
+
+        for input in malformed_inputs {
+            let _ = sanitize_wallpaper_path(input);
+            let _ = clean_wallpaper_path(input);
+            let _ = percent_decode(input);
+            let _ = validate_wallpaper_path(Path::new(input));
+        }
+    }
 }

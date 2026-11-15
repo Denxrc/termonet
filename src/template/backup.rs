@@ -34,7 +34,8 @@ pub fn create_safety_backup<P: AsRef<Path>>(path: P) -> Result<()> {
         return Ok(());
     }
 
-    let backup_path = original_path.with_extension("bak");
+    let file_name = original_path.file_name().unwrap_or_default().to_string_lossy();
+    let backup_path = original_path.with_file_name(format!("{}.bak", file_name));
     fs::copy(original_path, backup_path)?;
     Ok(())
 }
@@ -86,7 +87,7 @@ mod tests {
         // 3. Write with modified content and create_backup = false -> NO .bak created!
         assert!(safe_write(&test_file, "clean updated content", false).is_ok());
         assert_eq!(fs::read_to_string(&test_file).unwrap(), "clean updated content");
-        let bak_file = test_file.with_extension("bak");
+        let bak_file = test_file.with_file_name(format!("{}.bak", test_file.file_name().unwrap().to_string_lossy()));
         assert!(!bak_file.exists(), ".bak should not exist when create_backup is false");
 
         // 4. Write with modified content and create_backup = true -> creates .bak

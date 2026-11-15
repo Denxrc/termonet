@@ -80,7 +80,7 @@ impl RgbColor {
             HEX_DIGITS[(self.b >> 4) as usize],
             HEX_DIGITS[(self.b & 0xf) as usize],
         ];
-        String::from_utf8(bytes.to_vec()).unwrap_or_default()
+        std::str::from_utf8(&bytes).unwrap_or("#000000").to_string()
     }
 
     /// Formats the color as a lowercase HEX string without a leading hash (e.g. "1a2b3c").
@@ -94,7 +94,7 @@ impl RgbColor {
             HEX_DIGITS[(self.b >> 4) as usize],
             HEX_DIGITS[(self.b & 0xf) as usize],
         ];
-        String::from_utf8(bytes.to_vec()).unwrap_or_default()
+        std::str::from_utf8(&bytes).unwrap_or("000000").to_string()
     }
 
     /// Formats the color as a comma-separated RGB string (e.g. "26, 43, 60").

@@ -334,4 +334,28 @@ mod tests {
         assert_eq!(palette.seed_color.to_hex().len(), 7);
         assert_eq!(palette.terminal.foreground.to_hex().len(), 7);
     }
+
+    #[test]
+    fn test_stress_directory_and_binary_garbage_as_wallpaper() {
+        let temp_dir = std::env::temp_dir();
+
+        // 1. Target is a directory instead of a regular file
+        let dir_path = temp_dir.join(format!("termonet_dir_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir_path);
+        let res = GeneratedPalette::from_image_path(&dir_path);
+        assert!(res.is_err(), "Palette from directory must fail cleanly");
+        let _ = std::fs::remove_dir(&dir_path);
+
+        // 2. Target is a non-existent file
+        let non_existent = temp_dir.join("non_existent_123456789.png");
+        let res = GeneratedPalette::from_image_path(&non_existent);
+        assert!(res.is_err(), "Palette from non-existent file must fail cleanly");
+
+        // 3. Target is a binary file filled with random non-image bytes
+        let garbage_file = temp_dir.join(format!("termonet_garbage_{}.png", std::process::id()));
+        std::fs::write(&garbage_file, [0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x11, 0x22, 0x33]).unwrap();
+        let res = GeneratedPalette::from_image_path(&garbage_file);
+        assert!(res.is_err(), "Palette from garbage bytes must fail cleanly");
+        let _ = std::fs::remove_file(&garbage_file);
+    }
 }

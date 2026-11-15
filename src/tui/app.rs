@@ -1,5 +1,6 @@
 //! TUI state machine and main interaction loop.
 
+use std::path::PathBuf;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use crate::config::{AppConfig, DisplayServer, FontMode, Language, TuiTheme, WallpaperBackend};
 use crate::core::GeneratedPalette;
@@ -57,6 +58,14 @@ pub enum WizardStep {
     Finish = 4,
 }
 
+/// Contextual sub-phase within `WizardStep::Environment`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EnvSubStep {
+    #[default]
+    ServerAndBackend,
+    Monitors,
+}
+
 impl WizardStep {
     /// Advances to the next wizard step.
     #[must_use]
@@ -96,6 +105,8 @@ pub struct WizardState {
     pub selected_idx: usize,
     pub config: AppConfig,
     pub opened_from_main: bool,
+    pub env_substep: EnvSubStep,
+    pub discovered_monitors: Option<Vec<(String, PathBuf)>>,
 }
 
 impl WizardState {
@@ -107,6 +118,8 @@ impl WizardState {
             selected_idx: 0,
             config,
             opened_from_main: false,
+            env_substep: EnvSubStep::ServerAndBackend,
+            discovered_monitors: None,
         }
     }
 
@@ -118,6 +131,8 @@ impl WizardState {
             selected_idx: 0,
             config,
             opened_from_main: true,
+            env_substep: EnvSubStep::ServerAndBackend,
+            discovered_monitors: None,
         }
     }
 
@@ -127,7 +142,10 @@ impl WizardState {
         match self.step {
             WizardStep::Language => 2,
             WizardStep::Appearance => 5,
-            WizardStep::Environment => 13,
+            WizardStep::Environment => match self.env_substep {
+                EnvSubStep::ServerAndBackend => 13,
+                EnvSubStep::Monitors => self.discovered_monitors.as_ref().map(|m| m.len()).unwrap_or(0),
+            },
             WizardStep::Programs => crate::template::ProgramRule::load_all().map(|r| r.len()).unwrap_or(4),
             WizardStep::Finish => 3,
         }
@@ -190,6 +208,10 @@ pub struct AppState {
 
     // Interactive wallpaper path input modal state
     pub wallpaper_input: Option<WallpaperInputState>,
+
+    // Multi-monitor active displays and cycling
+    pub active_monitors: Vec<(String, PathBuf)>,
+    pub current_monitor_idx: usize,
 }
 
 impl AppState {
@@ -249,6 +271,8 @@ impl AppState {
             is_wizard: false,
             wizard_state: None,
             wallpaper_input: None,
+            active_monitors: Vec::new(),
+            current_monitor_idx: 0,
         }
     }
 
@@ -271,6 +295,8 @@ impl AppState {
             is_wizard: true,
             wizard_state: Some(wizard_state),
             wallpaper_input: None,
+            active_monitors: Vec::new(),
+            current_monitor_idx: 0,
         }
     }
 
@@ -362,11 +388,37 @@ impl AppState {
 
     /// Automatically detects and reloads the active wallpaper based on current configuration.
     pub fn reload_wallpaper(&mut self) -> Result<()> {
-        let path = crate::wallpaper::get_current_wallpaper(
-            &self.config.wallpaper_backend,
-            self.config.manual_wallpaper_path.as_deref(),
-            self.config.primary_monitor.as_deref(),
-        )?;
+        let manual_str = self.config.manual_wallpaper_path.as_deref();
+        if self.config.wallpaper_backend != WallpaperBackend::Manual {
+            if let Ok(monitors) = crate::wallpaper::get_wallpaper_monitors(&self.config.wallpaper_backend, manual_str)
+                && monitors.has_divergent_wallpapers()
+            {
+                let sorted = monitors.sorted_outputs();
+                self.active_monitors = sorted;
+                self.current_monitor_idx = if let Some(ref primary) = self.config.primary_monitor {
+                    self.active_monitors.iter().position(|(name, _)| name == primary).unwrap_or(0)
+                } else {
+                    0
+                };
+            } else {
+                self.active_monitors.clear();
+                self.current_monitor_idx = 0;
+            }
+        } else {
+            self.active_monitors.clear();
+            self.current_monitor_idx = 0;
+        }
+
+        let path = if !self.active_monitors.is_empty() {
+            self.active_monitors[self.current_monitor_idx].1.clone()
+        } else {
+            crate::wallpaper::get_current_wallpaper(
+                &self.config.wallpaper_backend,
+                manual_str,
+                self.config.primary_monitor.as_deref(),
+            )?
+        };
+
         let palette = GeneratedPalette::from_image_path(&path)?;
         let path_str = path.display().to_string();
         self.palette = Some(palette);
@@ -375,23 +427,34 @@ impl AppState {
         Ok(())
     }
 
+    /// Cycles through active multi-monitor outputs on Step 1 (Palette), previewing the wallpaper in memory.
+    pub fn cycle_monitor_wallpaper(&mut self) {
+        if self.active_monitors.len() <= 1 {
+            return;
+        }
+
+        self.current_monitor_idx = (self.current_monitor_idx + 1) % self.active_monitors.len();
+        let (name, path) = self.active_monitors[self.current_monitor_idx].clone();
+        self.config.primary_monitor = Some(name.clone());
+
+        match GeneratedPalette::from_image_path(&path) {
+            Ok(palette) => {
+                self.wallpaper_path = Some(path.display().to_string());
+                self.palette = Some(palette);
+                self.status_message = Some(format!("Switched to monitor: {}", name));
+            }
+            Err(e) => {
+                self.status_message = Some(format!("Failed to load wallpaper for {}: {}", name, e));
+            }
+        }
+    }
+
     /// Switches to automatic wallpaper detection mode, persists the setting to config,
     /// and generates a new palette from the actively detected wallpaper.
     pub fn switch_to_auto_and_reload(&mut self) -> Result<()> {
         self.config.wallpaper_backend = WallpaperBackend::Auto;
         let _ = self.config.save();
-
-        let path = crate::wallpaper::get_current_wallpaper(
-            &WallpaperBackend::Auto,
-            self.config.manual_wallpaper_path.as_deref(),
-            self.config.primary_monitor.as_deref(),
-        )?;
-        let palette = GeneratedPalette::from_image_path(&path)?;
-        let path_str = path.display().to_string();
-        self.palette = Some(palette);
-        self.wallpaper_path = Some(path_str);
-        self.status_message = Some("Switched to auto-detect and regenerated palette!".into());
-        Ok(())
+        self.reload_wallpaper()
     }
 
     /// Advances to the next step.
@@ -491,21 +554,33 @@ impl AppState {
                 self.config.font_mode = wizard.config.font_mode;
             }
             WizardStep::Environment => {
-                match wizard.selected_idx {
-                    0 => wizard.config.display_server = DisplayServer::Wayland,
-                    1 => wizard.config.display_server = DisplayServer::X11,
-                    2 => wizard.config.wallpaper_backend = WallpaperBackend::Auto,
-                    3 => wizard.config.wallpaper_backend = WallpaperBackend::Swww,
-                    4 => wizard.config.wallpaper_backend = WallpaperBackend::Hyprpaper,
-                    5 => wizard.config.wallpaper_backend = WallpaperBackend::Awww,
-                    6 => wizard.config.wallpaper_backend = WallpaperBackend::Wpaperd,
-                    7 => wizard.config.wallpaper_backend = WallpaperBackend::Swaybg,
-                    8 => wizard.config.wallpaper_backend = WallpaperBackend::Gnome,
-                    9 => wizard.config.wallpaper_backend = WallpaperBackend::Kde,
-                    10 => wizard.config.wallpaper_backend = WallpaperBackend::Feh,
-                    11 => wizard.config.wallpaper_backend = WallpaperBackend::Nitrogen,
-                    12 => wizard.config.wallpaper_backend = WallpaperBackend::Manual,
-                    _ => {}
+                match wizard.env_substep {
+                    EnvSubStep::ServerAndBackend => {
+                        match wizard.selected_idx {
+                            0 => wizard.config.display_server = DisplayServer::Wayland,
+                            1 => wizard.config.display_server = DisplayServer::X11,
+                            2 => wizard.config.wallpaper_backend = WallpaperBackend::Auto,
+                            3 => wizard.config.wallpaper_backend = WallpaperBackend::Swww,
+                            4 => wizard.config.wallpaper_backend = WallpaperBackend::Hyprpaper,
+                            5 => wizard.config.wallpaper_backend = WallpaperBackend::Awww,
+                            6 => wizard.config.wallpaper_backend = WallpaperBackend::Wpaperd,
+                            7 => wizard.config.wallpaper_backend = WallpaperBackend::Swaybg,
+                            8 => wizard.config.wallpaper_backend = WallpaperBackend::Gnome,
+                            9 => wizard.config.wallpaper_backend = WallpaperBackend::Kde,
+                            10 => wizard.config.wallpaper_backend = WallpaperBackend::Feh,
+                            11 => wizard.config.wallpaper_backend = WallpaperBackend::Nitrogen,
+                            12 => wizard.config.wallpaper_backend = WallpaperBackend::Manual,
+                            _ => {}
+                        }
+                        wizard.discovered_monitors = None;
+                    }
+                    EnvSubStep::Monitors => {
+                        if let Some(ref monitors) = wizard.discovered_monitors
+                            && let Some((name, _)) = monitors.get(wizard.selected_idx)
+                        {
+                            wizard.config.primary_monitor = Some(name.clone());
+                        }
+                    }
                 }
             }
             WizardStep::Programs => {
@@ -549,24 +624,83 @@ impl AppState {
             // Wizard step navigation
             KeyCode::Right | KeyCode::Char('l') => {
                 if let Some(ref mut wizard) = self.wizard_state {
-                    wizard.step = wizard.step.next();
-                    wizard.selected_idx = if wizard.step == WizardStep::Finish { 2 } else { 0 };
+                    if wizard.step == WizardStep::Environment {
+                        match wizard.env_substep {
+                            EnvSubStep::ServerAndBackend => {
+                                let manual_str = wizard.config.manual_wallpaper_path.as_deref();
+                                match crate::wallpaper::get_wallpaper_monitors(&wizard.config.wallpaper_backend, manual_str) {
+                                    Ok(monitors) if monitors.has_divergent_wallpapers() => {
+                                        let sorted = monitors.sorted_outputs();
+                                        let cur_idx = if let Some(ref primary) = wizard.config.primary_monitor {
+                                            sorted.iter().position(|(name, _)| name == primary).unwrap_or(0)
+                                        } else {
+                                            if let Some(first) = sorted.first() {
+                                                wizard.config.primary_monitor = Some(first.0.clone());
+                                            }
+                                            0
+                                        };
+                                        wizard.discovered_monitors = Some(sorted);
+                                        wizard.env_substep = EnvSubStep::Monitors;
+                                        wizard.selected_idx = cur_idx;
+                                    }
+                                    _ => {
+                                        wizard.discovered_monitors = None;
+                                        wizard.env_substep = EnvSubStep::ServerAndBackend;
+                                        wizard.step = WizardStep::Programs;
+                                        wizard.selected_idx = 0;
+                                    }
+                                }
+                            }
+                            EnvSubStep::Monitors => {
+                                wizard.step = WizardStep::Programs;
+                                wizard.selected_idx = 0;
+                            }
+                        }
+                    } else {
+                        wizard.step = wizard.step.next();
+                        wizard.selected_idx = if wizard.step == WizardStep::Finish { 2 } else { 0 };
+                    }
                 }
             }
             KeyCode::Left | KeyCode::Char('h') => {
                 if let Some(ref mut wizard) = self.wizard_state {
-                    wizard.step = wizard.step.prev();
-                    wizard.selected_idx = if wizard.step == WizardStep::Finish { 2 } else { 0 };
+                    if wizard.step == WizardStep::Programs {
+                        if wizard.discovered_monitors.is_some() {
+                            wizard.step = WizardStep::Environment;
+                            wizard.env_substep = EnvSubStep::Monitors;
+                            wizard.selected_idx = wizard.config.primary_monitor.as_ref()
+                                .and_then(|p| wizard.discovered_monitors.as_ref()?.iter().position(|(n, _)| n == p))
+                                .unwrap_or(0);
+                        } else {
+                            wizard.step = WizardStep::Environment;
+                            wizard.env_substep = EnvSubStep::ServerAndBackend;
+                            wizard.selected_idx = 0;
+                        }
+                    } else if wizard.step == WizardStep::Environment {
+                        match wizard.env_substep {
+                            EnvSubStep::Monitors => {
+                                wizard.env_substep = EnvSubStep::ServerAndBackend;
+                                wizard.selected_idx = 0;
+                            }
+                            EnvSubStep::ServerAndBackend => {
+                                wizard.step = WizardStep::Appearance;
+                                wizard.selected_idx = 0;
+                            }
+                        }
+                    } else {
+                        wizard.step = wizard.step.prev();
+                        wizard.selected_idx = if wizard.step == WizardStep::Finish { 2 } else { 0 };
+                    }
                 }
             }
             KeyCode::Char('1') => {
-                if let Some(ref mut wizard) = self.wizard_state { wizard.step = WizardStep::Language; wizard.selected_idx = 0; }
+                if let Some(ref mut wizard) = self.wizard_state { wizard.step = WizardStep::Language; wizard.selected_idx = 0; wizard.env_substep = EnvSubStep::ServerAndBackend; }
             }
             KeyCode::Char('2') => {
-                if let Some(ref mut wizard) = self.wizard_state { wizard.step = WizardStep::Appearance; wizard.selected_idx = 0; }
+                if let Some(ref mut wizard) = self.wizard_state { wizard.step = WizardStep::Appearance; wizard.selected_idx = 0; wizard.env_substep = EnvSubStep::ServerAndBackend; }
             }
             KeyCode::Char('3') => {
-                if let Some(ref mut wizard) = self.wizard_state { wizard.step = WizardStep::Environment; wizard.selected_idx = 0; }
+                if let Some(ref mut wizard) = self.wizard_state { wizard.step = WizardStep::Environment; wizard.selected_idx = 0; wizard.env_substep = EnvSubStep::ServerAndBackend; }
             }
             KeyCode::Char('4') => {
                 if let Some(ref mut wizard) = self.wizard_state { wizard.step = WizardStep::Programs; wizard.selected_idx = 0; }
@@ -624,7 +758,10 @@ impl AppState {
                             wizard.selected_idx = 2;
                         }
                     }
-                } else if current_step == Some(WizardStep::Environment) && selected_idx == 12 {
+                } else if current_step == Some(WizardStep::Environment)
+                    && self.wizard_state.as_ref().map(|w| w.env_substep) == Some(EnvSubStep::ServerAndBackend)
+                    && selected_idx == 12
+                {
                     // Option 12 in Environment is Manual path -> trigger input dialog
                     self.toggle_wizard_option();
                     self.open_wallpaper_input();
@@ -728,7 +865,10 @@ impl AppState {
             }
         }
 
-        // 3. Update state cache
+        // 3. Save configuration (persisting any monitor switch made during palette preview)
+        let _ = self.config.save();
+
+        // 4. Update state cache
         if let Some(ref wall_path) = self.wallpaper_path {
             let mut cache = crate::cli::AppStateCache::load().unwrap_or_default();
             cache.last_wallpaper_path = Some(wall_path.clone());
@@ -827,6 +967,9 @@ impl AppState {
                 if let Err(e) = self.switch_to_auto_and_reload() {
                     self.status_message = Some(format!("Auto-detection error: {}", e));
                 }
+            }
+            KeyCode::Tab | KeyCode::Char('m') if self.current_step == Step::Palette => {
+                self.cycle_monitor_wallpaper();
             }
             KeyCode::Right | KeyCode::Char('l') => self.next_step(),
             KeyCode::Left | KeyCode::Char('h') => self.prev_step(),

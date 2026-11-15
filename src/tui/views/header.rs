@@ -31,14 +31,13 @@ pub fn render_header(frame: &mut Frame, area: Rect, state: &AppState) {
             ])
             .split(area);
 
-        // 1. Pixel Logo
-        let pixel_lines = PixelFont::render_lines(
-            "TERMONET",
+        // 1. Pixel Logo (cached static banner)
+        let pixel_lines = PixelFont::termonet_banner(
             Style::default()
                 .fg(primary_color)
                 .add_modifier(Modifier::BOLD),
         );
-        let logo_paragraph = Paragraph::new(pixel_lines).alignment(Alignment::Center);
+        let logo_paragraph = Paragraph::new(pixel_lines.as_slice()).alignment(Alignment::Center);
         frame.render_widget(logo_paragraph, chunks[0]);
 
         // 2. Navigation Tabs

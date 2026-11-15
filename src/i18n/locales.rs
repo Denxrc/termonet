@@ -11,6 +11,7 @@ pub struct Translations {
     // Step 1: Palette
     pub wallpaper_source: &'static str,
     pub no_wallpaper: &'static str,
+    pub display_label: &'static str,
     pub seed_color: &'static str,
     pub wallpaper_change_btn: &'static str,
     pub wallpaper_reload_btn: &'static str,
@@ -100,6 +101,11 @@ pub struct Translations {
     pub wizard_programs_title: &'static str,
     pub wizard_programs_desc: &'static str,
 
+    pub wizard_step_monitors_tag: &'static str,
+    pub wizard_monitors_title: &'static str,
+    pub wizard_monitors_sec: &'static str,
+    pub wizard_monitors_desc: &'static str,
+
     pub wizard_finish_title: &'static str,
     pub wizard_finish_btn: &'static str,
     pub wizard_finish_info: &'static str,
@@ -139,6 +145,7 @@ pub struct Translations {
     pub hint_cancel: &'static str,
     pub hint_wallpaper: &'static str,
     pub hint_auto_detect: &'static str,
+    pub hint_switch_monitor: &'static str,
     pub hint_choose: &'static str,
 }
 
@@ -150,6 +157,7 @@ pub const RU_TRANSLATIONS: Translations = Translations {
 
     wallpaper_source: "Источник обоев:",
     no_wallpaper: "Обои не выбраны",
+    display_label: "Дисплеи:",
     seed_color: "Доминантный тон (Seed):",
     wallpaper_change_btn: "[w] Изменить обои",
     wallpaper_reload_btn: "[r] Автоопределение",
@@ -235,6 +243,11 @@ pub const RU_TRANSLATIONS: Translations = Translations {
     wizard_programs_title: " Выбор программ по умолчанию ",
     wizard_programs_desc: "[Пробел] — включить/отключить программу для автогенерации темы",
 
+    wizard_step_monitors_tag: " (Мониторы)",
+    wizard_monitors_title: " Активные дисплеи ",
+    wizard_monitors_sec: "Выбор основного экрана",
+    wizard_monitors_desc: "Обнаружены разные обои на экранах:",
+
     wizard_finish_title: " Подтверждение конфигурации ",
     wizard_finish_btn: "▶  [ СОХРАНИТЬ КОНФИГУРАЦИЮ И НАЧАТЬ РАБОТУ ]  ◀",
     wizard_finish_info: "Конфигурация будет сохранена в ~/.config/termonet/config.toml",
@@ -272,6 +285,7 @@ pub const RU_TRANSLATIONS: Translations = Translations {
     hint_cancel: "Отмена",
     hint_wallpaper: "Обои",
     hint_auto_detect: "Авто",
+    hint_switch_monitor: "сменить экран",
     hint_choose: "Применить",
 };
 
@@ -283,6 +297,7 @@ pub const EN_TRANSLATIONS: Translations = Translations {
 
     wallpaper_source: "Wallpaper Source:",
     no_wallpaper: "No wallpaper selected",
+    display_label: "Displays:",
     seed_color: "Dominant Seed Color:",
     wallpaper_change_btn: "[w] Change Wallpaper",
     wallpaper_reload_btn: "[r] Auto-detect",
@@ -368,6 +383,11 @@ pub const EN_TRANSLATIONS: Translations = Translations {
     wizard_programs_title: " Default Applications Selection ",
     wizard_programs_desc: "[Space] toggle application for automatic theme generation",
 
+    wizard_step_monitors_tag: " (Monitors)",
+    wizard_monitors_title: " Active Displays ",
+    wizard_monitors_sec: "Primary Display Selection",
+    wizard_monitors_desc: "Divergent wallpapers detected across displays:",
+
     wizard_finish_title: " Confirm Configuration ",
     wizard_finish_btn: "▶  [ SAVE CONFIGURATION & GET STARTED ]  ◀",
     wizard_finish_info: "Configuration will be saved to ~/.config/termonet/config.toml",
@@ -405,5 +425,6 @@ pub const EN_TRANSLATIONS: Translations = Translations {
     hint_cancel: "Cancel",
     hint_wallpaper: "Wallpaper",
     hint_auto_detect: "Auto",
+    hint_switch_monitor: "switch display",
     hint_choose: "Apply",
 };

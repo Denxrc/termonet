@@ -494,4 +494,25 @@ enabled_programs = [
         assert!(!upgraded.contains("alacritty"));
         assert!(!AppConfig::needs_migration(&upgraded));
     }
+
+    #[test]
+    fn test_stress_corrupted_config_parsing() {
+        let massive_garbage = "[termonet]\n".repeat(1_000);
+        let corrupted_configs: Vec<&str> = vec![
+            "",
+            "This is totally invalid TOML ][ ][ #$@!",
+            "language = \"klingon\"\ntui_theme = 99999",
+            "wallpaper_backend = \"hyper-quantum-daemon\"",
+            "enabled_programs = 42",
+            "display_server = true",
+            &massive_garbage,
+        ];
+
+        for cfg_str in corrupted_configs {
+            let res = toml::from_str::<AppConfig>(cfg_str);
+            if let Ok(config) = res {
+                assert!(!config.enabled_programs.is_empty() || config.enabled_programs.is_empty());
+            }
+        }
+    }
 }

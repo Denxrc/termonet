@@ -68,7 +68,7 @@ impl<'a> TemplateEngine<'a> {
             {
                 return Ok(rgb_str.to_string());
             }
-            if let (Ok(r), Ok(g), Ok(b)) = (val.get_attr("r"), val.get_attr("b"), val.get_attr("b"))
+            if let (Ok(r), Ok(g), Ok(b)) = (val.get_attr("r"), val.get_attr("g"), val.get_attr("b"))
                 && !r.is_undefined() && !g.is_undefined() && !b.is_undefined()
             {
                 return Ok(format!("{}, {}, {}", r, g, b));
@@ -171,5 +171,103 @@ active_primary: {{ active.primary.hex }}
         let rendered_light = engine.render_string(template, &palette, false).unwrap();
         assert!(rendered_light.contains(&format!("active_primary: {}", palette.light.primary.to_hex())));
         assert!(rendered_light.contains(&format!("terminal_bg: {}", palette.terminal_light.background.to_hex())));
+    }
+
+    #[test]
+    fn test_rgb_filter_fallback_extracts_g_correctly() {
+        let engine = TemplateEngine::new();
+        // Test rendering a template with custom context having distinct r, g, b without precomputed `rgb` string
+        let custom_template = "{{ {'r': 12, 'g': 34, 'b': 56} | rgb }}";
+        let palette = GeneratedPalette::from_seed_color(MaterialRgb::new(1, 2, 3));
+        let rendered = engine.render_string(custom_template, &palette, true).unwrap();
+        assert_eq!(rendered.trim(), "12, 34, 56");
+    }
+
+    #[test]
+    fn test_stress_template_engine_garbage_and_fuzzing() {
+        let engine = TemplateEngine::new();
+        let seed = MaterialRgb::new(128, 64, 32);
+        let palette = GeneratedPalette::from_seed_color(seed);
+
+        let malformed_templates = [
+            "",
+            "{{",
+            "}}",
+            "{% if %}",
+            "{{ primary | hex | non_existent_filter }}",
+            "{{ primary | rgb | darken(\"not_a_number\") }}",
+            "{{ primary | lighten(-99999999) }}",
+            "{{ surface | strip_hash | default }}",
+            "{{ unknown_variable.sub_field.deep_error }}",
+            "{% for x in 0..100000 %}{{ x }}{% endfor %}",
+        ];
+
+        for tpl in malformed_templates {
+            let _ = engine.render_string(tpl, &palette, true);
+            let _ = engine.render_string(tpl, &palette, false);
+        }
+    }
+
+    #[test]
+    fn test_stress_concurrent_template_rendering() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let engine = Arc::new(TemplateEngine::new());
+        let seed = MaterialRgb::new(0x42, 0x85, 0xF4);
+        let palette = Arc::new(GeneratedPalette::from_seed_color(seed));
+
+        let template_str = "
+            Primary: {{ active.primary | hex }}
+            Secondary: {{ active.secondary | strip }}
+            Background: {{ active.background | rgb }}
+            HyprRgb: {{ active.surface | hypr_rgb }}
+            HyprRgba: {{ active.on_primary | hypr_rgba(\"cc\") }}
+        ";
+
+        let mut handles = Vec::new();
+        for _ in 0..50 {
+            let eng = Arc::clone(&engine);
+            let pal = Arc::clone(&palette);
+            let h = thread::spawn(move || {
+                for _ in 0..200 {
+                    let rendered_dark = eng.render_string(template_str, &pal, true);
+                    assert!(rendered_dark.is_ok());
+                    let rendered_light = eng.render_string(template_str, &pal, false);
+                    assert!(rendered_light.is_ok());
+                }
+            });
+            handles.push(h);
+        }
+
+        for h in handles {
+            h.join().expect("Concurrent template rendering thread panicked!");
+        }
+    }
+
+    #[test]
+    fn test_stress_massive_template_rendering_throughput() {
+        let engine = TemplateEngine::new();
+        let seed = MaterialRgb::new(0x10, 0x20, 0x30);
+        let palette = GeneratedPalette::from_seed_color(seed);
+
+        let mut massive_template = String::with_capacity(100_000);
+        for i in 0..1_000 {
+            massive_template.push_str(&format!(
+                "line_{}: active={}, strip={}, hypr={}\n",
+                i,
+                "{{ active.primary | hex }}",
+                "{{ active.secondary | strip }}",
+                "{{ active.surface | hypr_rgb }}"
+            ));
+        }
+
+        let start = std::time::Instant::now();
+        let rendered = engine.render_string(&massive_template, &palette, true);
+        let elapsed = start.elapsed();
+
+        assert!(rendered.is_ok(), "Massive template must render without error");
+        assert!(elapsed.as_millis() < 500, "100k char template must render in < 500ms");
+        assert!(rendered.unwrap().len() > 50_000);
     }
 }

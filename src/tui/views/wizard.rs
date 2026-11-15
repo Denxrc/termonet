@@ -11,7 +11,7 @@ use ratatui::{
 use crate::config::{DisplayServer, FontMode, Language, TuiTheme, WallpaperBackend};
 use crate::config::paths::AppPaths;
 use crate::i18n::get_translations;
-use crate::tui::app::{AppState, WizardStep};
+use crate::tui::app::{AppState, EnvSubStep, WizardStep};
 use crate::tui::font::PixelFont;
 
 /// Renders the complete First-Run Wizard interface.
@@ -138,12 +138,24 @@ fn render_step_pills(
     let (primary_color, _) = state.ui_colors();
     let text_muted = state.text_muted();
     let text_dim = state.text_dim();
+
+    let is_monitors_substep = state
+        .wizard_state
+        .as_ref()
+        .is_some_and(|w| w.step == WizardStep::Environment && w.env_substep == EnvSubStep::Monitors);
+
+    let env_label = if is_monitors_substep {
+        format!("{}{}", t.wizard_step_env, t.wizard_step_monitors_tag)
+    } else {
+        t.wizard_step_env.to_string()
+    };
+
     let steps = [
-        (WizardStep::Language, t.wizard_step_lang),
-        (WizardStep::Appearance, t.wizard_step_appearance),
-        (WizardStep::Environment, t.wizard_step_env),
-        (WizardStep::Programs, t.wizard_step_programs),
-        (WizardStep::Finish, t.wizard_step_finish),
+        (WizardStep::Language, t.wizard_step_lang.to_string()),
+        (WizardStep::Appearance, t.wizard_step_appearance.to_string()),
+        (WizardStep::Environment, env_label),
+        (WizardStep::Programs, t.wizard_step_programs.to_string()),
+        (WizardStep::Finish, t.wizard_step_finish.to_string()),
     ];
 
     let mut spans = Vec::new();
@@ -182,7 +194,10 @@ fn render_wizard_body(
     match wizard.step {
         WizardStep::Language => render_step_language(frame, area, wizard, t, state, primary_color, secondary_color),
         WizardStep::Appearance => render_step_appearance(frame, area, wizard, t, state, primary_color, secondary_color),
-        WizardStep::Environment => render_step_environment(frame, area, wizard, t, state, primary_color, secondary_color),
+        WizardStep::Environment => match wizard.env_substep {
+            EnvSubStep::ServerAndBackend => render_step_environment(frame, area, wizard, t, state, primary_color, secondary_color),
+            EnvSubStep::Monitors => render_step_monitors(frame, area, wizard, t, state, primary_color, secondary_color),
+        },
         WizardStep::Programs => render_step_programs(frame, area, wizard, t, state, primary_color, secondary_color),
         WizardStep::Finish => render_step_finish(frame, area, wizard, t, state, primary_color, secondary_color),
     }
@@ -465,6 +480,76 @@ fn render_step_environment(
         };
 
         lines.push(Line::from(vec![cursor_span, radio_span, Span::styled(label_text, label_style)]));
+    }
+
+    frame.render_widget(Paragraph::new(lines).block(block), area);
+}
+
+fn render_step_monitors(
+    frame: &mut Frame,
+    area: Rect,
+    wizard: &crate::tui::app::WizardState,
+    t: &crate::i18n::Translations,
+    state: &AppState,
+    primary_color: Color,
+    secondary_color: Color,
+) {
+    let text_color = state.text_color();
+    let text_muted = state.text_muted();
+    let text_dim = state.text_dim();
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(primary_color))
+        .title(t.wizard_monitors_title);
+
+    let mut lines = vec![
+        Line::raw(""),
+        Line::from(vec![
+            Span::styled(format!("   ── {} ─────────────────────────────────", t.wizard_monitors_sec), Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+        ]),
+        Line::raw(""),
+        Line::from(vec![
+            Span::styled(format!("   {} ", t.wizard_monitors_desc), Style::default().fg(text_muted)),
+        ]),
+        Line::raw(""),
+    ];
+
+    if let Some(ref monitors) = wizard.discovered_monitors {
+        for (idx, (name, path)) in monitors.iter().enumerate() {
+            let is_current_cursor = wizard.selected_idx == idx;
+            let is_selected = wizard.config.primary_monitor.as_deref() == Some(name.as_str());
+
+            let cursor_span = if is_current_cursor {
+                Span::styled("   ➔  ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD))
+            } else {
+                Span::styled("      ", Style::default())
+            };
+
+            let radio_span = if is_selected {
+                Span::styled("[●] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD))
+            } else {
+                Span::styled("[ ] ", Style::default().fg(text_dim))
+            };
+
+            let name_style = if is_current_cursor {
+                Style::default().fg(primary_color).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+            } else if is_selected {
+                Style::default().fg(primary_color).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(text_color)
+            };
+
+            let path_str = path.to_string_lossy();
+            let path_span = Span::styled(format!(" ({})", path_str), Style::default().fg(text_muted));
+
+            lines.push(Line::from(vec![
+                cursor_span,
+                radio_span,
+                Span::styled(name, name_style),
+                path_span,
+            ]));
+        }
     }
 
     frame.render_widget(Paragraph::new(lines).block(block), area);

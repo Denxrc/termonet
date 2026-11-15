@@ -14,7 +14,7 @@ pub type TuiTerminal = Terminal<CrosstermBackend<Stdout>>;
 
 /// RAII Terminal Guard ensuring cooked mode and main screen buffer are always restored on drop.
 pub struct TerminalGuard {
-    terminal: Option<TuiTerminal>,
+    terminal: TuiTerminal,
 }
 
 impl TerminalGuard {
@@ -25,9 +25,7 @@ impl TerminalGuard {
         execute!(stdout, EnterAlternateScreen)?;
         let backend = CrosstermBackend::new(stdout);
         let terminal = Terminal::new(backend)?;
-        Ok(Self {
-            terminal: Some(terminal),
-        })
+        Ok(Self { terminal })
     }
 }
 
@@ -35,24 +33,20 @@ impl Deref for TerminalGuard {
     type Target = TuiTerminal;
 
     fn deref(&self) -> &Self::Target {
-        self.terminal.as_ref().expect("terminal not initialized")
+        &self.terminal
     }
 }
 
 impl DerefMut for TerminalGuard {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.terminal.as_mut().expect("terminal not initialized")
+        &mut self.terminal
     }
 }
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
         let _ = disable_raw_mode();
-        if let Some(mut term) = self.terminal.take() {
-            let _ = execute!(term.backend_mut(), LeaveAlternateScreen);
-            let _ = term.show_cursor();
-        } else {
-            let _ = execute!(io::stdout(), LeaveAlternateScreen);
-        }
+        let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
+        let _ = self.terminal.show_cursor();
     }
 }
