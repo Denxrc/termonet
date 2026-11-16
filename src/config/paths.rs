@@ -1,16 +1,17 @@
 //! Standard filesystem and XDG path resolutions for Termonet.
 
-use std::path::PathBuf;
-use directories::ProjectDirs;
 use crate::error::{Result, TermonetError};
+use directories::ProjectDirs;
+use std::path::PathBuf;
 
 /// Resolves standard XDG paths for configuration, state, and data.
 pub struct AppPaths;
 
 impl AppPaths {
     fn project_dirs() -> Result<ProjectDirs> {
-        ProjectDirs::from("", "", "termonet")
-            .ok_or_else(|| TermonetError::Config("Unable to determine user home or XDG directories".into()))
+        ProjectDirs::from("", "", "termonet").ok_or_else(|| {
+            TermonetError::Config("Unable to determine user home or XDG directories".into())
+        })
     }
 
     /// Returns the path to the configuration directory (`~/.config/termonet/`).

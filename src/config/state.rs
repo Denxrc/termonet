@@ -4,7 +4,7 @@ use crate::config::AppPaths;
 use crate::error::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// State cache tracking the last applied wallpaper.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -50,25 +50,54 @@ impl AppStateCache {
         Ok(())
     }
 
-    /// Checks if wallpaper has already been processed with the same path.
+    /// Computes a lightweight file fingerprint based on file size and modification time.
+    #[must_use]
+    pub fn compute_hash<P: AsRef<Path>>(wallpaper_path: P) -> Option<String> {
+        let p = wallpaper_path.as_ref();
+        let meta = fs::metadata(p).ok()?;
+        let len = meta.len();
+        let mtime = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        Some(format!("{len}:{mtime}"))
+    }
+
+    /// Updates cache with the given wallpaper path and its current content fingerprint.
+    pub fn update<P: AsRef<Path>>(&mut self, wallpaper_path: P) {
+        let p = wallpaper_path.as_ref();
+        self.last_wallpaper_path = Some(p.display().to_string());
+        self.last_wallpaper_hash = Self::compute_hash(p);
+    }
+
+    /// Checks if wallpaper has already been processed with the same path and contents.
     #[must_use]
     pub fn is_up_to_date<P: AsRef<Path>>(&self, wallpaper_path: P) -> bool {
-        let path_str = wallpaper_path.as_ref().to_string_lossy();
-        if self.last_wallpaper_path.as_deref() == Some(path_str.as_ref()) {
-            return true;
+        let p = wallpaper_path.as_ref();
+        let path_str = p.to_string_lossy();
+        let matches_path = self.last_wallpaper_path.as_deref() == Some(path_str.as_ref())
+            || (self.last_wallpaper_path.as_ref().is_some_and(|last| {
+                if let (Ok(p1), Ok(p2)) = (fs::canonicalize(p), fs::canonicalize(last)) {
+                    p1 == p2
+                } else {
+                    false
+                }
+            }));
+
+        if !matches_path {
+            return false;
         }
 
-        // Also compare canonicalized paths if accessible
-        if let Some(ref last) = self.last_wallpaper_path
-            && let (Ok(p1), Ok(p2)) = (
-                fs::canonicalize(wallpaper_path.as_ref()),
-                fs::canonicalize(PathBuf::from(last)),
-            )
+        // If file exists on disk and we have a fingerprint check, ensure contents haven't changed
+        if let Some(current_hash) = Self::compute_hash(p)
+            && let Some(ref saved_hash) = self.last_wallpaper_hash
         {
-            return p1 == p2;
+            return saved_hash == &current_hash;
         }
 
-        false
+        true
     }
 }
 
@@ -96,6 +125,34 @@ mod tests {
         assert!(!loaded.is_up_to_date("/home/user/other.png"));
 
         let _ = fs::remove_file(&file);
+        let _ = fs::remove_dir(&temp_dir);
+        Ok(())
+    }
+
+    #[test]
+    fn test_state_cache_mtime_invalidation() -> Result<()> {
+        let temp_dir =
+            std::env::temp_dir().join(format!("termonet_test_state_mtime_{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+        let img_file = temp_dir.join("current_wall.png");
+        fs::write(&img_file, b"initial wallpaper content")?;
+
+        let mut cache = AppStateCache::default();
+        cache.update(&img_file);
+        assert!(cache.is_up_to_date(&img_file));
+
+        // Overwrite file with different size
+        fs::write(
+            &img_file,
+            b"modified new wallpaper content with different size and data",
+        )?;
+        assert!(!cache.is_up_to_date(&img_file));
+
+        // Update cache -> now up to date again
+        cache.update(&img_file);
+        assert!(cache.is_up_to_date(&img_file));
+
+        let _ = fs::remove_file(&img_file);
         let _ = fs::remove_dir(&temp_dir);
         Ok(())
     }

@@ -1,9 +1,9 @@
 //! Application configuration schemas and persistence.
 
-use std::path::PathBuf;
-use serde::{Deserialize, Serialize};
 use crate::config::AppPaths;
 use crate::error::{Result, TermonetError};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 /// Supported interface languages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -232,7 +232,7 @@ impl AppConfig {
         let create_backups = self.create_backups;
 
         format!(
-r#"# ==============================================================================
+            r#"# ==============================================================================
 # Termonet Configuration
 # Fast, Dynamic Material You System Theme & Palette Generator for Linux
 # Path: ~/.config/termonet/config.toml
@@ -321,16 +321,18 @@ create_backups = {create_backups}
     pub fn needs_migration(content: &str) -> bool {
         !content.contains("create_backups")
             || !content.contains("Schema Version: 2")
-            || content.contains("alacritty")
+            || content.contains("\"alacritty\" - Alacritty terminal")
     }
 
     /// Loads configuration from an explicit file path.
     pub fn load_from_path(path: &std::path::Path) -> Result<Self> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| TermonetError::Config(format!("Failed to read {}: {}", path.display(), e)))?;
+        let content = std::fs::read_to_string(path).map_err(|e| {
+            TermonetError::Config(format!("Failed to read {}: {}", path.display(), e))
+        })?;
 
-        let config: AppConfig = toml::from_str(&content)
-            .map_err(|e| TermonetError::Config(format!("Failed to parse {}: {}", path.display(), e)))?;
+        let config: AppConfig = toml::from_str(&content).map_err(|e| {
+            TermonetError::Config(format!("Failed to parse {}: {}", path.display(), e))
+        })?;
 
         Ok(config)
     }
@@ -338,14 +340,20 @@ create_backups = {create_backups}
     /// Saves configuration to an explicit file path, creating parent directories if needed.
     pub fn save_to_path(&self, path: &std::path::Path) -> Result<()> {
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| TermonetError::Config(format!("Failed to create directory {}: {}", parent.display(), e)))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                TermonetError::Config(format!(
+                    "Failed to create directory {}: {}",
+                    parent.display(),
+                    e
+                ))
+            })?;
         }
 
         let toml_string = self.to_commented_toml();
 
-        std::fs::write(path, toml_string)
-            .map_err(|e| TermonetError::Config(format!("Failed to write {}: {}", path.display(), e)))?;
+        std::fs::write(path, toml_string).map_err(|e| {
+            TermonetError::Config(format!("Failed to write {}: {}", path.display(), e))
+        })?;
 
         Ok(())
     }
@@ -360,11 +368,13 @@ create_backups = {create_backups}
             return Ok(None);
         }
 
-        let content = std::fs::read_to_string(&path)
-            .map_err(|e| TermonetError::Config(format!("Failed to read {}: {}", path.display(), e)))?;
+        let content = std::fs::read_to_string(&path).map_err(|e| {
+            TermonetError::Config(format!("Failed to read {}: {}", path.display(), e))
+        })?;
 
-        let config: AppConfig = toml::from_str(&content)
-            .map_err(|e| TermonetError::Config(format!("Failed to parse {}: {}", path.display(), e)))?;
+        let config: AppConfig = toml::from_str(&content).map_err(|e| {
+            TermonetError::Config(format!("Failed to parse {}: {}", path.display(), e))
+        })?;
 
         // Automatic config evolution: migrate outdated config files seamlessly
         if Self::needs_migration(&content) {
@@ -509,7 +519,10 @@ enabled_programs = [
 
         for cfg_str in strictly_invalid_configs {
             let res = toml::from_str::<AppConfig>(cfg_str);
-            assert!(res.is_err(), "Corrupted configuration must fail deserialization: {cfg_str}");
+            assert!(
+                res.is_err(),
+                "Corrupted configuration must fail deserialization: {cfg_str}"
+            );
         }
 
         // An empty config string must safely parse and provide default values for missing fields

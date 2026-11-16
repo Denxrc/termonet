@@ -53,9 +53,17 @@ pub fn query_gnome() -> Result<MonitorWallpapers> {
         ("picture-uri", "picture-uri-dark")
     };
 
+    let is_supported = |p: &Path| {
+        p.extension().and_then(|e| e.to_str()).is_some_and(|ext| {
+            let e = ext.to_lowercase();
+            e == "png" || e == "jpg" || e == "jpeg" || e == "webp" || e == "gif"
+        })
+    };
+
     // 2. Query primary key
     if let Some(path) = query_gsettings_key(primary_key)
         && path.exists()
+        && is_supported(&path)
     {
         let mut outputs = HashMap::new();
         outputs.insert("default".to_string(), path);
@@ -65,6 +73,7 @@ pub fn query_gnome() -> Result<MonitorWallpapers> {
     // 3. Fallback to secondary key
     if let Some(path) = query_gsettings_key(secondary_key)
         && path.exists()
+        && is_supported(&path)
     {
         let mut outputs = HashMap::new();
         outputs.insert("default".to_string(), path);
@@ -123,7 +132,9 @@ pub fn parse_kde_containments(content: &str) -> HashMap<String, PathBuf> {
                 if let Some((id_str, rest)) = after.split_once(']') {
                     current_id = Some(id_str.to_string());
                     in_root_containment = rest.is_empty();
-                    in_wallpaper_sub = rest.contains("Wallpaper") || rest.contains("Configuration][General") || rest.contains("General");
+                    in_wallpaper_sub = rest.contains("Wallpaper")
+                        || rest.contains("Configuration][General")
+                        || rest.contains("General");
                 } else {
                     current_id = Some(after.to_string());
                     in_root_containment = true;
@@ -250,7 +261,7 @@ pub fn resolve_kde_theme_package(theme_dir: &Path, is_dark: bool) -> Option<Path
                 p.is_file()
                     && p.extension().is_some_and(|ext| {
                         let e = ext.to_string_lossy().to_lowercase();
-                        e == "png" || e == "jpg" || e == "jpeg" || e == "webp" || e == "jxl"
+                        e == "png" || e == "jpg" || e == "jpeg" || e == "webp"
                     })
             })
             .collect();
@@ -300,6 +311,19 @@ pub fn query_kde() -> Result<MonitorWallpapers> {
             if !parsed.is_empty() {
                 let mut resolved_outputs = HashMap::new();
                 for (mon, mut wall_path) in parsed {
+                    if !wall_path.exists() && !wall_path.is_absolute() {
+                        let sys_path = Path::new("/usr/share/wallpapers").join(&wall_path);
+                        if sys_path.exists() {
+                            wall_path = sys_path;
+                        } else if let Some(home) = std::env::var_os("HOME") {
+                            let user_path = PathBuf::from(home)
+                                .join(".local/share/wallpapers")
+                                .join(&wall_path);
+                            if user_path.exists() {
+                                wall_path = user_path;
+                            }
+                        }
+                    }
                     if wall_path.is_dir()
                         && let Some(img) = resolve_kde_theme_package(&wall_path, is_dark)
                     {
@@ -310,7 +334,9 @@ pub fn query_kde() -> Result<MonitorWallpapers> {
                     }
                 }
                 if !resolved_outputs.is_empty() {
-                    return Ok(MonitorWallpapers { outputs: resolved_outputs });
+                    return Ok(MonitorWallpapers {
+                        outputs: resolved_outputs,
+                    });
                 }
             }
         }
@@ -363,7 +389,9 @@ SlidePaths=/usr/share/wallpapers
         let parsed = parse_kde_appletsrc(content);
         assert_eq!(
             parsed,
-            Some(PathBuf::from("/usr/share/wallpapers/Next/contents/images/3840x2160.png"))
+            Some(PathBuf::from(
+                "/usr/share/wallpapers/Next/contents/images/3840x2160.png"
+            ))
         );
     }
 
@@ -391,8 +419,14 @@ wallpaperplugin=org.kde.image
 Image=file:///usr/share/wallpapers/Primary.png
 ";
         let parsed = parse_kde_containments(content);
-        assert_eq!(parsed.get("0"), Some(&PathBuf::from("/usr/share/wallpapers/Primary.png")));
-        assert_eq!(parsed.get("default"), Some(&PathBuf::from("/usr/share/wallpapers/Primary.png")));
+        assert_eq!(
+            parsed.get("0"),
+            Some(&PathBuf::from("/usr/share/wallpapers/Primary.png"))
+        );
+        assert_eq!(
+            parsed.get("default"),
+            Some(&PathBuf::from("/usr/share/wallpapers/Primary.png"))
+        );
         assert!(!parsed.contains_key("-1"));
     }
 
@@ -430,8 +464,14 @@ wallpaperplugin=org.kde.image
 Image=file:///usr/share/wallpapers/FolderView.png
 ";
         let parsed = parse_kde_containments(content);
-        assert_eq!(parsed.get("0"), Some(&PathBuf::from("/usr/share/wallpapers/FolderView.png")));
-        assert_eq!(parsed.get("default"), Some(&PathBuf::from("/usr/share/wallpapers/FolderView.png")));
+        assert_eq!(
+            parsed.get("0"),
+            Some(&PathBuf::from("/usr/share/wallpapers/FolderView.png"))
+        );
+        assert_eq!(
+            parsed.get("default"),
+            Some(&PathBuf::from("/usr/share/wallpapers/FolderView.png"))
+        );
     }
 
     #[test]

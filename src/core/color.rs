@@ -224,4 +224,3 @@ mod tests {
         assert!(serialized.contains("b = 243"));
     }
 }
-

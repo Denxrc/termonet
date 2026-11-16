@@ -1,23 +1,30 @@
 //! First-run interactive setup wizard view.
 
 use ratatui::{
+    Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
-    Frame,
 };
 
-use crate::config::{DisplayServer, FontMode, Language, TuiTheme, WallpaperBackend};
 use crate::config::paths::AppPaths;
+use crate::config::{DisplayServer, FontMode, Language, TuiTheme, WallpaperBackend};
 use crate::i18n::get_translations;
 use crate::tui::app::{AppState, EnvSubStep, WizardStep};
 use crate::tui::font::PixelFont;
 
 const SPACES: &str = "                          ";
 
-fn summary_item_line<'a>(label: &'static str, val: &'a str, val_style: Style, text_muted: Color) -> Line<'a> {
-    let pad_len = 26usize.saturating_sub(label.chars().count()).min(SPACES.len());
+fn summary_item_line<'a>(
+    label: &'static str,
+    val: &'a str,
+    val_style: Style,
+    text_muted: Color,
+) -> Line<'a> {
+    let pad_len = 26usize
+        .saturating_sub(label.chars().count())
+        .min(SPACES.len());
     Line::from(vec![
         Span::styled("      • ", Style::default().fg(text_muted)),
         Span::styled(label, Style::default().fg(text_muted)),
@@ -26,7 +33,6 @@ fn summary_item_line<'a>(label: &'static str, val: &'a str, val_style: Style, te
     ])
 }
 
-
 /// Renders the complete First-Run Wizard interface.
 pub fn render_wizard(frame: &mut Frame, area: Rect, state: &AppState) {
     let t = get_translations(state.config.language);
@@ -34,7 +40,8 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, state: &AppState) {
     let (primary_color, secondary_color) = state.ui_colors();
     let text_muted = state.text_muted();
 
-    let use_pixel = area.height >= 24 && area.width >= 50 && state.config.font_mode == FontMode::Pixel;
+    let use_pixel =
+        area.height >= 24 && area.width >= 50 && state.config.font_mode == FontMode::Pixel;
     let header_height = if use_pixel { 6 } else { 3 };
 
     let chunks = Layout::default()
@@ -60,32 +67,70 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, state: &AppState) {
         .unwrap_or(false);
 
     let mut footer_spans = vec![
-        Span::styled(" [← / →] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " [← / →] ",
+            Style::default()
+                .fg(primary_color)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(t.hint_steps_nav, Style::default().fg(text_muted)),
         Span::raw("  "),
-        Span::styled(" [1-5] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " [1-5] ",
+            Style::default()
+                .fg(primary_color)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(t.hint_jump, Style::default().fg(text_muted)),
         Span::raw("  "),
-        Span::styled(" [↑/↓] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " [↑/↓] ",
+            Style::default()
+                .fg(primary_color)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(t.hint_select, Style::default().fg(text_muted)),
         Span::raw("  "),
-        Span::styled(" [Space/Enter] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " [Space/Enter] ",
+            Style::default()
+                .fg(primary_color)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(t.hint_choose, Style::default().fg(text_muted)),
         Span::raw("  "),
     ];
 
     if is_opened_from_main {
-        footer_spans.push(Span::styled(" [Esc] ", Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)));
+        footer_spans.push(Span::styled(
+            " [Esc] ",
+            Style::default()
+                .fg(secondary_color)
+                .add_modifier(Modifier::BOLD),
+        ));
         footer_spans.push(Span::styled(t.hint_cancel, Style::default().fg(text_muted)));
         footer_spans.push(Span::raw("  "));
-        footer_spans.push(Span::styled(" [q] ", Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)));
+        footer_spans.push(Span::styled(
+            " [q] ",
+            Style::default()
+                .fg(secondary_color)
+                .add_modifier(Modifier::BOLD),
+        ));
         footer_spans.push(Span::styled(t.hint_quit, Style::default().fg(text_muted)));
     } else {
-        footer_spans.push(Span::styled(" [q/Esc] ", Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)));
+        footer_spans.push(Span::styled(
+            " [q/Esc] ",
+            Style::default()
+                .fg(secondary_color)
+                .add_modifier(Modifier::BOLD),
+        ));
         footer_spans.push(Span::styled(t.hint_quit, Style::default().fg(text_muted)));
     }
 
-    frame.render_widget(Paragraph::new(Line::from(footer_spans)).alignment(Alignment::Center), chunks[2]);
+    frame.render_widget(
+        Paragraph::new(Line::from(footer_spans)).alignment(Alignment::Center),
+        chunks[2],
+    );
 
     // 4. Render wallpaper input modal over wizard if active
     if state.wallpaper_input.is_some() {
@@ -93,14 +138,13 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, state: &AppState) {
     }
 }
 
-fn render_wizard_header(
-    frame: &mut Frame,
-    area: Rect,
-    state: &AppState,
-    use_pixel: bool,
-) {
+fn render_wizard_header(frame: &mut Frame, area: Rect, state: &AppState, use_pixel: bool) {
     let t = get_translations(state.config.language);
-    let active_step = state.wizard_state.as_ref().map(|w| w.step).unwrap_or_default();
+    let active_step = state
+        .wizard_state
+        .as_ref()
+        .map(|w| w.step)
+        .unwrap_or_default();
     let (primary_color, secondary_color) = state.ui_colors();
     let text_color = state.text_color();
 
@@ -116,14 +160,25 @@ fn render_wizard_header(
 
         let pixel_lines = PixelFont::render_lines(
             "TERMONET",
-            Style::default().fg(primary_color).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(primary_color)
+                .add_modifier(Modifier::BOLD),
         );
-        frame.render_widget(Paragraph::new(pixel_lines).alignment(Alignment::Center), chunks[0]);
+        frame.render_widget(
+            Paragraph::new(pixel_lines).alignment(Alignment::Center),
+            chunks[0],
+        );
 
-        let subtitle = Line::from(vec![
-            Span::styled(t.wizard_title, Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
-        ]);
-        frame.render_widget(Paragraph::new(subtitle).alignment(Alignment::Center), chunks[1]);
+        let subtitle = Line::from(vec![Span::styled(
+            t.wizard_title,
+            Style::default()
+                .fg(secondary_color)
+                .add_modifier(Modifier::BOLD),
+        )]);
+        frame.render_widget(
+            Paragraph::new(subtitle).alignment(Alignment::Center),
+            chunks[1],
+        );
 
         render_step_pills(frame, chunks[2], active_step, state);
     } else {
@@ -136,31 +191,33 @@ fn render_wizard_header(
             .split(area);
 
         let title = Line::from(vec![
-            Span::styled("TERMONET ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "TERMONET ",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled("• ", Style::default().fg(secondary_color)),
             Span::styled(t.wizard_title, Style::default().fg(text_color)),
         ]);
-        frame.render_widget(Paragraph::new(title).alignment(Alignment::Center), chunks[0]);
+        frame.render_widget(
+            Paragraph::new(title).alignment(Alignment::Center),
+            chunks[0],
+        );
 
         render_step_pills(frame, chunks[1], active_step, state);
     }
 }
 
-fn render_step_pills(
-    frame: &mut Frame,
-    area: Rect,
-    active_step: WizardStep,
-    state: &AppState,
-) {
+fn render_step_pills(frame: &mut Frame, area: Rect, active_step: WizardStep, state: &AppState) {
     let t = get_translations(state.config.language);
     let (primary_color, _) = state.ui_colors();
     let text_muted = state.text_muted();
     let text_dim = state.text_dim();
 
-    let is_monitors_substep = state
-        .wizard_state
-        .as_ref()
-        .is_some_and(|w| w.step == WizardStep::Environment && w.env_substep == EnvSubStep::Monitors);
+    let is_monitors_substep = state.wizard_state.as_ref().is_some_and(|w| {
+        w.step == WizardStep::Environment && w.env_substep == EnvSubStep::Monitors
+    });
 
     let env_label = if is_monitors_substep {
         format!("{}{}", t.wizard_step_env, t.wizard_step_monitors_tag)
@@ -194,7 +251,10 @@ fn render_step_pills(
         }
     }
 
-    frame.render_widget(Paragraph::new(Line::from(spans)).alignment(Alignment::Center), area);
+    frame.render_widget(
+        Paragraph::new(Line::from(spans)).alignment(Alignment::Center),
+        area,
+    );
 }
 
 fn render_wizard_body(
@@ -210,14 +270,62 @@ fn render_wizard_body(
     let t = get_translations(state.config.language);
 
     match wizard.step {
-        WizardStep::Language => render_step_language(frame, area, wizard, t, state, primary_color, secondary_color),
-        WizardStep::Appearance => render_step_appearance(frame, area, wizard, t, state, primary_color, secondary_color),
+        WizardStep::Language => render_step_language(
+            frame,
+            area,
+            wizard,
+            t,
+            state,
+            primary_color,
+            secondary_color,
+        ),
+        WizardStep::Appearance => render_step_appearance(
+            frame,
+            area,
+            wizard,
+            t,
+            state,
+            primary_color,
+            secondary_color,
+        ),
         WizardStep::Environment => match wizard.env_substep {
-            EnvSubStep::ServerAndBackend => render_step_environment(frame, area, wizard, t, state, primary_color, secondary_color),
-            EnvSubStep::Monitors => render_step_monitors(frame, area, wizard, t, state, primary_color, secondary_color),
+            EnvSubStep::ServerAndBackend => render_step_environment(
+                frame,
+                area,
+                wizard,
+                t,
+                state,
+                primary_color,
+                secondary_color,
+            ),
+            EnvSubStep::Monitors => render_step_monitors(
+                frame,
+                area,
+                wizard,
+                t,
+                state,
+                primary_color,
+                secondary_color,
+            ),
         },
-        WizardStep::Programs => render_step_programs(frame, area, wizard, t, state, primary_color, secondary_color),
-        WizardStep::Finish => render_step_finish(frame, area, wizard, t, state, primary_color, secondary_color),
+        WizardStep::Programs => render_step_programs(
+            frame,
+            area,
+            wizard,
+            t,
+            state,
+            primary_color,
+            secondary_color,
+        ),
+        WizardStep::Finish => render_step_finish(
+            frame,
+            area,
+            wizard,
+            t,
+            state,
+            primary_color,
+            secondary_color,
+        ),
     }
 }
 
@@ -248,7 +356,12 @@ fn render_step_language(
         Line::raw(""),
         Line::from(vec![
             Span::raw("   "),
-            Span::styled(t.wizard_lang_prompt, Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                t.wizard_lang_prompt,
+                Style::default()
+                    .fg(secondary_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw(" "),
         ]),
         Line::raw(""),
@@ -259,26 +372,42 @@ fn render_step_language(
         let is_selected = wizard.config.language == lang;
 
         let cursor_span = if is_current_cursor {
-            Span::styled("   ➔  ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD))
+            Span::styled(
+                "   ➔  ",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD),
+            )
         } else {
             Span::styled("      ", Style::default())
         };
 
         let radio_span = if is_selected {
-            Span::styled("[●] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD))
+            Span::styled(
+                "[●] ",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD),
+            )
         } else {
             Span::styled("[ ] ", Style::default().fg(text_dim))
         };
 
         let label_style = if is_current_cursor {
-            Style::default().fg(text_color).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+            Style::default()
+                .fg(text_color)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
         } else if is_selected {
             Style::default().fg(text_color).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(text_muted)
         };
 
-        lines.push(Line::from(vec![cursor_span, radio_span, Span::styled(label, label_style)]));
+        lines.push(Line::from(vec![
+            cursor_span,
+            radio_span,
+            Span::styled(label, label_style),
+        ]));
         lines.push(Line::raw(""));
     }
 
@@ -312,8 +441,18 @@ fn render_step_appearance(
         Line::raw(""),
         Line::from(vec![
             Span::raw("   ── "),
-            Span::styled(t.wizard_theme_sec, Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
-            Span::styled(" ──────────────────────────────────", Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                t.wizard_theme_sec,
+                Style::default()
+                    .fg(secondary_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                " ──────────────────────────────────",
+                Style::default()
+                    .fg(secondary_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]),
         Line::raw(""),
     ];
@@ -329,33 +468,59 @@ fn render_step_appearance(
         let is_selected = wizard.config.tui_theme == theme;
 
         let cursor_span = if is_current_cursor {
-            Span::styled("   ➔  ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD))
+            Span::styled(
+                "   ➔  ",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD),
+            )
         } else {
             Span::styled("      ", Style::default())
         };
 
         let radio_span = if is_selected {
-            Span::styled("[●] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD))
+            Span::styled(
+                "[●] ",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD),
+            )
         } else {
             Span::styled("[ ] ", Style::default().fg(text_dim))
         };
 
         let label_style = if is_current_cursor {
-            Style::default().fg(text_color).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+            Style::default()
+                .fg(text_color)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
         } else if is_selected {
             Style::default().fg(text_color).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(text_muted)
         };
 
-        lines.push(Line::from(vec![cursor_span, radio_span, Span::styled(label, label_style)]));
+        lines.push(Line::from(vec![
+            cursor_span,
+            radio_span,
+            Span::styled(label, label_style),
+        ]));
     }
 
     lines.push(Line::raw(""));
     lines.push(Line::from(vec![
         Span::raw("   ── "),
-        Span::styled(t.wizard_font_sec, Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
-        Span::styled(" ────────────────────────────────────────", Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            t.wizard_font_sec,
+            Style::default()
+                .fg(secondary_color)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            " ────────────────────────────────────────",
+            Style::default()
+                .fg(secondary_color)
+                .add_modifier(Modifier::BOLD),
+        ),
     ]));
     lines.push(Line::raw(""));
 
@@ -370,26 +535,42 @@ fn render_step_appearance(
         let is_selected = wizard.config.font_mode == mode;
 
         let cursor_span = if is_current_cursor {
-            Span::styled("   ➔  ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD))
+            Span::styled(
+                "   ➔  ",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD),
+            )
         } else {
             Span::styled("      ", Style::default())
         };
 
         let radio_span = if is_selected {
-            Span::styled("[●] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD))
+            Span::styled(
+                "[●] ",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD),
+            )
         } else {
             Span::styled("[ ] ", Style::default().fg(text_dim))
         };
 
         let label_style = if is_current_cursor {
-            Style::default().fg(text_color).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+            Style::default()
+                .fg(text_color)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
         } else if is_selected {
             Style::default().fg(text_color).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(text_muted)
         };
 
-        lines.push(Line::from(vec![cursor_span, radio_span, Span::styled(label, label_style)]));
+        lines.push(Line::from(vec![
+            cursor_span,
+            radio_span,
+            Span::styled(label, label_style),
+        ]));
     }
 
     frame.render_widget(Paragraph::new(lines).block(block), area);
@@ -413,13 +594,21 @@ fn render_step_environment(
         .border_style(Style::default().fg(primary_color))
         .title(t.wizard_env_title);
 
-    let mut lines = vec![
-        Line::from(vec![
-            Span::raw("   ── "),
-            Span::styled(t.wizard_server_sec, Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
-            Span::styled(" ─────────────────────────────────", Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
-        ]),
-    ];
+    let mut lines = vec![Line::from(vec![
+        Span::raw("   ── "),
+        Span::styled(
+            t.wizard_server_sec,
+            Style::default()
+                .fg(secondary_color)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            " ─────────────────────────────────",
+            Style::default()
+                .fg(secondary_color)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ])];
 
     let server_options = [
         (t.wizard_server_wayland, DisplayServer::Wayland),
@@ -431,32 +620,58 @@ fn render_step_environment(
         let is_selected = wizard.config.display_server == server;
 
         let cursor_span = if is_current_cursor {
-            Span::styled("   ➔  ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD))
+            Span::styled(
+                "   ➔  ",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD),
+            )
         } else {
             Span::styled("      ", Style::default())
         };
 
         let radio_span = if is_selected {
-            Span::styled("[●] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD))
+            Span::styled(
+                "[●] ",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD),
+            )
         } else {
             Span::styled("[ ] ", Style::default().fg(text_dim))
         };
 
         let label_style = if is_current_cursor {
-            Style::default().fg(text_color).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+            Style::default()
+                .fg(text_color)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
         } else if is_selected {
             Style::default().fg(text_color).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(text_muted)
         };
 
-        lines.push(Line::from(vec![cursor_span, radio_span, Span::styled(label, label_style)]));
+        lines.push(Line::from(vec![
+            cursor_span,
+            radio_span,
+            Span::styled(label, label_style),
+        ]));
     }
 
     lines.push(Line::from(vec![
         Span::raw("   ── "),
-        Span::styled(t.wizard_backend_sec, Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
-        Span::styled(" ────────────────────", Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            t.wizard_backend_sec,
+            Style::default()
+                .fg(secondary_color)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            " ────────────────────",
+            Style::default()
+                .fg(secondary_color)
+                .add_modifier(Modifier::BOLD),
+        ),
     ]));
 
     let backend_options = [
@@ -479,19 +694,31 @@ fn render_step_environment(
         let is_selected = wizard.config.wallpaper_backend == backend;
 
         let cursor_span = if is_current_cursor {
-            Span::styled("   ➔  ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD))
+            Span::styled(
+                "   ➔  ",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD),
+            )
         } else {
             Span::styled("      ", Style::default())
         };
 
         let radio_span = if is_selected {
-            Span::styled("[●] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD))
+            Span::styled(
+                "[●] ",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD),
+            )
         } else {
             Span::styled("[ ] ", Style::default().fg(text_dim))
         };
 
         let label_style = if is_current_cursor {
-            Style::default().fg(text_color).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+            Style::default()
+                .fg(text_color)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
         } else if is_selected {
             Style::default().fg(text_color).add_modifier(Modifier::BOLD)
         } else {
@@ -517,7 +744,11 @@ fn render_step_environment(
                 ]));
             }
         } else {
-            lines.push(Line::from(vec![cursor_span, radio_span, Span::styled(label, label_style)]));
+            lines.push(Line::from(vec![
+                cursor_span,
+                radio_span,
+                Span::styled(label, label_style),
+            ]));
         }
     }
 
@@ -546,8 +777,18 @@ fn render_step_monitors(
         Line::raw(""),
         Line::from(vec![
             Span::raw("   ── "),
-            Span::styled(t.wizard_monitors_sec, Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
-            Span::styled(" ─────────────────────────────────", Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                t.wizard_monitors_sec,
+                Style::default()
+                    .fg(secondary_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                " ─────────────────────────────────",
+                Style::default()
+                    .fg(secondary_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]),
         Line::raw(""),
         Line::from(vec![
@@ -564,21 +805,35 @@ fn render_step_monitors(
             let is_selected = wizard.config.primary_monitor.as_deref() == Some(name.as_str());
 
             let cursor_span = if is_current_cursor {
-                Span::styled("   ➔  ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD))
+                Span::styled(
+                    "   ➔  ",
+                    Style::default()
+                        .fg(primary_color)
+                        .add_modifier(Modifier::BOLD),
+                )
             } else {
                 Span::styled("      ", Style::default())
             };
 
             let radio_span = if is_selected {
-                Span::styled("[●] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD))
+                Span::styled(
+                    "[●] ",
+                    Style::default()
+                        .fg(primary_color)
+                        .add_modifier(Modifier::BOLD),
+                )
             } else {
                 Span::styled("[ ] ", Style::default().fg(text_dim))
             };
 
             let name_style = if is_current_cursor {
-                Style::default().fg(primary_color).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
             } else if is_selected {
-                Style::default().fg(primary_color).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(text_color)
             };
@@ -623,7 +878,12 @@ fn render_step_programs(
         Line::raw(""),
         Line::from(vec![
             Span::raw("   "),
-            Span::styled(t.wizard_programs_desc, Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                t.wizard_programs_desc,
+                Style::default()
+                    .fg(secondary_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw(" "),
         ]),
         Line::raw(""),
@@ -631,29 +891,47 @@ fn render_step_programs(
 
     for (idx, rule) in rules.iter().enumerate() {
         let is_current_cursor = wizard.selected_idx == idx;
-        let is_checked = wizard.config.enabled_programs.iter().any(|p| p.eq_ignore_ascii_case(&rule.name));
+        let is_checked = wizard
+            .config
+            .enabled_programs
+            .iter()
+            .any(|p| p.eq_ignore_ascii_case(&rule.name));
 
         let cursor_span = if is_current_cursor {
-            Span::styled("   ➔  ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD))
+            Span::styled(
+                "   ➔  ",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD),
+            )
         } else {
             Span::styled("      ", Style::default())
         };
 
         let check_span = if is_checked {
-            Span::styled("[✔] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD))
+            Span::styled(
+                "[✔] ",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD),
+            )
         } else {
             Span::styled("[ ] ", Style::default().fg(text_dim))
         };
 
         let name_style = if is_current_cursor {
-            Style::default().fg(text_color).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+            Style::default()
+                .fg(text_color)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
         } else if is_checked {
             Style::default().fg(text_color).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(text_dim)
         };
 
-        let pad_len = 14usize.saturating_sub(rule.name.chars().count()).min(SPACES.len());
+        let pad_len = 14usize
+            .saturating_sub(rule.name.chars().count())
+            .min(SPACES.len());
         let output_str = rule.output_path.to_string_lossy();
 
         lines.push(Line::from(vec![
@@ -736,33 +1014,65 @@ fn render_step_finish(
     let programs_str = if wizard.config.enabled_programs.is_empty() {
         t.wizard_summary_programs_empty.to_string()
     } else {
-        format!("{} {} ({})", wizard.config.enabled_programs.len(), t.wizard_summary_programs_count, wizard.config.enabled_programs.join(", "))
+        format!(
+            "{} {} ({})",
+            wizard.config.enabled_programs.len(),
+            t.wizard_summary_programs_count,
+            wizard.config.enabled_programs.join(", ")
+        )
     };
 
-    let backup_options = [
-        (t.wizard_backup_clean, false),
-        (t.wizard_backup_safe, true),
-    ];
+    let backup_options = [(t.wizard_backup_clean, false), (t.wizard_backup_safe, true)];
 
     let val_bold = Style::default().fg(text_color).add_modifier(Modifier::BOLD);
     let mut lines = vec![
         Line::from(vec![
             Span::raw("   ── "),
-            Span::styled(t.wizard_summary_sec, Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
-            Span::styled(" ──────────────────────────", Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                t.wizard_summary_sec,
+                Style::default()
+                    .fg(secondary_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                " ──────────────────────────",
+                Style::default()
+                    .fg(secondary_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]),
         summary_item_line(t.wizard_summary_lang, lang_str, val_bold, text_muted),
         summary_item_line(t.wizard_summary_theme, theme_str, val_bold, text_muted),
         summary_item_line(t.wizard_summary_font, font_str, val_bold, text_muted),
         summary_item_line(t.wizard_summary_server, server_str, val_bold, text_muted),
         summary_item_line(t.wizard_summary_backend, backend_str, val_bold, text_muted),
-        summary_item_line(t.wizard_summary_programs, &programs_str, val_bold, text_muted),
-        summary_item_line(t.wizard_summary_config_path, &config_path, Style::default().fg(path_color), text_muted),
+        summary_item_line(
+            t.wizard_summary_programs,
+            &programs_str,
+            val_bold,
+            text_muted,
+        ),
+        summary_item_line(
+            t.wizard_summary_config_path,
+            &config_path,
+            Style::default().fg(path_color),
+            text_muted,
+        ),
         Line::raw(""),
         Line::from(vec![
             Span::raw("   ── "),
-            Span::styled(t.wizard_backup_sec, Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
-            Span::styled(" ──────────────────", Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                t.wizard_backup_sec,
+                Style::default()
+                    .fg(secondary_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                " ──────────────────",
+                Style::default()
+                    .fg(secondary_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]),
     ];
 
@@ -771,26 +1081,42 @@ fn render_step_finish(
         let is_selected = wizard.config.create_backups == is_backup_enabled;
 
         let cursor_span = if is_current_cursor {
-            Span::styled("   ➔  ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD))
+            Span::styled(
+                "   ➔  ",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD),
+            )
         } else {
             Span::styled("      ", Style::default())
         };
 
         let radio_span = if is_selected {
-            Span::styled("[●] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD))
+            Span::styled(
+                "[●] ",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD),
+            )
         } else {
             Span::styled("[ ] ", Style::default().fg(text_dim))
         };
 
         let label_style = if is_current_cursor {
-            Style::default().fg(text_color).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+            Style::default()
+                .fg(text_color)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
         } else if is_selected {
             Style::default().fg(text_color).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(text_muted)
         };
 
-        lines.push(Line::from(vec![cursor_span, radio_span, Span::styled(label, label_style)]));
+        lines.push(Line::from(vec![
+            cursor_span,
+            radio_span,
+            Span::styled(label, label_style),
+        ]));
     }
 
     lines.push(Line::raw(""));
@@ -804,13 +1130,24 @@ fn render_step_finish(
     };
 
     let btn_style = if is_btn_cursor {
-        Style::default().fg(Color::Black).bg(primary_color).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::Black)
+            .bg(primary_color)
+            .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(text_color).bg(unselected_btn_bg).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(text_color)
+            .bg(unselected_btn_bg)
+            .add_modifier(Modifier::BOLD)
     };
 
     lines.push(Line::from(vec![
-        Span::styled(btn_cursor, Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            btn_cursor,
+            Style::default()
+                .fg(primary_color)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw(" "),
         Span::styled(t.wizard_finish_btn, btn_style),
         Span::raw(" "),

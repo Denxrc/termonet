@@ -1,8 +1,8 @@
 //! Image loading, animation frame extraction, and in-memory downscaling.
 
-use std::path::Path;
-use image::{DynamicImage, ImageReader};
 use crate::error::Result;
+use image::{DynamicImage, ImageReader};
+use std::path::Path;
 
 /// Target dimension for palette extraction downscaling (128x128).
 pub const EXTRACTION_SIZE: u32 = 128;
@@ -17,8 +17,7 @@ pub const EXTRACTION_SIZE: u32 = 128;
 /// Returns `TermonetError::Image` or `TermonetError::Io` on reading or decoding failure.
 pub fn load_and_preprocess_image<P: AsRef<Path>>(path: P) -> Result<DynamicImage> {
     let path_ref = path.as_ref();
-    let reader = ImageReader::open(path_ref)?
-        .with_guessed_format()?;
+    let reader = ImageReader::open(path_ref)?.with_guessed_format()?;
 
     // Decoding via ImageReader extracts the first frame for GIF / WebP animations
     let image = reader.decode()?;

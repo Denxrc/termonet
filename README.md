@@ -11,7 +11,7 @@
 **Fast, dynamic Material You system theme and palette generator for Linux**
 
 [![Rust Edition 2024](https://img.shields.io/badge/rust-edition_2024-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/version-1.4.1-blue.svg)](Cargo.toml)
+[![Version](https://img.shields.io/badge/version-1.4.2-blue.svg)](Cargo.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20(Wayland%20%2F%20X11)-lightgrey.svg)]()
 [![XERJ Corpus Hub](https://hub.xerj.org/contributors/Denxrc/badge.svg)](https://hub.xerj.org/contributors/Denxrc)
@@ -75,7 +75,9 @@ Termonet organizes its workflow into 4 focused steps:
 | `1`, `2`, `3`, `4` | Jump directly to step 1..4 |
 | `Up` / `Down` (`k` / `j`) | Navigate items in lists |
 | `Space` | Toggle selected program or hook checkbox |
-| `w` | Open manual wallpaper path input dialog (in Step 1) |
+| `Enter` | Apply theme (in Step 4) / Confirm selection (in Wizard) |
+| `Tab` / `m` | Cycle active monitor wallpapers (in Step 1, multi-monitor) |
+| `w` / `o` | Open manual wallpaper path input dialog (in Step 1) |
 | `r` | Auto-detect wallpaper from active wallpaper daemon (in Step 1) |
 | `s` / `F2` | Open setup / settings wizard |
 | `Esc` | Close input modal / cancel settings wizard |
@@ -131,7 +133,7 @@ termonet -w ~/Pictures/Wallpapers/forest.png
 termonet --init
 
 # Synchronize default rules and templates to latest version
-termonet --reset-rules
+termonet --reset-rules # or termonet --update-rules
 
 # Diagnostics: print raw status and detected wallpapers across all managers
 termonet --debug-wallpaper
@@ -151,7 +153,7 @@ Headless / Automation Options:
 General Options:
   -w, --wallpaper <PATH>   Path to wallpaper image (PNG, JPG, GIF, WebP)
   -i, --wizard, --init     Launch first-run configuration wizard
-      --reset-rules        Force reset default rules and templates to latest
+      --reset-rules, --update-rules Force reset default rules and templates to latest
       --debug-wallpaper    Print active wallpaper managers diagnostic report
   -h, --help               Print help information
 ```
@@ -166,6 +168,7 @@ Termonet configuration is stored at `~/.config/termonet/config.toml`. The file i
 # ==============================================================================
 # Termonet Configuration
 # Path: ~/.config/termonet/config.toml
+# Schema Version: 2
 # ==============================================================================
 
 # Interface language ("ru" | "en")
@@ -252,15 +255,20 @@ Templates have access to all **Google Material You (Material 3)** roles (in both
 
 #### Available Context Variables
 
-- **Material You Roles (`dark.*` and `light.*`)**:
-  - `dark.primary`, `dark.on_primary`, `dark.primary_container`, `dark.on_primary_container`
-  - `dark.secondary`, `dark.on_secondary`, `dark.secondary_container`, `dark.on_secondary_container`
-  - `dark.tertiary`, `dark.on_tertiary`
-  - `dark.surface`, `dark.on_surface`, `dark.surface_variant`, `dark.on_surface_variant`
-  - `dark.background`, `dark.on_background`, `dark.outline`
-- **Terminal ANSI Palette (`terminal.*`)**:
-  - `terminal.color0` ... `terminal.color15`
+- **Dynamic Active Theme (`active.*` or `theme.*`)**:
+  - Automatically resolves to the user's active theme mode (`dark` or `light`):
+  - `active.primary`, `active.on_primary`, `active.primary_container`, `active.on_primary_container`
+  - `active.secondary`, `active.on_secondary`, `active.secondary_container`, `active.on_secondary_container`
+  - `active.tertiary`, `active.on_tertiary`
+  - `active.surface`, `active.on_surface`, `active.surface_variant`, `active.on_surface_variant`
+  - `active.background`, `active.on_background`, `active.outline`
+  - `active.error`, `active.on_error`
+- **Specific Variants (`dark.*` and `light.*`)**:
+  - All roles above explicitly prefixed with `dark.` or `light.` (including `error` and `on_error`)
+- **Terminal ANSI Palettes (`terminal.*`, `terminal_dark.*`, `terminal_light.*`)**:
+  - `terminal.color0` ... `terminal.color15` (dynamically adapts to active theme mode)
   - `terminal.background`, `terminal.foreground`, `terminal.cursor`
+  - `terminal_dark.*` and `terminal_light.*` for explicit mode targets
 - **Wallpaper Seed Color**: `seed_color`
 
 #### Color Formatting Properties
@@ -295,7 +303,7 @@ Every color object exposes direct properties:
 2. Create `~/.config/termonet/templates/foot.tmpl`:
    ```ini
    # Termonet Foot Terminal Theme
-   # termonet-version: 2
+   # termonet-version: 4
 
    [colors]
    background = {{ terminal.background.strip }}
@@ -347,16 +355,16 @@ Termonet guarantees configuration safety:
   - [x] First-run setup wizard and human-readable TOML persistence
   - [x] Bilingual interface (Russian & English)
   - [x] In-app manual wallpaper path input and auto-loading
-- [x] **v1.x (Full Wayland Release)**:
+- [x] **v1.x (Full Wayland & X11 Release)**:
   - [x] MiniJinja template engine with custom filters and TrueColor / ANSI roles
   - [x] Built-in out-of-the-box rules and templates (Kitty, Waybar, Rofi, Hyprland Lua)
   - [x] Safe marker injection, legacy theme (Pywal) replacement, and `.original` master backups
-  - [x] Two-tier asset versioning and automatic migration (`--update-rules`)
+  - [x] Two-tier asset versioning and automatic migration (`--update-rules`, `--reset-rules`)
   - [x] Automatic Wayland wallpaper extraction (`awww`, `swww`, `hyprpaper`, `wpaperd`, `swaybg`) and DE (`GNOME`, `KDE`)
+  - [x] Automatic X11 wallpaper extraction (`feh`, `nitrogen`)
   - [x] Multi-monitor duplicate filter with primary monitor selection (`primary_monitor`)
   - [x] Headless CLI auto-apply mode (`--apply`, `--force`) with idle state caching
 - [ ] **v2.x (Ecosystem Expansion)**:
-  - [ ] X11 auto-detection (`feh`, `nitrogen`)
   - [ ] On-the-fly CLI color scheme overrides
   - [ ] Expanded community template library
 

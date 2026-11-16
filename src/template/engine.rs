@@ -1,9 +1,9 @@
 //! MiniJinja template rendering environment and custom color filters.
 
-use minijinja::{Environment, Value};
-use serde::Serialize;
 use crate::core::{GeneratedPalette, MaterialScheme, RgbColor, TerminalPalette};
 use crate::error::{Result, TermonetError};
+use minijinja::{Environment, Value};
+use serde::Serialize;
 
 #[derive(Serialize)]
 struct TemplateContext<'a> {
@@ -43,44 +43,56 @@ impl<'a> TemplateEngine<'a> {
         let mut env = Environment::new();
 
         // Filter: hex (ensures `#rrggbb`)
-        env.add_filter("hex", |val: &Value| -> std::result::Result<String, minijinja::Error> {
-            if let Ok(hex_str) = val.get_attr("hex")
-                && !hex_str.is_undefined()
-            {
-                return Ok(hex_str.to_string());
-            }
-            let s = val.to_string();
-            if s.starts_with('#') {
-                Ok(s)
-            } else {
-                Ok(format!("#{}", s))
-            }
-        });
+        env.add_filter(
+            "hex",
+            |val: &Value| -> std::result::Result<String, minijinja::Error> {
+                if let Ok(hex_str) = val.get_attr("hex")
+                    && !hex_str.is_undefined()
+                {
+                    return Ok(hex_str.to_string());
+                }
+                let s = val.to_string();
+                if s.starts_with('#') {
+                    Ok(s)
+                } else {
+                    Ok(format!("#{}", s))
+                }
+            },
+        );
 
         // Filter: strip and stripped (removes leading `#`)
         env.add_filter("strip", strip_filter);
         env.add_filter("stripped", strip_filter);
 
         // Filter: rgb (returns "r, g, b")
-        env.add_filter("rgb", |val: &Value| -> std::result::Result<String, minijinja::Error> {
-            if let Ok(rgb_str) = val.get_attr("rgb")
-                && !rgb_str.is_undefined()
-            {
-                return Ok(rgb_str.to_string());
-            }
-            if let (Ok(r), Ok(g), Ok(b)) = (val.get_attr("r"), val.get_attr("g"), val.get_attr("b"))
-                && !r.is_undefined() && !g.is_undefined() && !b.is_undefined()
-            {
-                return Ok(format!("{}, {}, {}", r, g, b));
-            }
-            Ok(val.to_string())
-        });
+        env.add_filter(
+            "rgb",
+            |val: &Value| -> std::result::Result<String, minijinja::Error> {
+                if let Ok(rgb_str) = val.get_attr("rgb")
+                    && !rgb_str.is_undefined()
+                {
+                    return Ok(rgb_str.to_string());
+                }
+                if let (Ok(r), Ok(g), Ok(b)) =
+                    (val.get_attr("r"), val.get_attr("g"), val.get_attr("b"))
+                    && !r.is_undefined()
+                    && !g.is_undefined()
+                    && !b.is_undefined()
+                {
+                    return Ok(format!("{}, {}, {}", r, g, b));
+                }
+                Ok(val.to_string())
+            },
+        );
 
         // Filter: hypr_rgb (returns "rgb(stripped)")
-        env.add_filter("hypr_rgb", |val: &Value| -> std::result::Result<String, minijinja::Error> {
-            let stripped = extract_stripped(val);
-            Ok(format!("rgb({})", stripped))
-        });
+        env.add_filter(
+            "hypr_rgb",
+            |val: &Value| -> std::result::Result<String, minijinja::Error> {
+                let stripped = extract_stripped(val);
+                Ok(format!("rgb({})", stripped))
+            },
+        );
 
         // Filter: hypr_rgba (returns "rgba(stripped<alpha>)")
         env.add_filter(
@@ -166,11 +178,20 @@ active_primary: {{ active.primary.hex }}
         assert!(rendered_dark.contains("hypr_rgba: rgba("));
         assert!(rendered_dark.contains("cc)"));
         assert!(rendered_dark.contains("terminal_bg: #"));
-        assert!(rendered_dark.contains(&format!("active_primary: {}", palette.dark.primary.to_hex())));
+        assert!(rendered_dark.contains(&format!(
+            "active_primary: {}",
+            palette.dark.primary.to_hex()
+        )));
 
         let rendered_light = engine.render_string(template, &palette, false).unwrap();
-        assert!(rendered_light.contains(&format!("active_primary: {}", palette.light.primary.to_hex())));
-        assert!(rendered_light.contains(&format!("terminal_bg: {}", palette.terminal_light.background.to_hex())));
+        assert!(rendered_light.contains(&format!(
+            "active_primary: {}",
+            palette.light.primary.to_hex()
+        )));
+        assert!(rendered_light.contains(&format!(
+            "terminal_bg: {}",
+            palette.terminal_light.background.to_hex()
+        )));
     }
 
     #[test]
@@ -179,7 +200,9 @@ active_primary: {{ active.primary.hex }}
         // Test rendering a template with custom context having distinct r, g, b without precomputed `rgb` string
         let custom_template = "{{ {'r': 12, 'g': 34, 'b': 56} | rgb }}";
         let palette = GeneratedPalette::from_seed_color(MaterialRgb::new(1, 2, 3));
-        let rendered = engine.render_string(custom_template, &palette, true).unwrap();
+        let rendered = engine
+            .render_string(custom_template, &palette, true)
+            .unwrap();
         assert_eq!(rendered.trim(), "12, 34, 56");
     }
 
@@ -205,8 +228,14 @@ active_primary: {{ active.primary.hex }}
         for tpl in malformed_templates {
             let res_dark = engine.render_string(tpl, &palette, true);
             let res_light = engine.render_string(tpl, &palette, false);
-            assert!(res_dark.is_err(), "Malformed template must return Err: {tpl}");
-            assert!(res_light.is_err(), "Malformed template must return Err: {tpl}");
+            assert!(
+                res_dark.is_err(),
+                "Malformed template must return Err: {tpl}"
+            );
+            assert!(
+                res_light.is_err(),
+                "Malformed template must return Err: {tpl}"
+            );
         }
     }
 
@@ -243,7 +272,8 @@ active_primary: {{ active.primary.hex }}
         }
 
         for h in handles {
-            h.join().expect("Concurrent template rendering thread panicked!");
+            h.join()
+                .expect("Concurrent template rendering thread panicked!");
         }
     }
 
@@ -268,8 +298,14 @@ active_primary: {{ active.primary.hex }}
         let rendered = engine.render_string(&massive_template, &palette, true);
         let elapsed = start.elapsed();
 
-        assert!(rendered.is_ok(), "Massive template must render without error");
-        assert!(elapsed.as_millis() < 500, "100k char template must render in < 500ms");
+        assert!(
+            rendered.is_ok(),
+            "Massive template must render without error"
+        );
+        assert!(
+            elapsed.as_millis() < 500,
+            "100k char template must render in < 500ms"
+        );
         assert!(rendered.unwrap().len() > 50_000);
     }
 }

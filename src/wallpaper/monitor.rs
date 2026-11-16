@@ -60,26 +60,43 @@ impl MonitorWallpapers {
         // Deterministic fallback: sort monitor names alphabetically to avoid SipHash hashmap iteration randomness
         let mut sorted_keys: Vec<_> = self.outputs.keys().collect();
         sorted_keys.sort();
-        sorted_keys.first().and_then(|k| self.outputs.get(*k)).cloned()
+        sorted_keys
+            .first()
+            .and_then(|k| self.outputs.get(*k))
+            .cloned()
     }
 
     /// Checks if there are two or more monitors reporting different active wallpaper paths.
     #[must_use]
     pub fn has_divergent_wallpapers(&self) -> bool {
-        if self.outputs.len() <= 1 {
+        let relevant: Vec<&PathBuf> =
+            if self.outputs.len() > 1 && self.outputs.contains_key("default") {
+                self.outputs
+                    .iter()
+                    .filter(|(k, _)| k.as_str() != "default")
+                    .map(|(_, v)| v)
+                    .collect()
+            } else {
+                self.outputs.values().collect()
+            };
+
+        if relevant.len() <= 1 {
             return false;
         }
-        let mut vals = self.outputs.values();
-        let Some(first) = vals.next() else {
-            return false;
-        };
-        vals.any(|p| p != first)
+        let first = relevant[0];
+        relevant.iter().any(|p| *p != first)
     }
 
     /// Returns sorted (monitor_name, path) pairs in deterministic alphabetical order.
+    /// Excludes the fallback "default" key if specific named monitors exist.
     #[must_use]
     pub fn sorted_outputs(&self) -> Vec<(String, PathBuf)> {
-        let mut list: Vec<_> = self.outputs.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let mut list: Vec<_> = self
+            .outputs
+            .iter()
+            .filter(|(k, _)| !(k.as_str() == "default" && self.outputs.len() > 1))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         list.sort_by(|a, b| a.0.cmp(&b.0));
         list
     }
@@ -98,8 +115,12 @@ pub mod tests {
     #[test]
     fn test_monitor_resolution_deterministic_fallback() {
         let mut monitors = MonitorWallpapers::new();
-        monitors.outputs.insert("HDMI-A-1".into(), PathBuf::from("/path/to/wall_hdmi.png"));
-        monitors.outputs.insert("DP-1".into(), PathBuf::from("/path/to/wall_dp.png"));
+        monitors
+            .outputs
+            .insert("HDMI-A-1".into(), PathBuf::from("/path/to/wall_hdmi.png"));
+        monitors
+            .outputs
+            .insert("DP-1".into(), PathBuf::from("/path/to/wall_dp.png"));
 
         // "DP-1" comes before "HDMI-A-1" alphabetically
         assert_eq!(
@@ -111,8 +132,12 @@ pub mod tests {
     #[test]
     fn test_monitor_resolution_identical() {
         let mut monitors = MonitorWallpapers::new();
-        monitors.outputs.insert("DP-1".into(), PathBuf::from("/path/to/wall.png"));
-        monitors.outputs.insert("HDMI-A-1".into(), PathBuf::from("/path/to/wall.png"));
+        monitors
+            .outputs
+            .insert("DP-1".into(), PathBuf::from("/path/to/wall.png"));
+        monitors
+            .outputs
+            .insert("HDMI-A-1".into(), PathBuf::from("/path/to/wall.png"));
 
         assert_eq!(
             monitors.resolve_primary(None),
@@ -123,8 +148,12 @@ pub mod tests {
     #[test]
     fn test_monitor_resolution_primary_match() {
         let mut monitors = MonitorWallpapers::new();
-        monitors.outputs.insert("DP-1".into(), PathBuf::from("/path/to/wall1.png"));
-        monitors.outputs.insert("HDMI-A-1".into(), PathBuf::from("/path/to/wall2.png"));
+        monitors
+            .outputs
+            .insert("DP-1".into(), PathBuf::from("/path/to/wall1.png"));
+        monitors
+            .outputs
+            .insert("HDMI-A-1".into(), PathBuf::from("/path/to/wall2.png"));
 
         assert_eq!(
             monitors.resolve_primary(Some("HDMI-A-1")),
@@ -135,7 +164,9 @@ pub mod tests {
     #[test]
     fn test_monitor_resolution_fallback_to_default_key() {
         let mut monitors = MonitorWallpapers::new();
-        monitors.outputs.insert("default".into(), PathBuf::from("/path/to/default.png"));
+        monitors
+            .outputs
+            .insert("default".into(), PathBuf::from("/path/to/default.png"));
 
         assert_eq!(
             monitors.resolve_primary(Some("NonExistent")),
@@ -149,26 +180,42 @@ pub mod tests {
         assert!(!empty.has_divergent_wallpapers());
 
         let mut single = MonitorWallpapers::new();
-        single.outputs.insert("eDP-1".into(), PathBuf::from("/path/to/wall.png"));
+        single
+            .outputs
+            .insert("eDP-1".into(), PathBuf::from("/path/to/wall.png"));
         assert!(!single.has_divergent_wallpapers());
 
         let mut identical = MonitorWallpapers::new();
-        identical.outputs.insert("DP-1".into(), PathBuf::from("/path/to/wall.png"));
-        identical.outputs.insert("HDMI-A-1".into(), PathBuf::from("/path/to/wall.png"));
+        identical
+            .outputs
+            .insert("DP-1".into(), PathBuf::from("/path/to/wall.png"));
+        identical
+            .outputs
+            .insert("HDMI-A-1".into(), PathBuf::from("/path/to/wall.png"));
         assert!(!identical.has_divergent_wallpapers());
 
         let mut different = MonitorWallpapers::new();
-        different.outputs.insert("DP-1".into(), PathBuf::from("/path/to/wall1.png"));
-        different.outputs.insert("HDMI-A-1".into(), PathBuf::from("/path/to/wall2.png"));
+        different
+            .outputs
+            .insert("DP-1".into(), PathBuf::from("/path/to/wall1.png"));
+        different
+            .outputs
+            .insert("HDMI-A-1".into(), PathBuf::from("/path/to/wall2.png"));
         assert!(different.has_divergent_wallpapers());
     }
 
     #[test]
     fn test_sorted_outputs() {
         let mut monitors = MonitorWallpapers::new();
-        monitors.outputs.insert("HDMI-A-1".into(), PathBuf::from("/path/b.png"));
-        monitors.outputs.insert("DP-1".into(), PathBuf::from("/path/a.png"));
-        monitors.outputs.insert("eDP-1".into(), PathBuf::from("/path/c.png"));
+        monitors
+            .outputs
+            .insert("HDMI-A-1".into(), PathBuf::from("/path/b.png"));
+        monitors
+            .outputs
+            .insert("DP-1".into(), PathBuf::from("/path/a.png"));
+        monitors
+            .outputs
+            .insert("eDP-1".into(), PathBuf::from("/path/c.png"));
 
         let sorted = monitors.sorted_outputs();
         let names: Vec<_> = sorted.into_iter().map(|(n, _)| n).collect();
@@ -186,7 +233,10 @@ pub mod tests {
 
         // 2. Single output
         let single = MonitorWallpapers::single(PathBuf::from("/tmp/single.png"));
-        assert_eq!(single.resolve_primary(None), Some(PathBuf::from("/tmp/single.png")));
+        assert_eq!(
+            single.resolve_primary(None),
+            Some(PathBuf::from("/tmp/single.png"))
+        );
         assert!(!single.has_divergent_wallpapers());
         assert_eq!(single.sorted_outputs().len(), 1);
 
@@ -220,10 +270,14 @@ pub mod tests {
     fn test_stress_extreme_strings_and_empty_keys() {
         let mut monitors = MonitorWallpapers::new();
         // Empty key string
-        monitors.outputs.insert("".to_string(), PathBuf::from("/empty_key.png"));
+        monitors
+            .outputs
+            .insert("".to_string(), PathBuf::from("/empty_key.png"));
         // 100,000 character key name
         let huge_key = "M".repeat(100_000);
-        monitors.outputs.insert(huge_key.clone(), PathBuf::from("/huge_key.png"));
+        monitors
+            .outputs
+            .insert(huge_key.clone(), PathBuf::from("/huge_key.png"));
 
         assert!(monitors.has_divergent_wallpapers());
         let sorted = monitors.sorted_outputs();
@@ -263,7 +317,8 @@ pub mod tests {
         }
 
         for h in handles {
-            h.join().expect("Thread in concurrent stress test panicked!");
+            h.join()
+                .expect("Thread in concurrent stress test panicked!");
         }
     }
 }

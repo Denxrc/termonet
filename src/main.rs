@@ -2,11 +2,11 @@
 
 use std::env;
 use std::path::PathBuf;
-use termonet::cli::{run_cli_mode, CliArgs};
+use termonet::cli::{CliArgs, run_cli_mode};
 use termonet::config::AppConfig;
 use termonet::core::GeneratedPalette;
 use termonet::error::Result;
-use termonet::tui::{run_tui, AppState};
+use termonet::tui::{AppState, run_tui};
 
 enum CliAction {
     Exit,
@@ -30,7 +30,9 @@ fn print_help() {
     println!("  -i, --wizard, --init     Launch first-run configuration wizard");
     println!("      --no-backup          Disable creation of backup copies (.bak, .original)");
     println!("      --backup             Enable creation of backup copies (.bak, .original)");
-    println!("      --reset-rules        Force reset default rules and templates to latest");
+    println!(
+        "      --reset-rules, --update-rules Force reset default rules and templates to latest"
+    );
     println!("      --debug-wallpaper    Print active wallpaper managers diagnostic report");
     println!("  -h, --help               Print help information");
     println!("\nTUI Controls:");
@@ -38,7 +40,11 @@ fn print_help() {
     println!("  1, 2, 3, 4               Jump directly to specific step");
     println!("  Up / Down (k / j)        Navigate programs and hooks list");
     println!("  Space                    Toggle selected program or hook");
-    println!("  w                        Enter manual wallpaper path (in Step 1)");
+    println!("  Enter                    Apply theme (in Step 4) / Confirm selection (in Wizard)");
+    println!(
+        "  Tab / m                  Cycle active monitor wallpapers (in Step 1, multi-monitor)"
+    );
+    println!("  w / o                    Enter manual wallpaper path (in Step 1)");
     println!("  r                        Auto-detect wallpaper from active daemon (in Step 1)");
     println!("  s / F2                   Open settings wizard");
     println!("  q / Esc                  Quit");
@@ -80,9 +86,13 @@ fn parse_cli_args(args: &[String]) -> Result<CliAction> {
                 cli_args.force = true;
             }
             "-w" | "--wallpaper" => {
-                if i + 1 < args.len() {
+                if i + 1 < args.len() && !args[i + 1].starts_with('-') {
                     wallpaper_path = Some(args[i + 1].clone());
                     i += 1;
+                } else {
+                    return Err(termonet::error::TermonetError::Config(
+                        "Option '-w/--wallpaper' requires a valid file path argument".into(),
+                    ));
                 }
             }
             "-i" | "--wizard" | "--init" => {
@@ -151,7 +161,10 @@ fn resolve_tui_wallpaper(state: &mut AppState, cli_wallpaper: Option<&str>) -> O
     }
 
     let wp = if !state.active_monitors.is_empty() {
-        Some(state.active_monitors[state.current_monitor_idx].1.clone())
+        state
+            .active_monitors
+            .get(state.current_monitor_idx)
+            .map(|(_, p)| p.clone())
     } else {
         termonet::wallpaper::get_current_wallpaper(
             &state.config.wallpaper_backend,
@@ -223,6 +236,14 @@ fn main() -> Result<()> {
         state.palette = Some(palette);
         state.wallpaper_path = None;
     }
+
+    // Ensure terminal restores clean screen and normal cursor on unhandled panics
+    let original_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        let _ = crossterm::terminal::disable_raw_mode();
+        let _ = crossterm::execute!(std::io::stdout(), crossterm::terminal::LeaveAlternateScreen);
+        original_hook(panic_info);
+    }));
 
     // Launch interactive TUI
     run_tui(state)?;

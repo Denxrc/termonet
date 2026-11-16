@@ -11,7 +11,7 @@
 **Быстрый и динамический генератор системных тем и палитр Material You для Linux**
 
 [![Rust Edition 2024](https://img.shields.io/badge/rust-edition_2024-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/версия-1.4.1-blue.svg)](Cargo.toml)
+[![Version](https://img.shields.io/badge/версия-1.4.2-blue.svg)](Cargo.toml)
 [![License: MIT](https://img.shields.io/badge/лицензия-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/платформа-Linux%20(Wayland%20%2F%20X11)-lightgrey.svg)]()
 [![XERJ Corpus Hub автор](https://hub.xerj.org/contributors/Denxrc/badge.svg)](https://hub.xerj.org/contributors/Denxrc)
@@ -75,7 +75,9 @@
 | `1`, `2`, `3`, `4` | Прямой переход к соответствующему шагу |
 | `↑` / `↓` (`k` / `j`) | Навигация по спискам программ и хуков |
 | `Пробел` | Включение / отключение выбранной программы или хука |
-| `w` | Открыть ввод пути к обоям (на шаге 1) |
+| `Enter` | Применить тему (на шаге 4) / Подтвердить выбор (в мастере) |
+| `Tab` / `m` | Переключение между экранами (на шаге 1, мультимонитор) |
+| `w` / `o` | Открыть ввод пути к обоям (на шаге 1) |
 | `r` | Автоопределить обои из запущенного демона обоев (на шаге 1) |
 | `s` / `F2` | Открыть мастер настроек |
 | `Esc` | Закрыть модальное окно ввода / отмена настроек |
@@ -131,10 +133,29 @@ termonet -w ~/Pictures/Wallpapers/forest.png
 termonet --init
 
 # Принудительная синхронизация и обновление шаблонов/правил до актуальных
-termonet --reset-rules
+termonet --reset-rules # или termonet --update-rules
 
 # Диагностика: проверка и вывод данных всех поддерживаемых менеджеров обоев
 termonet --debug-wallpaper
+```
+
+### Параметры командной строки
+
+```text
+Использование: termonet [ОПЦИИ] [ПУТЬ_К_ОБОЯМ]
+
+Параметры автономного режима / автоматизации:
+  -a, --apply              Автономный режим: применить тему из активных обоев и выйти
+  -f, --force              Принудительное применение, игнорируя кэш состояния обоев
+      --no-backup          Отключить создание резервных копий (.bak, .original)
+      --backup             Включить создание резервных копий (.bak, .original)
+
+Общие параметры:
+  -w, --wallpaper <ПУТЬ>   Путь к изображению обоев (PNG, JPG, GIF, WebP)
+  -i, --wizard, --init     Запустить мастер начальной настройки
+      --reset-rules, --update-rules  Синхронизировать/сбросить правила и шаблоны по умолчанию
+      --debug-wallpaper    Вывести диагностический отчет менеджеров обоев
+  -h, --help               Показать справочную информацию
 ```
 
 ---
@@ -147,6 +168,7 @@ termonet --debug-wallpaper
 # ==============================================================================
 # Termonet Configuration
 # Путь: ~/.config/termonet/config.toml
+# Schema Version: 2
 # ==============================================================================
 
 # Язык интерфейса ("ru" | "en")
@@ -233,15 +255,20 @@ reload_cmd = ""
 
 #### Доступные переменные
 
-- **Роли Material You (`dark.*` и `light.*`)**:
-  - `dark.primary`, `dark.on_primary`, `dark.primary_container`, `dark.on_primary_container`
-  - `dark.secondary`, `dark.on_secondary`, `dark.secondary_container`, `dark.on_secondary_container`
-  - `dark.tertiary`, `dark.on_tertiary`
-  - `dark.surface`, `dark.on_surface`, `dark.surface_variant`, `dark.on_surface_variant`
-  - `dark.background`, `dark.on_background`, `dark.outline`
-- **Терминальная ANSI-палитра (`terminal.*`)**:
-  - `terminal.color0` ... `terminal.color15`
+- **Динамическая активная тема (`active.*` или `theme.*`)**:
+  - Автоматически выбирает свойства светлой или темной темы в зависимости от текущего режима:
+  - `active.primary`, `active.on_primary`, `active.primary_container`, `active.on_primary_container`
+  - `active.secondary`, `active.on_secondary`, `active.secondary_container`, `active.on_secondary_container`
+  - `active.tertiary`, `active.on_tertiary`
+  - `active.surface`, `active.on_surface`, `active.surface_variant`, `active.on_surface_variant`
+  - `active.background`, `active.on_background`, `active.outline`
+  - `active.error`, `active.on_error`
+- **Явные варианты схем (`dark.*` и `light.*`)**:
+  - Все перечисленные выше роли с префиксами `dark.` или `light.` (включая `error` и `on_error`)
+- **Терминальные ANSI-палитры (`terminal.*`, `terminal_dark.*`, `terminal_light.*`)**:
+  - `terminal.color0` ... `terminal.color15` (динамически адаптируется под активную тему)
   - `terminal.background`, `terminal.foreground`, `terminal.cursor`
+  - `terminal_dark.*` и `terminal_light.*` для явной адресации
 - **Ключевой цвет обоев**: `seed_color`
 
 #### Форматы вывода цветов
@@ -276,7 +303,7 @@ reload_cmd = ""
 2. Создайте `~/.config/termonet/templates/foot.tmpl`:
    ```ini
    # Termonet Foot Terminal Theme
-   # termonet-version: 2
+   # termonet-version: 4
 
    [colors]
    background = {{ terminal.background.strip }}
@@ -328,16 +355,16 @@ Termonet заботится о сохранности ваших исходны�
   - [x] Мастер первого запуска и комментированный TOML-конфиг
   - [x] Двуязычный интерфейс (русский и английский)
   - [x] Ручной ввод пути к обоям в TUI и автоподстановка
-- [x] **v1.x (Полноценный релиз для Wayland)**:
+- [x] **v1.x (Полноценный релиз для Wayland и X11)**:
   - [x] Модульный шаблонизатор `minijinja` с фильтрами и переменными TrueColor / ANSI
   - [x] Встроенные готовые правила и шаблоны (Kitty, Waybar, Rofi, Hyprland Lua)
   - [x] Безопасная инъекция маркеров, замена legacy-импортов (Pywal) и система вечных `.original` бэкапов
-  - [x] Двухуровневое версионирование и автомиграция правил/шаблонов (`--update-rules`)
+  - [x] Двухуровневое версионирование и автомиграция правил/шаблонов (`--update-rules`, `--reset-rules`)
   - [x] Автоматическое определение обоев в Wayland (`awww`, `swww`, `hyprpaper`, `wpaperd`, `swaybg`) и DE (`GNOME`, `KDE`)
+  - [x] Автоматическое определение обоев в X11 (`feh`, `nitrogen`)
   - [x] Мультимониторный фильтр и выбор главного экрана (`primary_monitor`)
   - [x] Автономный CLI-режим (`--apply`, `--force`) с защитой от холостых перезапусков через кэш состояния
 - [ ] **v2.x (Расширение экосистемы)**:
-  - [ ] Автоопределение в X11 (`feh`, `nitrogen`)
   - [ ] Переопределение параметров темы через CLI
   - [ ] Расширенная база шаблонов приложений
 

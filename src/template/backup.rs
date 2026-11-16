@@ -1,8 +1,8 @@
 //! Safe backup management and atomic file writes.
 
+use crate::error::Result;
 use std::fs;
 use std::path::Path;
-use crate::error::Result;
 
 /// Ensures that a master backup (`<file>.original`) exists for the given file if `create_backup` is true.
 /// Master backup is created once on initial integration and is never overwritten.
@@ -15,10 +15,11 @@ pub fn ensure_master_backup<P: AsRef<Path>>(path: P, create_backup: bool) -> Res
         return Ok(());
     }
 
-    let backup_path = original_path.with_extension(format!(
-        "{}.original",
-        original_path.extension().and_then(|s| s.to_str()).unwrap_or("")
-    ));
+    let file_name = original_path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy();
+    let backup_path = original_path.with_file_name(format!("{}.original", file_name));
 
     if !backup_path.exists() {
         fs::copy(original_path, backup_path)?;
@@ -34,7 +35,10 @@ pub fn create_safety_backup<P: AsRef<Path>>(path: P) -> Result<()> {
         return Ok(());
     }
 
-    let file_name = original_path.file_name().unwrap_or_default().to_string_lossy();
+    let file_name = original_path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy();
     let backup_path = original_path.with_file_name(format!("{}.bak", file_name));
     fs::copy(original_path, backup_path)?;
     Ok(())
@@ -61,7 +65,15 @@ pub fn safe_write<P: AsRef<Path>>(path: P, content: &str, create_backup: bool) -
     if create_backup {
         create_safety_backup(dest)?;
     }
-    fs::write(dest, content)?;
+
+    // Atomic write: write to a temporary file in the same directory and rename
+    let file_name = dest.file_name().unwrap_or_default().to_string_lossy();
+    let tmp_path = dest.with_file_name(format!(".{}.tmp.{}", file_name, std::process::id()));
+    fs::write(&tmp_path, content)?;
+    if let Err(e) = fs::rename(&tmp_path, dest) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(e.into());
+    }
     Ok(())
 }
 
@@ -71,7 +83,8 @@ mod tests {
 
     #[test]
     fn test_safe_write_respects_backup_flag() {
-        let temp_dir = std::env::temp_dir().join(format!("termonet_test_backup_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("termonet_test_backup_{}", std::process::id()));
         let _ = fs::remove_dir_all(&temp_dir);
         let test_file = temp_dir.join("sub").join("test_write.txt");
 
@@ -86,23 +99,44 @@ mod tests {
 
         // 3. Write with modified content and create_backup = false -> NO .bak created!
         assert!(safe_write(&test_file, "clean updated content", false).is_ok());
-        assert_eq!(fs::read_to_string(&test_file).unwrap(), "clean updated content");
-        let bak_file = test_file.with_file_name(format!("{}.bak", test_file.file_name().unwrap().to_string_lossy()));
-        assert!(!bak_file.exists(), ".bak should not exist when create_backup is false");
+        assert_eq!(
+            fs::read_to_string(&test_file).unwrap(),
+            "clean updated content"
+        );
+        let bak_file = test_file.with_file_name(format!(
+            "{}.bak",
+            test_file.file_name().unwrap().to_string_lossy()
+        ));
+        assert!(
+            !bak_file.exists(),
+            ".bak should not exist when create_backup is false"
+        );
 
         // 4. Write with modified content and create_backup = true -> creates .bak
         assert!(safe_write(&test_file, "backed-up content", true).is_ok());
         assert_eq!(fs::read_to_string(&test_file).unwrap(), "backed-up content");
-        assert!(bak_file.exists(), ".bak must exist when create_backup is true");
-        assert_eq!(fs::read_to_string(&bak_file).unwrap(), "clean updated content");
+        assert!(
+            bak_file.exists(),
+            ".bak must exist when create_backup is true"
+        );
+        assert_eq!(
+            fs::read_to_string(&bak_file).unwrap(),
+            "clean updated content"
+        );
 
         // 5. Test master backup
         assert!(ensure_master_backup(&test_file, false).is_ok());
         let master_bak = test_file.with_extension("txt.original");
-        assert!(!master_bak.exists(), ".original should not exist when create_backup is false");
+        assert!(
+            !master_bak.exists(),
+            ".original should not exist when create_backup is false"
+        );
 
         assert!(ensure_master_backup(&test_file, true).is_ok());
-        assert!(master_bak.exists(), ".original must exist when create_backup is true");
+        assert!(
+            master_bak.exists(),
+            ".original must exist when create_backup is true"
+        );
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

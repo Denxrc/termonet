@@ -7,12 +7,14 @@ pub mod provider;
 pub mod wayland;
 
 pub use monitor::MonitorWallpapers;
-pub use path::{clean_wallpaper_path, percent_decode, sanitize_wallpaper_path, validate_wallpaper_path};
-pub use provider::{all_providers, WallpaperProvider};
+pub use path::{
+    clean_wallpaper_path, percent_decode, sanitize_wallpaper_path, validate_wallpaper_path,
+};
+pub use provider::{WallpaperProvider, all_providers};
 
-use std::path::PathBuf;
 use crate::config::WallpaperBackend;
 use crate::error::{Result, TermonetError};
+use std::path::PathBuf;
 
 /// Resolves the current wallpaper path based on configured backend and multi-monitor policy.
 pub fn get_current_wallpaper(
@@ -21,23 +23,21 @@ pub fn get_current_wallpaper(
     primary_monitor: Option<&str>,
 ) -> Result<PathBuf> {
     let monitors = get_wallpaper_monitors(backend, manual_path)?;
-    monitors
-        .resolve_primary(primary_monitor)
-        .ok_or_else(|| {
-            let backend_name = match backend {
-                WallpaperBackend::Manual => "manual path",
-                WallpaperBackend::Auto => "automatic detection",
-                WallpaperBackend::Awww | WallpaperBackend::Swww => "awww/swww",
-                WallpaperBackend::Hyprpaper => "hyprpaper",
-                WallpaperBackend::Swaybg => "swaybg",
-                WallpaperBackend::Wpaperd => "wpaperd",
-                WallpaperBackend::Gnome => "GNOME",
-                WallpaperBackend::Kde => "KDE Plasma",
-                WallpaperBackend::Feh => "feh",
-                WallpaperBackend::Nitrogen => "nitrogen",
-            };
-            TermonetError::WallpaperNotFound(format!("No active {} wallpaper detected", backend_name))
-        })
+    monitors.resolve_primary(primary_monitor).ok_or_else(|| {
+        let backend_name = match backend {
+            WallpaperBackend::Manual => "manual path",
+            WallpaperBackend::Auto => "automatic detection",
+            WallpaperBackend::Awww | WallpaperBackend::Swww => "awww/swww",
+            WallpaperBackend::Hyprpaper => "hyprpaper",
+            WallpaperBackend::Swaybg => "swaybg",
+            WallpaperBackend::Wpaperd => "wpaperd",
+            WallpaperBackend::Gnome => "GNOME",
+            WallpaperBackend::Kde => "KDE Plasma",
+            WallpaperBackend::Feh => "feh",
+            WallpaperBackend::Nitrogen => "nitrogen",
+        };
+        TermonetError::WallpaperNotFound(format!("No active {} wallpaper detected", backend_name))
+    })
 }
 
 /// Discovers wallpaper paths mapped per monitor for the specified backend without resolving a primary monitor.
@@ -48,13 +48,18 @@ pub fn get_wallpaper_monitors(
     match backend {
         WallpaperBackend::Manual => {
             let path = manual_path.ok_or_else(|| {
-                TermonetError::WallpaperNotFound("Manual wallpaper path not specified in configuration".into())
+                TermonetError::WallpaperNotFound(
+                    "Manual wallpaper path not specified in configuration".into(),
+                )
             })?;
             let p = crate::config::paths::AppPaths::expand_tilde(path);
             if p.exists() {
                 Ok(MonitorWallpapers::single(p))
             } else {
-                Err(TermonetError::WallpaperNotFound(format!("Manual wallpaper file not found: {}", path)))
+                Err(TermonetError::WallpaperNotFound(format!(
+                    "Manual wallpaper file not found: {}",
+                    path
+                )))
             }
         }
         WallpaperBackend::Auto => query_auto_monitors(),
@@ -76,7 +81,8 @@ pub fn query_auto_monitors() -> Result<MonitorWallpapers> {
         .to_uppercase();
     let is_gnome = desktop.contains("GNOME");
     let is_kde = desktop.contains("KDE");
-    let is_hyprland = std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some() || desktop.contains("HYPRLAND");
+    let is_hyprland =
+        std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some() || desktop.contains("HYPRLAND");
     let is_sway = std::env::var_os("SWAYSOCK").is_some() || desktop.contains("SWAY");
 
     // Execute backend detectors concurrently in parallel threads
@@ -98,28 +104,87 @@ pub fn query_auto_monitors() -> Result<MonitorWallpapers> {
             };
 
             (
-                h_awww.join().unwrap_or_else(|_| Err(TermonetError::WallpaperNotFound("awww thread panicked".into()))),
-                h_hypr.join().unwrap_or_else(|_| Err(TermonetError::WallpaperNotFound("hyprpaper thread panicked".into()))),
-                h_swaybg.join().unwrap_or_else(|_| Err(TermonetError::WallpaperNotFound("swaybg thread panicked".into()))),
-                h_wpaperd.join().unwrap_or_else(|_| Err(TermonetError::WallpaperNotFound("wpaperd thread panicked".into()))),
-                h_gnome.map(|h| h.join().unwrap_or_else(|_| Err(TermonetError::WallpaperNotFound("gnome thread panicked".into()))))
-                    .unwrap_or_else(|| Err(TermonetError::WallpaperNotFound("Not in GNOME session".into()))),
-                h_kde.map(|h| h.join().unwrap_or_else(|_| Err(TermonetError::WallpaperNotFound("kde thread panicked".into()))))
-                    .unwrap_or_else(|| Err(TermonetError::WallpaperNotFound("Not in KDE session".into()))),
+                h_awww.join().unwrap_or_else(|_| {
+                    Err(TermonetError::WallpaperNotFound(
+                        "awww thread panicked".into(),
+                    ))
+                }),
+                h_hypr.join().unwrap_or_else(|_| {
+                    Err(TermonetError::WallpaperNotFound(
+                        "hyprpaper thread panicked".into(),
+                    ))
+                }),
+                h_swaybg.join().unwrap_or_else(|_| {
+                    Err(TermonetError::WallpaperNotFound(
+                        "swaybg thread panicked".into(),
+                    ))
+                }),
+                h_wpaperd.join().unwrap_or_else(|_| {
+                    Err(TermonetError::WallpaperNotFound(
+                        "wpaperd thread panicked".into(),
+                    ))
+                }),
+                h_gnome
+                    .map(|h| {
+                        h.join().unwrap_or_else(|_| {
+                            Err(TermonetError::WallpaperNotFound(
+                                "gnome thread panicked".into(),
+                            ))
+                        })
+                    })
+                    .unwrap_or_else(|| {
+                        Err(TermonetError::WallpaperNotFound(
+                            "Not in GNOME session".into(),
+                        ))
+                    }),
+                h_kde
+                    .map(|h| {
+                        h.join().unwrap_or_else(|_| {
+                            Err(TermonetError::WallpaperNotFound(
+                                "kde thread panicked".into(),
+                            ))
+                        })
+                    })
+                    .unwrap_or_else(|| {
+                        Err(TermonetError::WallpaperNotFound(
+                            "Not in KDE session".into(),
+                        ))
+                    }),
             )
         });
 
     // Determine candidate evaluation order based on active session
     let prioritized: Vec<Result<MonitorWallpapers>> = if is_gnome {
-        vec![res_gnome, res_awww, res_hypr, res_swaybg, res_wpaperd, res_kde]
+        vec![
+            res_gnome,
+            res_awww,
+            res_hypr,
+            res_swaybg,
+            res_wpaperd,
+            res_kde,
+        ]
     } else if is_kde {
-        vec![res_kde, res_awww, res_hypr, res_swaybg, res_wpaperd, res_gnome]
+        vec![
+            res_kde,
+            res_awww,
+            res_hypr,
+            res_swaybg,
+            res_wpaperd,
+            res_gnome,
+        ]
     } else if is_hyprland {
         vec![res_awww, res_hypr, res_swaybg, res_wpaperd]
     } else if is_sway {
         vec![res_awww, res_swaybg, res_wpaperd, res_hypr]
     } else {
-        vec![res_awww, res_hypr, res_swaybg, res_wpaperd, res_gnome, res_kde]
+        vec![
+            res_awww,
+            res_hypr,
+            res_swaybg,
+            res_wpaperd,
+            res_gnome,
+            res_kde,
+        ]
     };
 
     for monitors in prioritized.into_iter().flatten() {
@@ -149,8 +214,13 @@ pub fn query_auto_monitors() -> Result<MonitorWallpapers> {
 /// Dispatches parallel queries across worker threads and evaluates results according
 /// to the detected compositor and desktop environment context.
 pub fn query_auto(primary_monitor: Option<&str>) -> Result<PathBuf> {
-    query_auto_monitors()?.resolve_primary(primary_monitor)
-        .ok_or_else(|| TermonetError::WallpaperNotFound("No active wallpaper detected from automatic backends".into()))
+    query_auto_monitors()?
+        .resolve_primary(primary_monitor)
+        .ok_or_else(|| {
+            TermonetError::WallpaperNotFound(
+                "No active wallpaper detected from automatic backends".into(),
+            )
+        })
 }
 
 #[cfg(test)]
@@ -188,10 +258,8 @@ mod tests {
         let temp_file = std::env::temp_dir().join("termonet_test_monitors_manual.png");
         std::fs::write(&temp_file, b"fake").unwrap();
 
-        let resolved = get_wallpaper_monitors(
-            &WallpaperBackend::Manual,
-            Some(temp_file.to_str().unwrap()),
-        );
+        let resolved =
+            get_wallpaper_monitors(&WallpaperBackend::Manual, Some(temp_file.to_str().unwrap()));
         assert!(resolved.is_ok());
         let monitors = resolved.unwrap();
         assert_eq!(monitors.outputs.get("default"), Some(&temp_file));
@@ -224,26 +292,36 @@ mod tests {
             let res = get_wallpaper_monitors(&backend, None);
             match res {
                 Ok(monitors) => {
-                    assert!(!monitors.outputs.is_empty(), "Resolved monitors map must not be empty");
+                    assert!(
+                        !monitors.outputs.is_empty(),
+                        "Resolved monitors map must not be empty"
+                    );
                 }
                 Err(TermonetError::WallpaperNotFound(msg)) => {
                     assert!(!msg.is_empty(), "Error message must not be empty");
                 }
                 Err(other) => {
-                    panic!("Daemon query must return WallpaperNotFound when offline, got: {other:?}");
+                    panic!(
+                        "Daemon query must return WallpaperNotFound when offline, got: {other:?}"
+                    );
                 }
             }
 
             let curr_res = get_current_wallpaper(&backend, None, None);
             match curr_res {
                 Ok(path) => {
-                    assert!(!path.as_os_str().is_empty(), "Resolved wallpaper path must not be empty");
+                    assert!(
+                        !path.as_os_str().is_empty(),
+                        "Resolved wallpaper path must not be empty"
+                    );
                 }
                 Err(TermonetError::WallpaperNotFound(msg)) => {
                     assert!(!msg.is_empty(), "Error message must not be empty");
                 }
                 Err(other) => {
-                    panic!("Current wallpaper query must return WallpaperNotFound when offline, got: {other:?}");
+                    panic!(
+                        "Current wallpaper query must return WallpaperNotFound when offline, got: {other:?}"
+                    );
                 }
             }
         }
@@ -257,11 +335,18 @@ mod tests {
         for thread_idx in 0..30 {
             let h = thread::spawn(move || {
                 for iter in 0..50 {
-                    let candidate = format!("   file:///home/user/wallpapers/image_{}_{}.png (fit: contain)   ", thread_idx, iter);
+                    let candidate = format!(
+                        "   file:///home/user/wallpapers/image_{}_{}.png (fit: contain)   ",
+                        thread_idx, iter
+                    );
                     let sanitized = sanitize_wallpaper_path(&candidate);
-                    assert!(sanitized.is_some_and(|p| p.to_string_lossy().starts_with("/home/user/wallpapers/image_")));
+                    assert!(sanitized.is_some_and(|p| {
+                        p.to_string_lossy()
+                            .starts_with("/home/user/wallpapers/image_")
+                    }));
 
-                    let manual_file = format!("/tmp/non_existent_manual_{}_{}.png", thread_idx, iter);
+                    let manual_file =
+                        format!("/tmp/non_existent_manual_{}_{}.png", thread_idx, iter);
                     let _ = get_wallpaper_monitors(&WallpaperBackend::Manual, Some(&manual_file));
                 }
             });

@@ -1632,7 +1632,7 @@ dependencies = [
 
 [[package]]
 name = "termonet"
-version = "1.4.1"
+version = "1.4.2"
 dependencies = [
  "crossterm",
  "directories",

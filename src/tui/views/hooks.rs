@@ -1,11 +1,11 @@
 //! Step 3: Dynamic application reload hooks based on enabled programs.
 
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
-    Frame,
 };
 
 use crate::i18n::get_translations;
@@ -36,39 +36,70 @@ pub fn render_hooks(frame: &mut Frame, area: Rect, state: &AppState) {
         .split(area);
 
     let desc_line = Line::from(vec![
-        Span::styled(format!(" {} ", t.hooks_desc), Style::default().fg(secondary_color)),
+        Span::styled(
+            format!(" {} ", t.hooks_desc),
+            Style::default().fg(secondary_color),
+        ),
         Span::raw(" ("),
-        Span::styled(format!("{}/{}", active_indices.iter().filter(|&&i| state.programs[i].hook_enabled).count(), active_indices.len()), Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
-        Span::styled(format!(" {})", t.hooks_active), Style::default().fg(secondary_color)),
+        Span::styled(
+            format!(
+                "{}/{}",
+                active_indices
+                    .iter()
+                    .filter(|&&i| state.programs[i].hook_enabled)
+                    .count(),
+                active_indices.len()
+            ),
+            Style::default()
+                .fg(primary_color)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!(" {})", t.hooks_active),
+            Style::default().fg(secondary_color),
+        ),
     ]);
     frame.render_widget(Paragraph::new(desc_line), chunks[0]);
 
     let mut hook_lines = Vec::new();
     if active_indices.is_empty() {
         hook_lines.push(Line::raw(""));
-        hook_lines.push(Line::from(vec![
-            Span::styled(format!("   {}", t.hooks_empty), Style::default().fg(text_dim)),
-        ]));
+        hook_lines.push(Line::from(vec![Span::styled(
+            format!("   {}", t.hooks_empty),
+            Style::default().fg(text_dim),
+        )]));
     } else {
         for (cursor_idx, &prog_idx) in active_indices.iter().enumerate() {
             let prog = &state.programs[prog_idx];
             let is_cursor = cursor_idx == state.selected_hook_idx;
 
             let cursor_marker = if is_cursor {
-                Span::styled(" ➔ ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD))
+                Span::styled(
+                    " ➔ ",
+                    Style::default()
+                        .fg(primary_color)
+                        .add_modifier(Modifier::BOLD),
+                )
             } else {
                 Span::raw("   ")
             };
 
             let checkbox = if prog.hook_enabled {
-                Span::styled("[✔] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD))
+                Span::styled(
+                    "[✔] ",
+                    Style::default()
+                        .fg(primary_color)
+                        .add_modifier(Modifier::BOLD),
+                )
             } else {
                 Span::styled("[ ] ", Style::default().fg(text_dim))
             };
 
             // Underline ONLY the name itself dynamically without trailing padding
             let name_style = if is_cursor {
-                Style::default().fg(text_color).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+                Style::default()
+                    .fg(text_color)
+                    .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
             } else if prog.hook_enabled {
                 Style::default().fg(text_color)
             } else {

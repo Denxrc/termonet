@@ -1,8 +1,8 @@
 //! Program rules definition, TOML deserialization, and safe configuration injection.
 
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
 
 use crate::config::AppPaths;
 use crate::core::GeneratedPalette;
@@ -25,7 +25,7 @@ pub enum ImportPosition {
 #[serde(rename_all = "lowercase")]
 pub enum CommentStyle {
     #[default]
-    Hash,       // #
+    Hash, // #
     BlockCss,   // /* ... */
     Slash,      // //
     DoubleDash, // -- (Lua, SQL, Haskell)
@@ -140,7 +140,8 @@ impl ProgramRule {
     /// Loads all available program rules: merges embedded defaults and user rules.
     /// If an existing user rule is an outdated default (lower version), the newer embedded default is preferred.
     pub fn load_all() -> Result<Vec<Self>> {
-        let mut rules_map: std::collections::HashMap<String, Self> = std::collections::HashMap::new();
+        let mut rules_map: std::collections::HashMap<String, Self> =
+            std::collections::HashMap::new();
 
         // 1. Seed with embedded defaults
         for (_, content) in DEFAULT_RULES {
@@ -197,13 +198,6 @@ impl ProgramRule {
             if file_path.is_file()
                 && let Ok(disk_content) = fs::read_to_string(&file_path)
             {
-                if let Some(embedded) = embedded_content {
-                    let disk_version = extract_template_version(&disk_content);
-                    let embedded_version = extract_template_version(embedded);
-                    if disk_version < embedded_version {
-                        return Ok(embedded.to_string());
-                    }
-                }
                 return Ok(disk_content);
             }
         }
@@ -232,9 +226,9 @@ impl ProgramRule {
         let template_content = self.load_template_content()?;
         let rendered = engine.render_string(&template_content, palette, is_dark)?;
 
-        // 1. Write the rendered palette file
+        // 1. Write the rendered palette file (ephemeral generated target, no backup clutter needed)
         let output_dest = self.resolve_output_path();
-        safe_write(&output_dest, &rendered, create_backups)?;
+        safe_write(&output_dest, &rendered, false)?;
 
         // 2. Inject import line into target config if configured
         if let (Some(target_path), Some(import_line)) =
@@ -262,18 +256,37 @@ impl ProgramRule {
         Ok(())
     }
 
-    /// Safely executes an arbitrary shell reload command with detached stdio.
+    /// Safely executes an arbitrary shell reload command with detached stdio and a 2-second timeout.
     /// Returns `true` if the process spawned and completed with a successful exit status.
     pub fn execute_hook_command(cmd: &str) -> bool {
-        std::process::Command::new("sh")
+        let mut child = match std::process::Command::new("sh")
             .arg("-c")
             .arg(cmd)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
-            .status()
-            .map(|st| st.success())
-            .unwrap_or(false)
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+
+        let start = std::time::Instant::now();
+        let timeout = std::time::Duration::from_secs(2);
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => return status.success(),
+                Ok(None) => {
+                    if start.elapsed() >= timeout {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return false;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Err(_) => return false,
+            }
+        }
     }
 
     /// Safely executes this rule's reload hook command if defined.
@@ -357,15 +370,14 @@ pub fn inject_import(
 
     for line in content.lines() {
         let trimmed = line.trim();
-        let is_legacy_color_import = (trimmed.contains("colors")
-            || trimmed.contains("wal")
-            || trimmed.contains("termonet"))
-            && (trimmed.starts_with("include")
-                || trimmed.starts_with("@import")
-                || trimmed.starts_with("@theme")
-                || trimmed.starts_with("source")
-                || trimmed.starts_with("local")
-                || trimmed.contains("require"));
+        let is_legacy_color_import =
+            (trimmed.contains("colors") || trimmed.contains("wal") || trimmed.contains("termonet"))
+                && (trimmed.starts_with("include")
+                    || trimmed.starts_with("@import")
+                    || trimmed.starts_with("@theme")
+                    || trimmed.starts_with("source")
+                    || trimmed.starts_with("local")
+                    || trimmed.contains("require"));
 
         if !replaced && is_legacy_color_import {
             result.push_str(&block);
@@ -443,7 +455,9 @@ mod tests {
             CommentStyle::BlockCss,
         );
 
-        assert!(injected.starts_with("/* >>> termonet colors >>> */\n@import 'colors.css';\n/* <<< termonet colors <<< */"));
+        assert!(injected.starts_with(
+            "/* >>> termonet colors >>> */\n@import 'colors.css';\n/* <<< termonet colors <<< */"
+        ));
         assert!(injected.contains("window {"));
     }
 
@@ -512,7 +526,11 @@ cursor_shape beam
         for &(name, content) in DEFAULT_TEMPLATES {
             let rendered = engine.render_string(content, &palette, true).unwrap();
 
-            assert!(!rendered.is_empty(), "Rendered template for {} was empty", name);
+            assert!(
+                !rendered.is_empty(),
+                "Rendered template for {} was empty",
+                name
+            );
             match name {
                 "kitty.tmpl" => {
                     assert!(rendered.contains("background #"));
@@ -561,6 +579,8 @@ hl.config({
     fn test_execute_hook_command() {
         assert!(ProgramRule::execute_hook_command("true"));
         assert!(!ProgramRule::execute_hook_command("false"));
-        assert!(!ProgramRule::execute_hook_command("non_existent_binary_xyz_12345"));
+        assert!(!ProgramRule::execute_hook_command(
+            "non_existent_binary_xyz_12345"
+        ));
     }
 }

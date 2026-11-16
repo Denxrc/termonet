@@ -1,11 +1,11 @@
 //! Step 2: Interactive supported applications list, output paths, and live toggles.
 
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
-    Frame,
 };
 
 use crate::i18n::get_translations;
@@ -31,7 +31,12 @@ pub fn render_programs(frame: &mut Frame, area: Rect, state: &AppState) {
         .split(area);
 
     let counter_line = Line::from(vec![
-        Span::styled(format!(" {}/{} ", selected_count, total_count), Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            format!(" {}/{} ", selected_count, total_count),
+            Style::default()
+                .fg(primary_color)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(t.programs_desc, Style::default().fg(secondary_color)),
     ]);
     frame.render_widget(Paragraph::new(counter_line), chunks[0]);
@@ -41,20 +46,32 @@ pub fn render_programs(frame: &mut Frame, area: Rect, state: &AppState) {
         let is_cursor = idx == state.selected_program_idx;
 
         let cursor_marker = if is_cursor {
-            Span::styled(" ➔ ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD))
+            Span::styled(
+                " ➔ ",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD),
+            )
         } else {
             Span::raw("   ")
         };
 
         let checkbox = if program.enabled {
-            Span::styled("[✔] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD))
+            Span::styled(
+                "[✔] ",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD),
+            )
         } else {
             Span::styled("[ ] ", Style::default().fg(text_dim))
         };
 
         // Underline ONLY the name itself dynamically without trailing padding
         let name_style = if is_cursor {
-            Style::default().fg(text_color).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+            Style::default()
+                .fg(text_color)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
         } else if program.enabled {
             Style::default().fg(text_color)
         } else {
@@ -81,5 +98,8 @@ pub fn render_programs(frame: &mut Frame, area: Rect, state: &AppState) {
         .border_style(Style::default().fg(primary_color))
         .title(t.programs_title);
 
-    frame.render_widget(Paragraph::new(program_lines).block(programs_block), chunks[1]);
+    frame.render_widget(
+        Paragraph::new(program_lines).block(programs_block),
+        chunks[1],
+    );
 }

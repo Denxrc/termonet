@@ -2,8 +2,8 @@
 
 pub mod locales;
 
-pub use locales::{Translations, EN_TRANSLATIONS, RU_TRANSLATIONS};
 use crate::config::Language;
+pub use locales::{EN_TRANSLATIONS, RU_TRANSLATIONS, Translations};
 
 /// Returns localized string resources for the selected language.
 #[must_use]

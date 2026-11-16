@@ -1,11 +1,11 @@
 //! Responsive top bar rendering with pixel/standard title and clean underlined step tabs.
 
 use ratatui::{
+    Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
-    Frame,
 };
 
 use crate::i18n::get_translations;
@@ -19,8 +19,10 @@ pub fn render_header(frame: &mut Frame, area: Rect, state: &AppState) {
     // Accent colors from generated palette matching active theme
     let (primary_color, secondary_color) = state.ui_colors();
 
-    // Responsive check: if area height is large enough and width >= 48, render 3-line pixel logo
-    let use_pixel = area.height >= 5 && area.width >= 48;
+    // Responsive check: if area height is large enough and width >= 48 and font_mode is Pixel, render 3-line pixel logo
+    let use_pixel = area.height >= 5
+        && area.width >= 48
+        && state.config.font_mode == crate::config::FontMode::Pixel;
 
     if use_pixel {
         let chunks = Layout::default()
@@ -52,10 +54,16 @@ pub fn render_header(frame: &mut Frame, area: Rect, state: &AppState) {
             ])
             .split(area);
 
-        let compact_title = Line::from(vec![
-            Span::styled("TERMONET", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
-        ]);
-        frame.render_widget(Paragraph::new(compact_title).alignment(Alignment::Center), chunks[0]);
+        let compact_title = Line::from(vec![Span::styled(
+            "TERMONET",
+            Style::default()
+                .fg(primary_color)
+                .add_modifier(Modifier::BOLD),
+        )]);
+        frame.render_widget(
+            Paragraph::new(compact_title).alignment(Alignment::Center),
+            chunks[0],
+        );
 
         render_step_tabs(frame, chunks[1], state, t, primary_color, secondary_color);
     }
@@ -89,10 +97,7 @@ fn render_step_tabs(
             ));
         } else {
             // Inactive tabs: clean secondary color
-            tab_spans.push(Span::styled(
-                label,
-                Style::default().fg(secondary_color),
-            ));
+            tab_spans.push(Span::styled(label, Style::default().fg(secondary_color)));
         }
         tab_spans.push(Span::raw("       ")); // Clean spacing between tabs
     }

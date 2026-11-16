@@ -1,11 +1,11 @@
 //! TUI state machine and main interaction loop.
 
-use std::path::PathBuf;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use crate::config::{AppConfig, DisplayServer, FontMode, Language, TuiTheme, WallpaperBackend};
 use crate::core::GeneratedPalette;
 use crate::error::Result;
 use crate::template::{ProgramRule, TemplateEngine};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use std::path::PathBuf;
 
 /// Active navigation step in the top panel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -144,9 +144,15 @@ impl WizardState {
             WizardStep::Appearance => 5,
             WizardStep::Environment => match self.env_substep {
                 EnvSubStep::ServerAndBackend => 13,
-                EnvSubStep::Monitors => self.discovered_monitors.as_ref().map(|m| m.len()).unwrap_or(0),
+                EnvSubStep::Monitors => self
+                    .discovered_monitors
+                    .as_ref()
+                    .map(|m| m.len())
+                    .unwrap_or(0),
             },
-            WizardStep::Programs => crate::template::ProgramRule::load_all().map(|r| r.len()).unwrap_or(4),
+            WizardStep::Programs => crate::template::ProgramRule::load_all()
+                .map(|r| r.len())
+                .unwrap_or(4),
             WizardStep::Finish => 3,
         }
     }
@@ -224,9 +230,14 @@ impl AppState {
             .map(|rule| {
                 let name_lower = rule.name.to_lowercase();
                 let is_enabled = if enabled_list.is_empty() {
-                    matches!(name_lower.as_str(), "kitty" | "waybar" | "rofi" | "hyprland")
+                    matches!(
+                        name_lower.as_str(),
+                        "kitty" | "waybar" | "rofi" | "hyprland"
+                    )
                 } else {
-                    enabled_list.iter().any(|p| p.eq_ignore_ascii_case(&rule.name))
+                    enabled_list
+                        .iter()
+                        .any(|p| p.eq_ignore_ascii_case(&rule.name))
                 };
 
                 let reload_desc = match name_lower.as_str() {
@@ -235,7 +246,10 @@ impl AppState {
                     "hyprland" => Some("Window borders & active theme reload".to_string()),
                     "dunst" => Some("Notification daemon reload".to_string()),
                     "sway" => Some("Sway compositor config reload".to_string()),
-                    _ => rule.reload_cmd.as_ref().map(|_| "Reload service".to_string()),
+                    _ => rule
+                        .reload_cmd
+                        .as_ref()
+                        .map(|_| "Reload service".to_string()),
                 };
 
                 let hook_default = rule.reload_cmd.is_some();
@@ -309,7 +323,11 @@ impl AppState {
 
             // Synchronize program items with the finalized configuration
             for prog in &mut self.programs {
-                prog.enabled = self.config.enabled_programs.iter().any(|p| p.eq_ignore_ascii_case(&prog.name));
+                prog.enabled = self
+                    .config
+                    .enabled_programs
+                    .iter()
+                    .any(|p| p.eq_ignore_ascii_case(&prog.name));
             }
 
             self.is_wizard = false;
@@ -317,9 +335,11 @@ impl AppState {
 
             // Automatically attempt wallpaper detection and palette generation with new settings
             if let Err(e) = self.reload_wallpaper() {
-                self.status_message = Some(format!("Configuration saved (wallpaper detection: {})", e));
+                self.status_message =
+                    Some(format!("Configuration saved (wallpaper detection: {})", e));
             } else {
-                self.status_message = Some("Configuration saved and active wallpaper loaded!".to_string());
+                self.status_message =
+                    Some("Configuration saved and active wallpaper loaded!".to_string());
             }
         }
         Ok(())
@@ -334,7 +354,10 @@ impl AppState {
 
     /// Opens the manual wallpaper path input dialog.
     pub fn open_wallpaper_input(&mut self) {
-        let current_path = self.wallpaper_path.as_deref().or(self.config.manual_wallpaper_path.as_deref());
+        let current_path = self
+            .wallpaper_path
+            .as_deref()
+            .or(self.config.manual_wallpaper_path.as_deref());
         self.wallpaper_input = Some(WallpaperInputState::new(current_path));
     }
 
@@ -348,17 +371,18 @@ impl AppState {
             return false;
         }
 
-        let expanded = crate::config::paths::AppPaths::expand_tilde(trimmed);
-        if !expanded.exists() {
+        let resolved = crate::wallpaper::clean_wallpaper_path(trimmed)
+            .unwrap_or_else(|| crate::config::paths::AppPaths::expand_tilde(trimmed));
+        if !resolved.exists() {
             if let Some(ref mut input_state) = self.wallpaper_input {
-                input_state.error_msg = Some(format!("File not found: {}", expanded.display()));
+                input_state.error_msg = Some(format!("File not found: {}", resolved.display()));
             }
             return false;
         }
 
-        match GeneratedPalette::from_image_path(&expanded) {
+        match GeneratedPalette::from_image_path(&resolved) {
             Ok(palette) => {
-                let path_str = expanded.display().to_string();
+                let path_str = resolved.display().to_string();
                 self.palette = Some(palette);
                 self.wallpaper_path = Some(path_str.clone());
                 self.config.manual_wallpaper_path = Some(path_str.clone());
@@ -373,7 +397,8 @@ impl AppState {
                 // Persist update to config.toml
                 let _ = self.config.save();
 
-                self.status_message = Some("Wallpaper applied and palette generated successfully!".into());
+                self.status_message =
+                    Some("Wallpaper applied and palette generated successfully!".into());
                 self.wallpaper_input = None;
                 true
             }
@@ -390,13 +415,17 @@ impl AppState {
     pub fn reload_wallpaper(&mut self) -> Result<()> {
         let manual_str = self.config.manual_wallpaper_path.as_deref();
         if self.config.wallpaper_backend != WallpaperBackend::Manual {
-            if let Ok(monitors) = crate::wallpaper::get_wallpaper_monitors(&self.config.wallpaper_backend, manual_str)
+            if let Ok(monitors) =
+                crate::wallpaper::get_wallpaper_monitors(&self.config.wallpaper_backend, manual_str)
                 && monitors.has_divergent_wallpapers()
             {
                 let sorted = monitors.sorted_outputs();
                 self.active_monitors = sorted;
                 self.current_monitor_idx = if let Some(ref primary) = self.config.primary_monitor {
-                    self.active_monitors.iter().position(|(name, _)| name == primary).unwrap_or(0)
+                    self.active_monitors
+                        .iter()
+                        .position(|(name, _)| name == primary)
+                        .unwrap_or(0)
                 } else {
                     0
                 };
@@ -553,43 +582,49 @@ impl AppState {
                 self.config.tui_theme = wizard.config.tui_theme;
                 self.config.font_mode = wizard.config.font_mode;
             }
-            WizardStep::Environment => {
-                match wizard.env_substep {
-                    EnvSubStep::ServerAndBackend => {
-                        match wizard.selected_idx {
-                            0 => wizard.config.display_server = DisplayServer::Wayland,
-                            1 => wizard.config.display_server = DisplayServer::X11,
-                            2 => wizard.config.wallpaper_backend = WallpaperBackend::Auto,
-                            3 => wizard.config.wallpaper_backend = WallpaperBackend::Swww,
-                            4 => wizard.config.wallpaper_backend = WallpaperBackend::Hyprpaper,
-                            5 => wizard.config.wallpaper_backend = WallpaperBackend::Awww,
-                            6 => wizard.config.wallpaper_backend = WallpaperBackend::Wpaperd,
-                            7 => wizard.config.wallpaper_backend = WallpaperBackend::Swaybg,
-                            8 => wizard.config.wallpaper_backend = WallpaperBackend::Gnome,
-                            9 => wizard.config.wallpaper_backend = WallpaperBackend::Kde,
-                            10 => wizard.config.wallpaper_backend = WallpaperBackend::Feh,
-                            11 => wizard.config.wallpaper_backend = WallpaperBackend::Nitrogen,
-                            12 => wizard.config.wallpaper_backend = WallpaperBackend::Manual,
-                            _ => {}
-                        }
-                        wizard.discovered_monitors = None;
+            WizardStep::Environment => match wizard.env_substep {
+                EnvSubStep::ServerAndBackend => {
+                    match wizard.selected_idx {
+                        0 => wizard.config.display_server = DisplayServer::Wayland,
+                        1 => wizard.config.display_server = DisplayServer::X11,
+                        2 => wizard.config.wallpaper_backend = WallpaperBackend::Auto,
+                        3 => wizard.config.wallpaper_backend = WallpaperBackend::Swww,
+                        4 => wizard.config.wallpaper_backend = WallpaperBackend::Hyprpaper,
+                        5 => wizard.config.wallpaper_backend = WallpaperBackend::Awww,
+                        6 => wizard.config.wallpaper_backend = WallpaperBackend::Wpaperd,
+                        7 => wizard.config.wallpaper_backend = WallpaperBackend::Swaybg,
+                        8 => wizard.config.wallpaper_backend = WallpaperBackend::Gnome,
+                        9 => wizard.config.wallpaper_backend = WallpaperBackend::Kde,
+                        10 => wizard.config.wallpaper_backend = WallpaperBackend::Feh,
+                        11 => wizard.config.wallpaper_backend = WallpaperBackend::Nitrogen,
+                        12 => wizard.config.wallpaper_backend = WallpaperBackend::Manual,
+                        _ => {}
                     }
-                    EnvSubStep::Monitors => {
-                        if let Some(ref monitors) = wizard.discovered_monitors
-                            && let Some((name, _)) = monitors.get(wizard.selected_idx)
-                        {
-                            wizard.config.primary_monitor = Some(name.clone());
-                        }
+                    wizard.discovered_monitors = None;
+                }
+                EnvSubStep::Monitors => {
+                    if let Some(ref monitors) = wizard.discovered_monitors
+                        && let Some((name, _)) = monitors.get(wizard.selected_idx)
+                    {
+                        wizard.config.primary_monitor = Some(name.clone());
                     }
                 }
-            }
+            },
             WizardStep::Programs => {
                 let rules = crate::template::ProgramRule::load_all().unwrap_or_default();
                 if let Some(rule) = rules.get(wizard.selected_idx) {
-                    if let Some(pos) = wizard.config.enabled_programs.iter().position(|p| p.eq_ignore_ascii_case(&rule.name)) {
+                    if let Some(pos) = wizard
+                        .config
+                        .enabled_programs
+                        .iter()
+                        .position(|p| p.eq_ignore_ascii_case(&rule.name))
+                    {
                         wizard.config.enabled_programs.remove(pos);
                     } else {
-                        wizard.config.enabled_programs.push(rule.name.to_lowercase());
+                        wizard
+                            .config
+                            .enabled_programs
+                            .push(rule.name.to_lowercase());
                     }
                 }
             }
@@ -625,19 +660,37 @@ impl AppState {
             KeyCode::Right | KeyCode::Char('l') => self.handle_wizard_next(),
             KeyCode::Left | KeyCode::Char('h') => self.handle_wizard_prev(),
             KeyCode::Char('1') => {
-                if let Some(ref mut wizard) = self.wizard_state { wizard.step = WizardStep::Language; wizard.selected_idx = 0; wizard.env_substep = EnvSubStep::ServerAndBackend; }
+                if let Some(ref mut wizard) = self.wizard_state {
+                    wizard.step = WizardStep::Language;
+                    wizard.selected_idx = 0;
+                    wizard.env_substep = EnvSubStep::ServerAndBackend;
+                }
             }
             KeyCode::Char('2') => {
-                if let Some(ref mut wizard) = self.wizard_state { wizard.step = WizardStep::Appearance; wizard.selected_idx = 0; wizard.env_substep = EnvSubStep::ServerAndBackend; }
+                if let Some(ref mut wizard) = self.wizard_state {
+                    wizard.step = WizardStep::Appearance;
+                    wizard.selected_idx = 0;
+                    wizard.env_substep = EnvSubStep::ServerAndBackend;
+                }
             }
             KeyCode::Char('3') => {
-                if let Some(ref mut wizard) = self.wizard_state { wizard.step = WizardStep::Environment; wizard.selected_idx = 0; wizard.env_substep = EnvSubStep::ServerAndBackend; }
+                if let Some(ref mut wizard) = self.wizard_state {
+                    wizard.step = WizardStep::Environment;
+                    wizard.selected_idx = 0;
+                    wizard.env_substep = EnvSubStep::ServerAndBackend;
+                }
             }
             KeyCode::Char('4') => {
-                if let Some(ref mut wizard) = self.wizard_state { wizard.step = WizardStep::Programs; wizard.selected_idx = 0; }
+                if let Some(ref mut wizard) = self.wizard_state {
+                    wizard.step = WizardStep::Programs;
+                    wizard.selected_idx = 0;
+                }
             }
             KeyCode::Char('5') => {
-                if let Some(ref mut wizard) = self.wizard_state { wizard.step = WizardStep::Finish; wizard.selected_idx = 2; }
+                if let Some(ref mut wizard) = self.wizard_state {
+                    wizard.step = WizardStep::Finish;
+                    wizard.selected_idx = 2;
+                }
             }
 
             // Move cursor between options inside active step
@@ -660,7 +713,11 @@ impl AppState {
             // Select or toggle current option
             KeyCode::Char(' ') => {
                 let current_step = self.wizard_state.as_ref().map(|w| w.step);
-                let selected_idx = self.wizard_state.as_ref().map(|w| w.selected_idx).unwrap_or(0);
+                let selected_idx = self
+                    .wizard_state
+                    .as_ref()
+                    .map(|w| w.selected_idx)
+                    .unwrap_or(0);
                 if current_step == Some(WizardStep::Finish) && selected_idx == 2 {
                     if let Err(e) = self.finish_wizard() {
                         self.status_message = Some(format!("Error: {}", e));
@@ -685,17 +742,24 @@ impl AppState {
                 match wizard.env_substep {
                     EnvSubStep::ServerAndBackend => {
                         let manual_str = wizard.config.manual_wallpaper_path.as_deref();
-                        match crate::wallpaper::get_wallpaper_monitors(&wizard.config.wallpaper_backend, manual_str) {
+                        match crate::wallpaper::get_wallpaper_monitors(
+                            &wizard.config.wallpaper_backend,
+                            manual_str,
+                        ) {
                             Ok(monitors) if monitors.has_divergent_wallpapers() => {
                                 let sorted = monitors.sorted_outputs();
-                                let cur_idx = if let Some(ref primary) = wizard.config.primary_monitor {
-                                    sorted.iter().position(|(name, _)| name == primary).unwrap_or(0)
-                                } else {
-                                    if let Some(first) = sorted.first() {
-                                        wizard.config.primary_monitor = Some(first.0.clone());
-                                    }
-                                    0
-                                };
+                                let cur_idx =
+                                    if let Some(ref primary) = wizard.config.primary_monitor {
+                                        sorted
+                                            .iter()
+                                            .position(|(name, _)| name == primary)
+                                            .unwrap_or(0)
+                                    } else {
+                                        if let Some(first) = sorted.first() {
+                                            wizard.config.primary_monitor = Some(first.0.clone());
+                                        }
+                                        0
+                                    };
                                 wizard.discovered_monitors = Some(sorted);
                                 wizard.env_substep = EnvSubStep::Monitors;
                                 wizard.selected_idx = cur_idx;
@@ -715,7 +779,11 @@ impl AppState {
                 }
             } else {
                 wizard.step = wizard.step.next();
-                wizard.selected_idx = if wizard.step == WizardStep::Finish { 2 } else { 0 };
+                wizard.selected_idx = if wizard.step == WizardStep::Finish {
+                    2
+                } else {
+                    0
+                };
             }
         }
     }
@@ -726,8 +794,17 @@ impl AppState {
                 if wizard.discovered_monitors.is_some() {
                     wizard.step = WizardStep::Environment;
                     wizard.env_substep = EnvSubStep::Monitors;
-                    wizard.selected_idx = wizard.config.primary_monitor.as_ref()
-                        .and_then(|p| wizard.discovered_monitors.as_ref()?.iter().position(|(n, _)| n == p))
+                    wizard.selected_idx = wizard
+                        .config
+                        .primary_monitor
+                        .as_ref()
+                        .and_then(|p| {
+                            wizard
+                                .discovered_monitors
+                                .as_ref()?
+                                .iter()
+                                .position(|(n, _)| n == p)
+                        })
                         .unwrap_or(0);
                 } else {
                     wizard.step = WizardStep::Environment;
@@ -747,14 +824,22 @@ impl AppState {
                 }
             } else {
                 wizard.step = wizard.step.prev();
-                wizard.selected_idx = if wizard.step == WizardStep::Finish { 2 } else { 0 };
+                wizard.selected_idx = if wizard.step == WizardStep::Finish {
+                    2
+                } else {
+                    0
+                };
             }
         }
     }
 
     fn handle_wizard_enter(&mut self) {
         let current_step = self.wizard_state.as_ref().map(|w| w.step);
-        let selected_idx = self.wizard_state.as_ref().map(|w| w.selected_idx).unwrap_or(0);
+        let selected_idx = self
+            .wizard_state
+            .as_ref()
+            .map(|w| w.selected_idx)
+            .unwrap_or(0);
 
         if current_step == Some(WizardStep::Finish) {
             if selected_idx == 2 {
@@ -768,7 +853,8 @@ impl AppState {
                 }
             }
         } else if current_step == Some(WizardStep::Environment)
-            && self.wizard_state.as_ref().map(|w| w.env_substep) == Some(EnvSubStep::ServerAndBackend)
+            && self.wizard_state.as_ref().map(|w| w.env_substep)
+                == Some(EnvSubStep::ServerAndBackend)
             && selected_idx == 12
         {
             // Option 12 in Environment is Manual path -> trigger input dialog
@@ -798,9 +884,13 @@ impl AppState {
                 self.apply_manual_wallpaper(&input);
             }
             KeyCode::Backspace => {
-                if input_state.cursor_pos > 0 && !input_state.input.is_empty() {
-                    input_state.input.remove(input_state.cursor_pos - 1);
-                    input_state.cursor_pos -= 1;
+                if input_state.cursor_pos > 0
+                    && let Some((prev_idx, _)) = input_state.input[..input_state.cursor_pos]
+                        .char_indices()
+                        .last()
+                {
+                    input_state.input.remove(prev_idx);
+                    input_state.cursor_pos = prev_idx;
                     input_state.error_msg = None;
                 }
             }
@@ -811,13 +901,24 @@ impl AppState {
                 }
             }
             KeyCode::Left => {
-                if input_state.cursor_pos > 0 {
-                    input_state.cursor_pos -= 1;
+                if input_state.cursor_pos > 0
+                    && let Some((prev_idx, _)) = input_state.input[..input_state.cursor_pos]
+                        .char_indices()
+                        .last()
+                {
+                    input_state.cursor_pos = prev_idx;
                 }
             }
             KeyCode::Right => {
                 if input_state.cursor_pos < input_state.input.len() {
-                    input_state.cursor_pos += 1;
+                    if let Some((next_offset, _)) = input_state.input[input_state.cursor_pos..]
+                        .char_indices()
+                        .nth(1)
+                    {
+                        input_state.cursor_pos += next_offset;
+                    } else {
+                        input_state.cursor_pos = input_state.input.len();
+                    }
                 }
             }
             KeyCode::Home => {
@@ -828,7 +929,7 @@ impl AppState {
             }
             KeyCode::Char(c) => {
                 input_state.input.insert(input_state.cursor_pos, c);
-                input_state.cursor_pos += 1;
+                input_state.cursor_pos += c.len_utf8();
                 input_state.error_msg = None;
             }
             _ => {}
@@ -851,9 +952,23 @@ impl AppState {
             if prog.enabled
                 && let Some(ref rule) = prog.rule
             {
-                rule.apply_with_hook(&engine, palette, is_dark, self.config.create_backups, prog.hook_enabled)?;
+                rule.apply_with_hook(
+                    &engine,
+                    palette,
+                    is_dark,
+                    self.config.create_backups,
+                    prog.hook_enabled,
+                )?;
             }
         }
+
+        // 2. Synchronize enabled programs into configuration before saving
+        self.config.enabled_programs = self
+            .programs
+            .iter()
+            .filter(|p| p.enabled)
+            .map(|p| p.name.to_lowercase())
+            .collect();
 
         // 3. Save configuration (persisting any monitor switch made during palette preview)
         let _ = self.config.save();
@@ -861,7 +976,7 @@ impl AppState {
         // 4. Update state cache
         if let Some(ref wall_path) = self.wallpaper_path {
             let mut cache = crate::config::AppStateCache::load().unwrap_or_default();
-            cache.last_wallpaper_path = Some(wall_path.clone());
+            cache.update(std::path::Path::new(wall_path));
             let _ = cache.save();
         }
 
@@ -878,13 +993,17 @@ impl AppState {
     /// Returns the active MaterialScheme based on configuration and system settings.
     #[must_use]
     pub fn active_scheme(&self) -> Option<&crate::core::MaterialScheme> {
-        self.palette.as_ref().map(|p| p.scheme_for(self.is_dark_mode()))
+        self.palette
+            .as_ref()
+            .map(|p| p.scheme_for(self.is_dark_mode()))
     }
 
     /// Returns the active TerminalPalette based on configuration and system settings.
     #[must_use]
     pub fn active_terminal(&self) -> Option<&crate::core::TerminalPalette> {
-        self.palette.as_ref().map(|p| p.terminal_for(self.is_dark_mode()))
+        self.palette
+            .as_ref()
+            .map(|p| p.terminal_for(self.is_dark_mode()))
     }
 
     /// Primary and secondary UI accent colors for TUI rendering.

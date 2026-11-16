@@ -11,7 +11,6 @@ pub struct CliArgs {
     pub wallpaper: Option<String>,
     pub no_backup: bool,
     pub backup: bool,
-    pub debug_wallpaper: bool,
 }
 
 /// Executes headless apply without TUI if `--apply` flag is passed.
@@ -67,8 +66,18 @@ pub fn run_cli_mode(args: &CliArgs) -> crate::error::Result<bool> {
     let rules = crate::template::ProgramRule::load_all()?;
     let mut applied_count = 0;
     for rule in &rules {
-        if config.enabled_programs.iter().any(|p| p.eq_ignore_ascii_case(&rule.name)) {
-            let hook_executed = rule.apply_with_hook(&engine, &palette, config.tui_theme.is_dark(), config.create_backups, true)?;
+        if config
+            .enabled_programs
+            .iter()
+            .any(|p| p.eq_ignore_ascii_case(&rule.name))
+        {
+            let hook_executed = rule.apply_with_hook(
+                &engine,
+                &palette,
+                config.tui_theme.is_dark(),
+                config.create_backups,
+                true,
+            )?;
             applied_count += 1;
             println!("  ✔ Applied theme for: {}", rule.name);
             if hook_executed && let Some(ref cmd) = rule.reload_cmd {
@@ -79,7 +88,7 @@ pub fn run_cli_mode(args: &CliArgs) -> crate::error::Result<bool> {
 
     // 4. Update cache
     let mut new_cache = cache;
-    new_cache.last_wallpaper_path = Some(wallpaper_path.display().to_string());
+    new_cache.update(&wallpaper_path);
     let _ = new_cache.save();
 
     println!(

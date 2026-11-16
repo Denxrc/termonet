@@ -5,15 +5,15 @@ pub mod font;
 pub mod terminal;
 pub mod views;
 
-use std::time::Duration;
 use crossterm::event::{self, Event};
 use ratatui::{
+    Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
-    Frame,
 };
+use std::time::Duration;
 
 pub use app::{AppState, ProgramItem, Step, WizardState, WizardStep};
 pub use font::PixelFont;
@@ -36,8 +36,11 @@ pub fn run_tui(mut state: AppState) -> Result<()> {
                 return;
             }
 
-            // Responsive header height: 5 lines for pixel logo + tabs, or 3 lines for compact
-            let header_height = if total_area.height >= 22 && total_area.width >= 48 {
+            // Responsive header height: 5 lines for pixel logo + tabs, or 3 lines for compact / standard font
+            let header_height = if total_area.height >= 22
+                && total_area.width >= 48
+                && state.config.font_mode == crate::config::FontMode::Pixel
+            {
                 5
             } else {
                 3
@@ -47,7 +50,7 @@ pub fn run_tui(mut state: AppState) -> Result<()> {
                 .direction(Direction::Vertical)
                 .constraints([
                     Constraint::Length(header_height), // Header with logo & tabs
-                    Constraint::Min(8),                 // Active step view
+                    Constraint::Min(8),                // Active step view
                     Constraint::Length(1),             // Bottom footer with key hints
                 ])
                 .split(total_area);
@@ -85,51 +88,131 @@ fn render_footer(frame: &mut Frame, area: Rect, state: &AppState) {
     let text_muted = state.text_muted();
 
     let mut footer_spans = vec![
-        Span::styled(" [← / →] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
-        Span::styled(format!("{}  ", t.hint_steps_nav), Style::default().fg(text_muted)),
-        Span::styled(" [1-4] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
-        Span::styled(format!("{}  ", t.hint_jump), Style::default().fg(text_muted)),
+        Span::styled(
+            " [← / →] ",
+            Style::default()
+                .fg(primary_color)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("{}  ", t.hint_steps_nav),
+            Style::default().fg(text_muted),
+        ),
+        Span::styled(
+            " [1-4] ",
+            Style::default()
+                .fg(primary_color)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("{}  ", t.hint_jump),
+            Style::default().fg(text_muted),
+        ),
     ];
 
     match state.current_step {
         Step::Palette => {
-            footer_spans.push(Span::styled(" [w] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
-            footer_spans.push(Span::styled(format!("{}  ", t.hint_wallpaper), Style::default().fg(text_muted)));
-            footer_spans.push(Span::styled(" [r] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
-            footer_spans.push(Span::styled(format!("{}  ", t.hint_auto_detect), Style::default().fg(text_muted)));
+            footer_spans.push(Span::styled(
+                " [w] ",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            footer_spans.push(Span::styled(
+                format!("{}  ", t.hint_wallpaper),
+                Style::default().fg(text_muted),
+            ));
+            footer_spans.push(Span::styled(
+                " [r] ",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            footer_spans.push(Span::styled(
+                format!("{}  ", t.hint_auto_detect),
+                Style::default().fg(text_muted),
+            ));
             if state.active_monitors.len() > 1 {
-                footer_spans.push(Span::styled(" [Tab/m] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
-                footer_spans.push(Span::styled(format!("{}  ", t.hint_switch_monitor), Style::default().fg(text_muted)));
+                footer_spans.push(Span::styled(
+                    " [Tab/m] ",
+                    Style::default()
+                        .fg(primary_color)
+                        .add_modifier(Modifier::BOLD),
+                ));
+                footer_spans.push(Span::styled(
+                    format!("{}  ", t.hint_switch_monitor),
+                    Style::default().fg(text_muted),
+                ));
             }
         }
         Step::Programs | Step::Hooks => {
-            footer_spans.push(Span::styled(" [↑/↓] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
-            footer_spans.push(Span::styled(format!("{}  ", t.hint_select), Style::default().fg(text_muted)));
-            footer_spans.push(Span::styled(" [Space] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
-            footer_spans.push(Span::styled(format!("{}  ", t.hint_space), Style::default().fg(text_muted)));
+            footer_spans.push(Span::styled(
+                " [↑/↓] ",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            footer_spans.push(Span::styled(
+                format!("{}  ", t.hint_select),
+                Style::default().fg(text_muted),
+            ));
+            footer_spans.push(Span::styled(
+                " [Space] ",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            footer_spans.push(Span::styled(
+                format!("{}  ", t.hint_space),
+                Style::default().fg(text_muted),
+            ));
         }
         Step::Apply => {
-            footer_spans.push(Span::styled(" [Enter] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
-            footer_spans.push(Span::styled(format!("{}  ", t.hint_choose), Style::default().fg(text_muted)));
+            footer_spans.push(Span::styled(
+                " [Enter] ",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            footer_spans.push(Span::styled(
+                format!("{}  ", t.hint_choose),
+                Style::default().fg(text_muted),
+            ));
         }
     }
 
-    footer_spans.push(Span::styled(" [s] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
-    footer_spans.push(Span::styled(format!("{}  ", t.hint_settings), Style::default().fg(text_muted)));
-    footer_spans.push(Span::styled(" [q/Esc] ", Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)));
+    footer_spans.push(Span::styled(
+        " [s] ",
+        Style::default()
+            .fg(primary_color)
+            .add_modifier(Modifier::BOLD),
+    ));
+    footer_spans.push(Span::styled(
+        format!("{}  ", t.hint_settings),
+        Style::default().fg(text_muted),
+    ));
+    footer_spans.push(Span::styled(
+        " [q/Esc] ",
+        Style::default()
+            .fg(secondary_color)
+            .add_modifier(Modifier::BOLD),
+    ));
     footer_spans.push(Span::styled(t.hint_quit, Style::default().fg(text_muted)));
 
-    frame.render_widget(Paragraph::new(Line::from(footer_spans)).alignment(Alignment::Center), area);
+    frame.render_widget(
+        Paragraph::new(Line::from(footer_spans)).alignment(Alignment::Center),
+        area,
+    );
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::backend::TestBackend;
-    use ratatui::style::Color;
-    use ratatui::Terminal;
     use crate::config::AppConfig;
     use crate::core::GeneratedPalette;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use ratatui::style::Color;
 
     #[test]
     fn test_tui_render_all_steps() {
@@ -201,19 +284,37 @@ mod tests {
         let mut state = AppState::new_wizard(config);
 
         assert!(state.is_wizard);
-        assert_eq!(state.wizard_state.as_ref().unwrap().step, WizardStep::Language);
+        assert_eq!(
+            state.wizard_state.as_ref().unwrap().step,
+            WizardStep::Language
+        );
 
         // Right arrow to Step 2 (Appearance)
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Right));
-        assert_eq!(state.wizard_state.as_ref().unwrap().step, WizardStep::Appearance);
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Right,
+        ));
+        assert_eq!(
+            state.wizard_state.as_ref().unwrap().step,
+            WizardStep::Appearance
+        );
 
         // Press '3' to jump to Step 3 (Environment)
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char('3')));
-        assert_eq!(state.wizard_state.as_ref().unwrap().step, WizardStep::Environment);
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Char('3'),
+        ));
+        assert_eq!(
+            state.wizard_state.as_ref().unwrap().step,
+            WizardStep::Environment
+        );
 
         // Left arrow back to Step 2
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Left));
-        assert_eq!(state.wizard_state.as_ref().unwrap().step, WizardStep::Appearance);
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Left,
+        ));
+        assert_eq!(
+            state.wizard_state.as_ref().unwrap().step,
+            WizardStep::Appearance
+        );
     }
 
     #[test]
@@ -224,12 +325,16 @@ mod tests {
         assert!(!state.is_wizard);
 
         // Press 's' to open settings wizard
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char('s')));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Char('s'),
+        ));
         assert!(state.is_wizard);
         assert!(state.wizard_state.as_ref().unwrap().opened_from_main);
 
         // Press 'Esc' to cancel and return to main interface
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Esc));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Esc,
+        ));
         assert!(!state.is_wizard);
         assert!(state.is_running);
     }
@@ -263,7 +368,9 @@ mod tests {
         assert!(state.wallpaper_input.is_none());
 
         // Press 'w' to open wallpaper input
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char('w')));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Char('w'),
+        ));
         assert!(state.wallpaper_input.is_some());
 
         // Clear pre-filled input and type new path
@@ -272,18 +379,28 @@ mod tests {
             inp.cursor_pos = 0;
         }
 
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char('a')));
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char('b')));
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char('c')));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Char('a'),
+        ));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Char('b'),
+        ));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Char('c'),
+        ));
 
         assert_eq!(state.wallpaper_input.as_ref().unwrap().input, "abc");
 
         // Backspace
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Backspace));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Backspace,
+        ));
         assert_eq!(state.wallpaper_input.as_ref().unwrap().input, "ab");
 
         // Esc cancels modal
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Esc));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Esc,
+        ));
         assert!(state.wallpaper_input.is_none());
     }
 
@@ -294,11 +411,15 @@ mod tests {
         state.current_step = Step::Palette;
 
         // Press Enter in Palette step -> should do nothing
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Enter));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Enter,
+        ));
         assert!(state.wallpaper_input.is_none());
 
         // Press 'w' in Palette step -> opens modal
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char('w')));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Char('w'),
+        ));
         assert!(state.wallpaper_input.is_some());
     }
 
@@ -308,11 +429,18 @@ mod tests {
         let mut state = AppState::new_wizard(config);
 
         // Jump to Step 5 (Finish)
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char('5')));
-        assert_eq!(state.wizard_state.as_ref().unwrap().step, WizardStep::Finish);
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Char('5'),
+        ));
+        assert_eq!(
+            state.wizard_state.as_ref().unwrap().step,
+            WizardStep::Finish
+        );
 
         // Space triggers finish_wizard
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char(' ')));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Char(' '),
+        ));
         assert!(!state.is_wizard);
     }
 
@@ -322,30 +450,45 @@ mod tests {
         let mut state = AppState::new_wizard(config);
 
         // Jump to Step 5 (Finish)
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char('5')));
-        assert_eq!(state.wizard_state.as_ref().unwrap().step, WizardStep::Finish);
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Char('5'),
+        ));
+        assert_eq!(
+            state.wizard_state.as_ref().unwrap().step,
+            WizardStep::Finish
+        );
         assert_eq!(state.wizard_state.as_ref().unwrap().selected_idx, 2); // Default focused on Save button
         assert!(!state.wizard_state.as_ref().unwrap().config.create_backups);
 
         // Move Up to Safe Mode (index 1)
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Up));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Up,
+        ));
         assert_eq!(state.wizard_state.as_ref().unwrap().selected_idx, 1);
 
         // Press Space to toggle
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char(' ')));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Char(' '),
+        ));
         assert!(state.wizard_state.as_ref().unwrap().config.create_backups);
 
         // Move Up to Clean Mode (index 0)
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Up));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Up,
+        ));
         assert_eq!(state.wizard_state.as_ref().unwrap().selected_idx, 0);
 
         // Press Enter on Clean Mode: selects Clean mode and auto-focuses Save button (index 2)
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Enter));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Enter,
+        ));
         assert!(!state.wizard_state.as_ref().unwrap().config.create_backups);
         assert_eq!(state.wizard_state.as_ref().unwrap().selected_idx, 2);
 
         // Press Enter on Save button: finishes wizard
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Enter));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Enter,
+        ));
         assert!(!state.is_wizard);
         assert!(!state.config.create_backups);
     }
@@ -359,7 +502,9 @@ mod tests {
         let mut state = AppState::new_wizard(config);
 
         // Step 1: Jump to Step 3 (Environment)
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char('3')));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Char('3'),
+        ));
         let wizard = state.wizard_state.as_ref().unwrap();
         assert_eq!(wizard.step, WizardStep::Environment);
         assert_eq!(wizard.env_substep, EnvSubStep::ServerAndBackend);
@@ -376,34 +521,70 @@ mod tests {
         }
 
         // Test cursor move down
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Down));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Down,
+        ));
         assert_eq!(state.wizard_state.as_ref().unwrap().selected_idx, 1);
 
         // Test selection with Space
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char(' ')));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Char(' '),
+        ));
         assert_eq!(
-            state.wizard_state.as_ref().unwrap().config.primary_monitor.as_deref(),
+            state
+                .wizard_state
+                .as_ref()
+                .unwrap()
+                .config
+                .primary_monitor
+                .as_deref(),
             Some("HDMI-A-1")
         );
 
         // Advance Right -> should move to Programs
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Right));
-        assert_eq!(state.wizard_state.as_ref().unwrap().step, WizardStep::Programs);
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Right,
+        ));
+        assert_eq!(
+            state.wizard_state.as_ref().unwrap().step,
+            WizardStep::Programs
+        );
 
         // Move Left -> should return to Environment in EnvSubStep::Monitors
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Left));
-        assert_eq!(state.wizard_state.as_ref().unwrap().step, WizardStep::Environment);
-        assert_eq!(state.wizard_state.as_ref().unwrap().env_substep, EnvSubStep::Monitors);
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Left,
+        ));
+        assert_eq!(
+            state.wizard_state.as_ref().unwrap().step,
+            WizardStep::Environment
+        );
+        assert_eq!(
+            state.wizard_state.as_ref().unwrap().env_substep,
+            EnvSubStep::Monitors
+        );
         assert_eq!(state.wizard_state.as_ref().unwrap().selected_idx, 1);
 
         // Move Left again -> should return to ServerAndBackend
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Left));
-        assert_eq!(state.wizard_state.as_ref().unwrap().step, WizardStep::Environment);
-        assert_eq!(state.wizard_state.as_ref().unwrap().env_substep, EnvSubStep::ServerAndBackend);
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Left,
+        ));
+        assert_eq!(
+            state.wizard_state.as_ref().unwrap().step,
+            WizardStep::Environment
+        );
+        assert_eq!(
+            state.wizard_state.as_ref().unwrap().env_substep,
+            EnvSubStep::ServerAndBackend
+        );
 
         // Move Left again -> should return to Appearance
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Left));
-        assert_eq!(state.wizard_state.as_ref().unwrap().step, WizardStep::Appearance);
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Left,
+        ));
+        assert_eq!(
+            state.wizard_state.as_ref().unwrap().step,
+            WizardStep::Appearance
+        );
     }
 
     #[test]
@@ -418,7 +599,10 @@ mod tests {
             w.env_substep = crate::tui::app::EnvSubStep::Monitors;
             w.discovered_monitors = Some(vec![
                 ("DP-1".into(), std::path::PathBuf::from("/path/to/dp.png")),
-                ("HDMI-A-1".into(), std::path::PathBuf::from("/path/to/hdmi.png")),
+                (
+                    "HDMI-A-1".into(),
+                    std::path::PathBuf::from("/path/to/hdmi.png"),
+                ),
             ]);
             w.config.primary_monitor = Some("DP-1".into());
         }
@@ -437,12 +621,11 @@ mod tests {
         let file_hdmi = temp_dir.join("termonet_test_tab_hdmi.png");
 
         let png_bytes = [
-            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
-            0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-            0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xde, 0x00, 0x00, 0x00,
-            0x0c, 0x49, 0x44, 0x41, 0x54, 0x08, 0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0x00,
-            0x00, 0x03, 0x01, 0x01, 0x00, 0x18, 0xdd, 0x8d, 0xb0, 0x00, 0x00, 0x00,
-            0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00,
+            0x00, 0x90, 0x77, 0x53, 0xde, 0x00, 0x00, 0x00, 0x0c, 0x49, 0x44, 0x41, 0x54, 0x08,
+            0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0x18, 0xdd, 0x8d,
+            0xb0, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
         ];
         std::fs::write(&file_dp, png_bytes).unwrap();
         std::fs::write(&file_hdmi, png_bytes).unwrap();
@@ -458,16 +641,26 @@ mod tests {
         state.wallpaper_path = Some(file_dp.display().to_string());
 
         // Press Tab to cycle to HDMI-A-1
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Tab));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Tab,
+        ));
         assert_eq!(state.current_monitor_idx, 1);
         assert_eq!(state.config.primary_monitor.as_deref(), Some("HDMI-A-1"));
-        assert_eq!(state.wallpaper_path.as_deref(), Some(file_hdmi.to_str().unwrap()));
+        assert_eq!(
+            state.wallpaper_path.as_deref(),
+            Some(file_hdmi.to_str().unwrap())
+        );
 
         // Press 'm' to cycle back to DP-1
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char('m')));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Char('m'),
+        ));
         assert_eq!(state.current_monitor_idx, 0);
         assert_eq!(state.config.primary_monitor.as_deref(), Some("DP-1"));
-        assert_eq!(state.wallpaper_path.as_deref(), Some(file_dp.to_str().unwrap()));
+        assert_eq!(
+            state.wallpaper_path.as_deref(),
+            Some(file_dp.to_str().unwrap())
+        );
 
         let _ = std::fs::remove_file(file_dp);
         let _ = std::fs::remove_file(file_hdmi);
@@ -484,7 +677,10 @@ mod tests {
         state.palette = Some(crate::core::GeneratedPalette::from_seed_color(seed));
         state.active_monitors = vec![
             ("DP-1".into(), std::path::PathBuf::from("/path/to/dp.png")),
-            ("HDMI-A-1".into(), std::path::PathBuf::from("/path/to/hdmi.png")),
+            (
+                "HDMI-A-1".into(),
+                std::path::PathBuf::from("/path/to/hdmi.png"),
+            ),
         ];
         state.current_monitor_idx = 0;
 
@@ -496,7 +692,10 @@ mod tests {
 
         let buffer = terminal.backend().buffer();
         let footer_row: String = (0..140).map(|x| buffer[(x, 0)].symbol()).collect();
-        assert!(footer_row.contains("[Tab/m]"), "Palette footer should contain [Tab/m]");
+        assert!(
+            footer_row.contains("[Tab/m]"),
+            "Palette footer should contain [Tab/m]"
+        );
     }
 
     #[test]
@@ -519,7 +718,8 @@ mod tests {
 
     #[test]
     fn test_apply_theme_execution() {
-        let temp_dir = std::env::temp_dir().join(format!("termonet_test_apply_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("termonet_test_apply_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&temp_dir);
         std::fs::create_dir_all(&temp_dir).unwrap();
 
@@ -543,22 +743,28 @@ mod tests {
         let seed = material_colors::color::Rgb::new(0x42, 0x85, 0xf4);
         state.palette = Some(crate::core::GeneratedPalette::from_seed_color(seed));
 
-        state.programs = vec![
-            ProgramItem {
-                name: "TestKitty".to_string(),
-                output_path: temp_dir.join("colors-termonet.conf").display().to_string(),
-                enabled: true,
-                reload_cmd: None,
-                reload_desc: None,
-                hook_enabled: false,
-                rule: Some(custom_rule),
-            }
-        ];
+        state.programs = vec![ProgramItem {
+            name: "TestKitty".to_string(),
+            output_path: temp_dir.join("colors-termonet.conf").display().to_string(),
+            enabled: true,
+            reload_cmd: None,
+            reload_desc: None,
+            hook_enabled: false,
+            rule: Some(custom_rule),
+        }];
 
         state.current_step = Step::Apply;
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Enter));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Enter,
+        ));
 
-        assert!(state.status_message.as_ref().unwrap().contains("successfully"));
+        assert!(
+            state
+                .status_message
+                .as_ref()
+                .unwrap()
+                .contains("successfully")
+        );
         assert!(temp_dir.join("colors-termonet.conf").exists());
 
         let target_content = std::fs::read_to_string(&kitty_conf).unwrap();
@@ -591,15 +797,30 @@ mod tests {
 
             match step {
                 Step::Palette => {
-                    assert!(footer_row.contains("[w]"), "Palette footer should contain [w]");
-                    assert!(footer_row.contains("[r]"), "Palette footer should contain [r]");
+                    assert!(
+                        footer_row.contains("[w]"),
+                        "Palette footer should contain [w]"
+                    );
+                    assert!(
+                        footer_row.contains("[r]"),
+                        "Palette footer should contain [r]"
+                    );
                 }
                 Step::Programs | Step::Hooks => {
-                    assert!(footer_row.contains("[↑/↓]"), "Programs/Hooks footer should contain [↑/↓]");
-                    assert!(footer_row.contains("[Space]"), "Programs/Hooks footer should contain [Space]");
+                    assert!(
+                        footer_row.contains("[↑/↓]"),
+                        "Programs/Hooks footer should contain [↑/↓]"
+                    );
+                    assert!(
+                        footer_row.contains("[Space]"),
+                        "Programs/Hooks footer should contain [Space]"
+                    );
                 }
                 Step::Apply => {
-                    assert!(footer_row.contains("[Enter]"), "Apply footer should contain [Enter]");
+                    assert!(
+                        footer_row.contains("[Enter]"),
+                        "Apply footer should contain [Enter]"
+                    );
                 }
             }
         }
@@ -653,8 +874,12 @@ mod tests {
         let mut state = AppState::new_wizard(AppConfig::default());
         state.wizard_state = Some(wizard);
 
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char(' ')));
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Enter));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Char(' '),
+        ));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Enter,
+        ));
         assert!(state.wizard_state.is_some());
     }
 
@@ -694,36 +919,89 @@ mod tests {
         // Type 10,000 characters
         for i in 0..10_000 {
             let ch = (b'a' + (i % 26) as u8) as char;
-            state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char(ch)));
+            state.handle_key(crossterm::event::KeyEvent::from(
+                crossterm::event::KeyCode::Char(ch),
+            ));
         }
         assert_eq!(state.wallpaper_input.as_ref().unwrap().input.len(), 10_000);
 
         // Navigate Left 5,000 times
         for _ in 0..5_000 {
-            state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Left));
+            state.handle_key(crossterm::event::KeyEvent::from(
+                crossterm::event::KeyCode::Left,
+            ));
         }
         assert_eq!(state.wallpaper_input.as_ref().unwrap().cursor_pos, 5_000);
 
         // Hit Home
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Home));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Home,
+        ));
         assert_eq!(state.wallpaper_input.as_ref().unwrap().cursor_pos, 0);
 
         // Delete at index 0 1,000 times
         for _ in 0..1_000 {
-            state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Delete));
+            state.handle_key(crossterm::event::KeyEvent::from(
+                crossterm::event::KeyCode::Delete,
+            ));
         }
         assert_eq!(state.wallpaper_input.as_ref().unwrap().input.len(), 9_000);
 
         // Hit End
-        state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::End));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::End,
+        ));
         assert_eq!(state.wallpaper_input.as_ref().unwrap().cursor_pos, 9_000);
 
         // Backspace 15,000 times (more than length) -> cursor must stay at 0, no panic
         for _ in 0..15_000 {
-            state.handle_key(crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Backspace));
+            state.handle_key(crossterm::event::KeyEvent::from(
+                crossterm::event::KeyCode::Backspace,
+            ));
         }
         assert_eq!(state.wallpaper_input.as_ref().unwrap().cursor_pos, 0);
         assert!(state.wallpaper_input.as_ref().unwrap().input.is_empty());
+    }
+
+    #[test]
+    fn test_cyrillic_and_emoji_modal_input_utf8_boundaries() {
+        let mut state = AppState::new(AppConfig::default());
+        state.open_wallpaper_input();
+
+        // Type Russian word "обои"
+        for c in "обои".chars() {
+            state.handle_key(crossterm::event::KeyEvent::from(
+                crossterm::event::KeyCode::Char(c),
+            ));
+        }
+        let input_state = state.wallpaper_input.as_ref().unwrap();
+        assert_eq!(input_state.input, "обои");
+        assert_eq!(input_state.cursor_pos, "обои".len());
+
+        // Navigate Left twice
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Left,
+        ));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Left,
+        ));
+        let cur = state.wallpaper_input.as_ref().unwrap().cursor_pos;
+        assert!(
+            state
+                .wallpaper_input
+                .as_ref()
+                .unwrap()
+                .input
+                .is_char_boundary(cur)
+        );
+
+        // Backspace removes one char safely
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Backspace,
+        ));
+        let input_state2 = state.wallpaper_input.as_ref().unwrap();
+        assert_eq!(input_state2.input, "оои");
+        assert!(input_state2.input.is_char_boundary(input_state2.cursor_pos));
     }
 
     #[test]

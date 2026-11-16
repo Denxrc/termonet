@@ -1,7 +1,7 @@
 //! Unified path sanitization, percent-decoding, and filesystem validation.
 
-use std::path::{Path, PathBuf};
 use crate::config::paths::AppPaths;
+use std::path::{Path, PathBuf};
 
 /// Helper function to decode percent-encoded URI strings (e.g. `%20` -> ` `).
 #[must_use]
@@ -111,10 +111,16 @@ pub fn sanitize_wallpaper_path(raw: &str) -> Option<PathBuf> {
         && !clean.starts_with('~')
         && !clean.starts_with("$HOME")
         && !clean.starts_with("${HOME}")
+        && !clean.starts_with("./")
+        && !clean.starts_with("../")
     {
         let path_start_idx = [
             clean.find("~/"),
-            clean.find('/'),
+            clean.find(" /").map(|i| i + 1),
+            clean.find("'/").map(|i| i + 1),
+            clean.find("\"/").map(|i| i + 1),
+            clean.find(":/").map(|i| i + 1),
+            clean.find(": /").map(|i| i + 2),
             clean.find("$HOME"),
             clean.find("${HOME}"),
         ]
@@ -203,7 +209,10 @@ mod tests {
         assert_eq!(percent_decode("simple_text.png"), "simple_text.png");
         assert_eq!(percent_decode("invalid%2"), "invalid%2");
         // %D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82 -> привет
-        assert_eq!(percent_decode("%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82"), "привет");
+        assert_eq!(
+            percent_decode("%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82"),
+            "привет"
+        );
     }
 
     #[test]

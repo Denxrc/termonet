@@ -57,13 +57,12 @@ pub fn query_awww_or_swww() -> Result<MonitorWallpapers> {
 pub fn query_awww_or_swww_cache() -> Result<MonitorWallpapers> {
     let home = std::env::var_os("HOME").map(PathBuf::from);
     let Some(home) = home else {
-        return Err(TermonetError::WallpaperNotFound("HOME directory not set".into()));
+        return Err(TermonetError::WallpaperNotFound(
+            "HOME directory not set".into(),
+        ));
     };
 
-    let cache_dirs = [
-        home.join(".cache/awww"),
-        home.join(".cache/swww"),
-    ];
+    let cache_dirs = [home.join(".cache/awww"), home.join(".cache/swww")];
 
     let mut outputs = HashMap::new();
 
@@ -96,7 +95,11 @@ pub fn query_awww_or_swww_cache() -> Result<MonitorWallpapers> {
                     }
                 }
             } else {
-                let file_name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+                let file_name = p
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
                 if !file_name.starts_with('_')
                     && !file_name.starts_with('.')
                     && let Ok(content) = std::fs::read_to_string(&p)
@@ -113,7 +116,9 @@ pub fn query_awww_or_swww_cache() -> Result<MonitorWallpapers> {
         }
     }
 
-    Err(TermonetError::WallpaperNotFound("No active awww/swww wallpapers found in cache".into()))
+    Err(TermonetError::WallpaperNotFound(
+        "No active awww/swww wallpapers found in cache".into(),
+    ))
 }
 
 /// Parses output from `awww query --all` or `swww query`.
@@ -140,15 +145,16 @@ pub fn parse_awww_or_swww_output(raw: &str) -> HashMap<String, PathBuf> {
         }
 
         // Extract path portion
-        let (prefix, path_part) = if let Some((pfx, path)) = trimmed.split_once("currently displaying:") {
-            let clean_path = path.trim().strip_prefix("image:").unwrap_or(path).trim();
-            (pfx.trim(), clean_path)
-        } else {
-            // Short or comma-separated format
-            let parts: Vec<&str> = trimmed.split(',').map(str::trim).collect();
-            let last = parts.last().copied().unwrap_or(trimmed);
-            (trimmed, last)
-        };
+        let (prefix, path_part) =
+            if let Some((pfx, path)) = trimmed.split_once("currently displaying:") {
+                let clean_path = path.trim().strip_prefix("image:").unwrap_or(path).trim();
+                (pfx.trim(), clean_path)
+            } else {
+                // Short or comma-separated format
+                let parts: Vec<&str> = trimmed.split(',').map(str::trim).collect();
+                let last = parts.last().copied().unwrap_or(trimmed);
+                (trimmed, last)
+            };
 
         let Some(path) = sanitize_wallpaper_path(path_part) else {
             continue;
@@ -162,18 +168,25 @@ pub fn parse_awww_or_swww_output(raw: &str) -> HashMap<String, PathBuf> {
         // 4. "HDMI-A-1: /path" -> monitor is "HDMI-A-1"
         let (is_default_ns, monitor) = if prefix.starts_with(':') {
             let after = prefix.strip_prefix(':').unwrap_or(prefix).trim();
-            let mon = after.split_once(':').map(|(m, _)| m.trim()).unwrap_or(after);
+            let mon = after
+                .split_once(':')
+                .map(|(m, _)| m.trim())
+                .unwrap_or(after);
             (true, mon.to_string())
         } else {
             let parts: Vec<&str> = prefix.split(':').map(str::trim).collect();
             let is_geometry = parts.get(1).is_some_and(|p| {
                 p.contains(',')
                     || p.contains("scale")
-                    || (p.contains('x') && p.split('x').all(|s| s.trim().chars().any(|c| c.is_ascii_digit())))
+                    || (p.contains('x')
+                        && p.split('x')
+                            .all(|s| s.trim().chars().any(|c| c.is_ascii_digit())))
             });
             if parts.len() >= 3 && !is_geometry && !parts[1].is_empty() {
                 (false, parts[1].to_string())
-            } else if let Some(first) = parts.first() && !first.is_empty() {
+            } else if let Some(first) = parts.first()
+                && !first.is_empty()
+            {
                 (true, first.to_string())
             } else {
                 continue;
@@ -258,7 +271,8 @@ pub fn query_hyprpaper() -> Result<MonitorWallpapers> {
     }
 
     Err(TermonetError::WallpaperNotFound(
-        "No active hyprpaper wallpaper detected (socket, hyprctl, and hyprpaper.conf failed)".into(),
+        "No active hyprpaper wallpaper detected (socket, hyprctl, and hyprpaper.conf failed)"
+            .into(),
     ))
 }
 
@@ -279,7 +293,10 @@ pub fn parse_hyprpaper_active_output(raw: &str) -> HashMap<String, PathBuf> {
             continue;
         }
 
-        if let Some((mon, path_part)) = trimmed.split_once('=').or_else(|| trimmed.split_once(':')) {
+        if let Some((mon, path_part)) = trimmed
+            .split_once('=')
+            .or_else(|| trimmed.split_once(':').filter(|(m, _)| !m.contains('/')))
+        {
             let mon = mon.trim();
             if let Some(path) = sanitize_wallpaper_path(path_part) {
                 map.insert(mon.to_string(), path);
@@ -319,8 +336,14 @@ pub fn parse_hyprpaper_conf(content: &str) -> HashMap<String, PathBuf> {
             if trimmed == "}" || trimmed.starts_with('}') {
                 in_wallpaper_block = false;
                 if let Some(path_str) = current_block_path.take() {
-                    let mon = current_block_monitor.take().unwrap_or_else(|| "default".to_string());
-                    let key = if mon.is_empty() { "default".to_string() } else { mon };
+                    let mon = current_block_monitor
+                        .take()
+                        .unwrap_or_else(|| "default".to_string());
+                    let key = if mon.is_empty() {
+                        "default".to_string()
+                    } else {
+                        mon
+                    };
                     if let Some(path) = sanitize_wallpaper_path(&path_str) {
                         map.insert(key, path);
                     }
@@ -355,7 +378,11 @@ pub fn parse_hyprpaper_conf(content: &str) -> HashMap<String, PathBuf> {
                 } else {
                     ("default", after_eq)
                 };
-                let key = if mon.is_empty() { "default".to_string() } else { mon.to_string() };
+                let key = if mon.is_empty() {
+                    "default".to_string()
+                } else {
+                    mon.to_string()
+                };
                 if let Some(path) = sanitize_wallpaper_path(path_str) {
                     map.insert(key, path);
                 }
@@ -374,8 +401,9 @@ pub fn query_swaybg() -> Result<MonitorWallpapers> {
 pub fn query_swaybg_from_proc(proc_root: &Path) -> Result<MonitorWallpapers> {
     use std::os::unix::fs::MetadataExt;
 
-    let entries = std::fs::read_dir(proc_root)
-        .map_err(|e| TermonetError::WallpaperNotFound(format!("Failed to read {}: {e}", proc_root.display())))?;
+    let entries = std::fs::read_dir(proc_root).map_err(|e| {
+        TermonetError::WallpaperNotFound(format!("Failed to read {}: {e}", proc_root.display()))
+    })?;
 
     let current_uid = std::fs::metadata("/proc/self")
         .map(|m| m.uid())
@@ -432,7 +460,9 @@ pub fn query_swaybg_from_proc(proc_root: &Path) -> Result<MonitorWallpapers> {
     }
 
     if outputs.is_empty() {
-        Err(TermonetError::WallpaperNotFound("No active swaybg process found in proc".into()))
+        Err(TermonetError::WallpaperNotFound(
+            "No active swaybg process found in proc".into(),
+        ))
     } else {
         Ok(MonitorWallpapers { outputs })
     }
@@ -451,22 +481,34 @@ pub fn parse_swaybg_args(args: &[String]) -> HashMap<String, PathBuf> {
         let arg = &args[i];
         if let Some(val) = arg.strip_prefix("--output=") {
             let mon = val.trim();
-            current_output = Some(if mon == "*" { "default".to_string() } else { mon.to_string() });
+            current_output = Some(if mon == "*" {
+                "default".to_string()
+            } else {
+                mon.to_string()
+            });
         } else if arg == "-o" || arg == "--output" {
             if i + 1 < args.len() {
                 let mon = args[i + 1].trim();
-                current_output = Some(if mon == "*" { "default".to_string() } else { mon.to_string() });
+                current_output = Some(if mon == "*" {
+                    "default".to_string()
+                } else {
+                    mon.to_string()
+                });
                 i += 1;
             }
         } else if let Some(val) = arg.strip_prefix("--image=") {
             if let Some(img_path) = sanitize_wallpaper_path(val) {
-                let mon = current_output.take().unwrap_or_else(|| "default".to_string());
+                let mon = current_output
+                    .take()
+                    .unwrap_or_else(|| "default".to_string());
                 outputs.insert(mon, img_path);
             }
         } else if arg == "-i" || arg == "--image" {
             if i + 1 < args.len() {
                 if let Some(img_path) = sanitize_wallpaper_path(&args[i + 1]) {
-                    let mon = current_output.take().unwrap_or_else(|| "default".to_string());
+                    let mon = current_output
+                        .take()
+                        .unwrap_or_else(|| "default".to_string());
                     outputs.insert(mon, img_path);
                 }
                 i += 1;
@@ -532,7 +574,9 @@ pub fn query_wpaperd() -> Result<MonitorWallpapers> {
         }
     }
 
-    Err(TermonetError::WallpaperNotFound("No active wpaperd wallpapers found".into()))
+    Err(TermonetError::WallpaperNotFound(
+        "No active wpaperd wallpapers found".into(),
+    ))
 }
 
 /// Helper function to inspect symlinks in a wpaperd output directory.
@@ -545,8 +589,8 @@ pub fn query_wpaperd_from_dir(dir: &Path) -> Result<MonitorWallpapers> {
     }
 
     let mut outputs = HashMap::new();
-    let entries = std::fs::read_dir(dir)
-        .map_err(|e| TermonetError::WallpaperNotFound(e.to_string()))?;
+    let entries =
+        std::fs::read_dir(dir).map_err(|e| TermonetError::WallpaperNotFound(e.to_string()))?;
 
     for entry in entries.flatten() {
         let file_name = entry.file_name().to_string_lossy().to_string();
@@ -566,7 +610,9 @@ pub fn query_wpaperd_from_dir(dir: &Path) -> Result<MonitorWallpapers> {
     }
 
     if outputs.is_empty() {
-        Err(TermonetError::WallpaperNotFound("No valid symlinks found in wpaperd directory".into()))
+        Err(TermonetError::WallpaperNotFound(
+            "No valid symlinks found in wpaperd directory".into(),
+        ))
     } else {
         Ok(MonitorWallpapers { outputs })
     }
@@ -607,15 +653,24 @@ HDMI-A-1: 1920x1080, scale: 1, currently displaying: /home/user/Pictures/wallpap
 ";
         let parsed = parse_awww_or_swww_output(raw);
         assert_eq!(parsed.len(), 2);
-        assert_eq!(parsed.get("DP-1"), Some(&PathBuf::from("/home/user/Pictures/wallpaper1.png")));
-        assert_eq!(parsed.get("HDMI-A-1"), Some(&PathBuf::from("/home/user/Pictures/wallpaper2.jpg")));
+        assert_eq!(
+            parsed.get("DP-1"),
+            Some(&PathBuf::from("/home/user/Pictures/wallpaper1.png"))
+        );
+        assert_eq!(
+            parsed.get("HDMI-A-1"),
+            Some(&PathBuf::from("/home/user/Pictures/wallpaper2.jpg"))
+        );
     }
 
     #[test]
     fn test_parse_awww_with_modern_crop_output() {
         let raw = "DP-1: 2560x1440\t, scale: 1, currently displaying:  crop:center Lanczos3 /home/Denxrc/Pictures/wallp.png\n";
         let parsed = parse_awww_or_swww_output(raw);
-        assert_eq!(parsed.get("DP-1"), Some(&PathBuf::from("/home/Denxrc/Pictures/wallp.png")));
+        assert_eq!(
+            parsed.get("DP-1"),
+            Some(&PathBuf::from("/home/Denxrc/Pictures/wallp.png"))
+        );
     }
 
     #[test]
@@ -626,7 +681,10 @@ eDP-1: currently displaying: '/home/user/wall space.png'
 ";
         let parsed = parse_awww_or_swww_output(raw);
         assert_eq!(parsed.len(), 1);
-        assert_eq!(parsed.get("eDP-1"), Some(&PathBuf::from("/home/user/wall space.png")));
+        assert_eq!(
+            parsed.get("eDP-1"),
+            Some(&PathBuf::from("/home/user/wall space.png"))
+        );
     }
 
     #[test]
@@ -637,8 +695,14 @@ eDP-1 = /home/user/wall2.png (scale: 1.0)
 ";
         let parsed = parse_hyprpaper_active_output(raw);
         assert_eq!(parsed.len(), 2);
-        assert_eq!(parsed.get("DP-1"), Some(&PathBuf::from("/home/user/wall.png")));
-        assert_eq!(parsed.get("eDP-1"), Some(&PathBuf::from("/home/user/wall2.png")));
+        assert_eq!(
+            parsed.get("DP-1"),
+            Some(&PathBuf::from("/home/user/wall.png"))
+        );
+        assert_eq!(
+            parsed.get("eDP-1"),
+            Some(&PathBuf::from("/home/user/wall2.png"))
+        );
     }
 
     #[test]
@@ -650,8 +714,14 @@ wallpaper = ,/home/user/fallback.png
 # comment
 ";
         let parsed = parse_hyprpaper_conf(conf);
-        assert_eq!(parsed.get("DP-1"), Some(&PathBuf::from("/home/user/wall.png")));
-        assert_eq!(parsed.get("default"), Some(&PathBuf::from("/home/user/fallback.png")));
+        assert_eq!(
+            parsed.get("DP-1"),
+            Some(&PathBuf::from("/home/user/wall.png"))
+        );
+        assert_eq!(
+            parsed.get("default"),
+            Some(&PathBuf::from("/home/user/fallback.png"))
+        );
     }
 
     #[test]
@@ -665,11 +735,17 @@ wallpaper = ,/home/user/fallback.png
             "fill".into(),
         ];
         let parsed = parse_swaybg_args(&args);
-        assert_eq!(parsed.get("eDP-1"), Some(&PathBuf::from("/home/user/wall.png")));
+        assert_eq!(
+            parsed.get("eDP-1"),
+            Some(&PathBuf::from("/home/user/wall.png"))
+        );
 
         let args_global = vec!["-i".into(), "/home/user/global.png".into()];
         let parsed_global = parse_swaybg_args(&args_global);
-        assert_eq!(parsed_global.get("default"), Some(&PathBuf::from("/home/user/global.png")));
+        assert_eq!(
+            parsed_global.get("default"),
+            Some(&PathBuf::from("/home/user/global.png"))
+        );
     }
 
     #[test]
@@ -683,7 +759,10 @@ wallpaper = ,/home/user/fallback.png
         std::fs::write(pid_dir.join("cmdline"), cmdline_content).unwrap();
 
         let res = query_swaybg_from_proc(&temp_dir).unwrap();
-        assert_eq!(res.outputs.get("DP-2"), Some(&PathBuf::from("/tmp/swaywall.png")));
+        assert_eq!(
+            res.outputs.get("DP-2"),
+            Some(&PathBuf::from("/tmp/swaywall.png"))
+        );
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
@@ -697,8 +776,14 @@ test: HDMI-A-1: 960x540, scale: 2, currently displaying: color: 000000
 : HDMI-A-1: 960x540, scale: 2, currently displaying: image: /home/user/Pictures/wall_hdmi.gif
 ";
         let parsed = parse_awww_or_swww_output(raw);
-        assert_eq!(parsed.get("DP-1"), Some(&PathBuf::from("/home/user/Pictures/wall_dp.png")));
-        assert_eq!(parsed.get("HDMI-A-1"), Some(&PathBuf::from("/home/user/Pictures/wall_hdmi.gif")));
+        assert_eq!(
+            parsed.get("DP-1"),
+            Some(&PathBuf::from("/home/user/Pictures/wall_dp.png"))
+        );
+        assert_eq!(
+            parsed.get("HDMI-A-1"),
+            Some(&PathBuf::from("/home/user/Pictures/wall_hdmi.gif"))
+        );
     }
 
     #[test]
@@ -718,8 +803,14 @@ wallpaper {
 }
 ";
         let parsed = parse_hyprpaper_conf(raw);
-        assert_eq!(parsed.get("DP-1"), Some(&PathBuf::from("/home/user/Pictures/block_dp.png")));
-        assert_eq!(parsed.get("default"), Some(&PathBuf::from("/home/user/Pictures/default_wall.png")));
+        assert_eq!(
+            parsed.get("DP-1"),
+            Some(&PathBuf::from("/home/user/Pictures/block_dp.png"))
+        );
+        assert_eq!(
+            parsed.get("default"),
+            Some(&PathBuf::from("/home/user/Pictures/default_wall.png"))
+        );
     }
 
     #[test]
@@ -729,8 +820,14 @@ HDMI-A-1: /home/user/Pictures/wallp.gif
 DP-1: /home/user/Pictures/wallp.png
 ";
         let parsed = parse_wpaperctl_output(raw);
-        assert_eq!(parsed.get("DP-1"), Some(&PathBuf::from("/home/user/Pictures/wallp.png")));
-        assert_eq!(parsed.get("HDMI-A-1"), Some(&PathBuf::from("/home/user/Pictures/wallp.gif")));
+        assert_eq!(
+            parsed.get("DP-1"),
+            Some(&PathBuf::from("/home/user/Pictures/wallp.png"))
+        );
+        assert_eq!(
+            parsed.get("HDMI-A-1"),
+            Some(&PathBuf::from("/home/user/Pictures/wallp.gif"))
+        );
     }
 
     #[test]
@@ -746,7 +843,13 @@ DP-1: /home/user/Pictures/wallp.png
             "/home/user/wall2.png".into(),
         ];
         let parsed = parse_swaybg_args(&args);
-        assert_eq!(parsed.get("DP-1"), Some(&PathBuf::from("/home/user/wall1.png")));
-        assert_eq!(parsed.get("HDMI-A-1"), Some(&PathBuf::from("/home/user/wall2.png")));
+        assert_eq!(
+            parsed.get("DP-1"),
+            Some(&PathBuf::from("/home/user/wall1.png"))
+        );
+        assert_eq!(
+            parsed.get("HDMI-A-1"),
+            Some(&PathBuf::from("/home/user/wall2.png"))
+        );
     }
 }

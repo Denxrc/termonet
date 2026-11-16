@@ -1,11 +1,11 @@
 //! Step 1: Palette preview, scheme selector, and wallpaper source indicator.
 
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
-    Frame,
 };
 
 use crate::core::color::RgbColor;
@@ -22,12 +22,10 @@ pub fn render_palette(frame: &mut Frame, area: Rect, state: &AppState) {
         } else {
             Color::Rgb(170, 90, 0)
         };
-        let no_palette_msg = Paragraph::new(Line::from(vec![
-            Span::styled(
-                t.no_wallpaper,
-                Style::default().fg(warn_color),
-            ),
-        ]))
+        let no_palette_msg = Paragraph::new(Line::from(vec![Span::styled(
+            t.no_wallpaper,
+            Style::default().fg(warn_color),
+        )]))
         .alignment(ratatui::layout::Alignment::Center)
         .block(Block::default().borders(Borders::ALL).title(t.roles_title));
         frame.render_widget(no_palette_msg, area);
@@ -50,26 +48,61 @@ pub fn render_palette(frame: &mut Frame, area: Rect, state: &AppState) {
     let wp_text = state.wallpaper_path.as_deref().unwrap_or(t.no_wallpaper);
     let mut spans = vec![
         Span::raw(" "),
-        Span::styled(t.wallpaper_source, Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            t.wallpaper_source,
+            Style::default()
+                .fg(secondary_color)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw(" "),
         Span::styled(wp_text, Style::default().fg(text_color)),
         Span::raw("   "),
-        Span::styled(t.wallpaper_change_btn, Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            t.wallpaper_change_btn,
+            Style::default()
+                .fg(primary_color)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw("  "),
-        Span::styled(t.wallpaper_reload_btn, Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            t.wallpaper_reload_btn,
+            Style::default()
+                .fg(primary_color)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw(" "),
     ];
 
     if state.active_monitors.len() > 1 {
         spans.push(Span::raw("   "));
-        spans.push(Span::styled(t.display_label, Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)));
+        spans.push(Span::styled(
+            t.display_label,
+            Style::default()
+                .fg(secondary_color)
+                .add_modifier(Modifier::BOLD),
+        ));
         spans.push(Span::raw(" "));
         for (idx, (name, _)) in state.active_monitors.iter().enumerate() {
             let is_active = idx == state.current_monitor_idx;
             if is_active {
-                spans.push(Span::styled("[● ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
-                spans.push(Span::styled(name.as_str(), Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
-                spans.push(Span::styled("] ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)));
+                spans.push(Span::styled(
+                    "[● ",
+                    Style::default()
+                        .fg(primary_color)
+                        .add_modifier(Modifier::BOLD),
+                ));
+                spans.push(Span::styled(
+                    name.as_str(),
+                    Style::default()
+                        .fg(primary_color)
+                        .add_modifier(Modifier::BOLD),
+                ));
+                spans.push(Span::styled(
+                    "] ",
+                    Style::default()
+                        .fg(primary_color)
+                        .add_modifier(Modifier::BOLD),
+                ));
             } else {
                 spans.push(Span::styled("[○ ", Style::default().fg(text_dim)));
                 spans.push(Span::styled(name.as_str(), Style::default().fg(text_dim)));
@@ -79,13 +112,46 @@ pub fn render_palette(frame: &mut Frame, area: Rect, state: &AppState) {
     }
 
     spans.push(Span::raw("    "));
-    spans.push(Span::styled(t.seed_color, Style::default().fg(secondary_color).add_modifier(Modifier::BOLD)));
+    spans.push(Span::styled(
+        t.seed_color,
+        Style::default()
+            .fg(secondary_color)
+            .add_modifier(Modifier::BOLD),
+    ));
     spans.push(Span::raw(" "));
     spans.push(color_badge(&palette.seed_color));
-    spans.push(Span::styled(format!(" {} ", palette.seed_color.to_hex()), Style::default().fg(text_color).add_modifier(Modifier::BOLD)));
+    spans.push(Span::styled(
+        format!(" {} ", palette.seed_color.to_hex()),
+        Style::default().fg(text_color).add_modifier(Modifier::BOLD),
+    ));
 
     let wp_line = Line::from(spans);
-    frame.render_widget(Paragraph::new(wp_line), v_chunks[0]);
+    let mut header_lines = vec![wp_line];
+    if let Some(ref status) = state.status_message {
+        let is_err = status.to_lowercase().contains("error")
+            || status.to_lowercase().contains("failed")
+            || status.to_lowercase().contains("ошибк");
+        let status_color = if is_err {
+            if is_dark {
+                Color::LightRed
+            } else {
+                Color::Rgb(180, 20, 20)
+            }
+        } else {
+            primary_color
+        };
+        header_lines.push(Line::from(vec![
+            Span::raw(" "),
+            Span::styled(
+                if is_err { "✗ " } else { "✔ " },
+                Style::default()
+                    .fg(status_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(status.as_str(), Style::default().fg(status_color)),
+        ]));
+    }
+    frame.render_widget(Paragraph::new(header_lines), v_chunks[0]);
 
     // 2. Split horizontally into 2 columns: Material You Roles (left) and Terminal ANSI Colors (right)
     let columns = Layout::default()
@@ -97,11 +163,21 @@ pub fn render_palette(frame: &mut Frame, area: Rect, state: &AppState) {
     let material_lines = vec![
         render_role_line(t.role_primary, &scheme.primary, text_color, text_dim),
         render_role_line(t.role_on_primary, &scheme.on_primary, text_color, text_dim),
-        render_role_line(t.role_primary_container, &scheme.primary_container, text_color, text_dim),
+        render_role_line(
+            t.role_primary_container,
+            &scheme.primary_container,
+            text_color,
+            text_dim,
+        ),
         render_role_line(t.role_secondary, &scheme.secondary, text_color, text_dim),
         render_role_line(t.role_tertiary, &scheme.tertiary, text_color, text_dim),
         render_role_line(t.role_surface, &scheme.surface, text_color, text_dim),
-        render_role_line(t.role_surface_variant, &scheme.surface_variant, text_color, text_dim),
+        render_role_line(
+            t.role_surface_variant,
+            &scheme.surface_variant,
+            text_color,
+            text_dim,
+        ),
         render_role_line(t.role_background, &scheme.background, text_color, text_dim),
         render_role_line(t.role_outline, &scheme.outline, text_color, text_dim),
         render_role_line(t.role_error, &scheme.error, text_color, text_dim),
@@ -112,12 +188,20 @@ pub fn render_palette(frame: &mut Frame, area: Rect, state: &AppState) {
         .border_style(Style::default().fg(primary_color))
         .title(t.roles_title);
 
-    frame.render_widget(Paragraph::new(material_lines).block(material_block), columns[0]);
+    frame.render_widget(
+        Paragraph::new(material_lines).block(material_block),
+        columns[0],
+    );
 
     // --- Right Column: Terminal ANSI Palette ---
     let term = palette.terminal_for(is_dark);
     let terminal_lines = vec![
-        Line::from(vec![Span::styled(t.normal_colors, Style::default().fg(primary_color).add_modifier(Modifier::BOLD))]),
+        Line::from(vec![Span::styled(
+            t.normal_colors,
+            Style::default()
+                .fg(primary_color)
+                .add_modifier(Modifier::BOLD),
+        )]),
         render_terminal_line(0, &term.color0, text_color, text_dim),
         render_terminal_line(1, &term.color1, text_color, text_dim),
         render_terminal_line(2, &term.color2, text_color, text_dim),
@@ -127,7 +211,12 @@ pub fn render_palette(frame: &mut Frame, area: Rect, state: &AppState) {
         render_terminal_line(6, &term.color6, text_color, text_dim),
         render_terminal_line(7, &term.color7, text_color, text_dim),
         Line::raw(""),
-        Line::from(vec![Span::styled(t.bright_colors, Style::default().fg(primary_color).add_modifier(Modifier::BOLD))]),
+        Line::from(vec![Span::styled(
+            t.bright_colors,
+            Style::default()
+                .fg(primary_color)
+                .add_modifier(Modifier::BOLD),
+        )]),
         render_terminal_line(8, &term.color8, text_color, text_dim),
         render_terminal_line(9, &term.color9, text_color, text_dim),
         render_terminal_line(10, &term.color10, text_color, text_dim),
@@ -143,7 +232,10 @@ pub fn render_palette(frame: &mut Frame, area: Rect, state: &AppState) {
         .border_style(Style::default().fg(secondary_color))
         .title(t.terminal_title);
 
-    frame.render_widget(Paragraph::new(terminal_lines).block(terminal_block), columns[1]);
+    frame.render_widget(
+        Paragraph::new(terminal_lines).block(terminal_block),
+        columns[1],
+    );
 
     // 3. Render wallpaper input modal dialog if active
     if state.wallpaper_input.is_some() {
@@ -168,15 +260,40 @@ pub fn render_wallpaper_input_modal(frame: &mut Frame, area: Rect, state: &AppSt
     frame.render_widget(ratatui::widgets::Clear, popup_area);
 
     let mut lines = vec![
-        Line::from(vec![
-            Span::styled(format!("  {} ", t.wallpaper_input_prompt), Style::default().fg(text_muted)),
-        ]),
+        Line::from(vec![Span::styled(
+            format!("  {} ", t.wallpaper_input_prompt),
+            Style::default().fg(text_muted),
+        )]),
         Line::raw(""),
         Line::from(vec![
-            Span::styled("  > ", Style::default().fg(primary_color).add_modifier(Modifier::BOLD)),
-            Span::styled(&input_state.input[..input_state.cursor_pos], Style::default().fg(text_color)),
-            Span::styled("█", Style::default().fg(primary_color).add_modifier(Modifier::SLOW_BLINK)),
-            Span::styled(&input_state.input[input_state.cursor_pos..], Style::default().fg(text_color)),
+            Span::styled(
+                "  > ",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                if input_state.input.is_char_boundary(input_state.cursor_pos) {
+                    &input_state.input[..input_state.cursor_pos]
+                } else {
+                    &input_state.input
+                },
+                Style::default().fg(text_color),
+            ),
+            Span::styled(
+                "█",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::SLOW_BLINK),
+            ),
+            Span::styled(
+                if input_state.input.is_char_boundary(input_state.cursor_pos) {
+                    &input_state.input[input_state.cursor_pos..]
+                } else {
+                    ""
+                },
+                Style::default().fg(text_color),
+            ),
         ]),
     ];
 
@@ -187,8 +304,14 @@ pub fn render_wallpaper_input_modal(frame: &mut Frame, area: Rect, state: &AppSt
             Color::Rgb(180, 20, 20)
         };
         lines.push(Line::from(vec![
-            Span::styled("  ✗ ", Style::default().fg(err_color).add_modifier(Modifier::BOLD)),
-            Span::styled(err.as_str(), Style::default().fg(err_color).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "  ✗ ",
+                Style::default().fg(err_color).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                err.as_str(),
+                Style::default().fg(err_color).add_modifier(Modifier::BOLD),
+            ),
         ]));
     } else {
         lines.push(Line::raw(""));
@@ -201,7 +324,11 @@ pub fn render_wallpaper_input_modal(frame: &mut Frame, area: Rect, state: &AppSt
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(primary_color).add_modifier(Modifier::BOLD))
+        .border_style(
+            Style::default()
+                .fg(primary_color)
+                .add_modifier(Modifier::BOLD),
+        )
         .title(t.wallpaper_input_title);
 
     frame.render_widget(Paragraph::new(lines).block(block), popup_area);
@@ -230,10 +357,7 @@ fn centered_rect(percent_x: u16, height: u16, r: Rect) -> Rect {
 }
 
 fn color_badge(color: &RgbColor) -> Span<'static> {
-    Span::styled(
-        " ██ ",
-        Style::default().fg(Color::from(*color)),
-    )
+    Span::styled(" ██ ", Style::default().fg(Color::from(*color)))
 }
 
 const SPACES: &str = "                    ";
@@ -257,29 +381,50 @@ const TERMINAL_LABELS: [&str; 16] = [
     " 15. Bright White  ",
 ];
 
-fn render_role_line<'a>(label: &'static str, color: &RgbColor, text_color: Color, text_dim: Color) -> Line<'a> {
-    let pad_len = 20usize.saturating_sub(label.chars().count()).min(SPACES.len());
+fn render_role_line<'a>(
+    label: &'static str,
+    color: &RgbColor,
+    text_color: Color,
+    text_dim: Color,
+) -> Line<'a> {
+    let pad_len = 20usize
+        .saturating_sub(label.chars().count())
+        .min(SPACES.len());
     Line::from(vec![
         color_badge(color),
         Span::raw(" "),
-        Span::styled(label, Style::default().fg(text_color).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            label,
+            Style::default().fg(text_color).add_modifier(Modifier::BOLD),
+        ),
         Span::raw(&SPACES[..pad_len]),
         Span::raw(" "),
         Span::styled(color.to_hex(), Style::default().fg(text_color)),
         Span::raw(" ("),
-        Span::styled(format!("{}, {}, {}", color.r, color.g, color.b), Style::default().fg(text_dim)),
+        Span::styled(
+            format!("{}, {}, {}", color.r, color.g, color.b),
+            Style::default().fg(text_dim),
+        ),
         Span::raw(")"),
     ])
 }
 
-fn render_terminal_line<'a>(label_idx: usize, color: &RgbColor, text_color: Color, text_dim: Color) -> Line<'a> {
+fn render_terminal_line<'a>(
+    label_idx: usize,
+    color: &RgbColor,
+    text_color: Color,
+    text_dim: Color,
+) -> Line<'a> {
     Line::from(vec![
         color_badge(color),
         Span::styled(TERMINAL_LABELS[label_idx], Style::default().fg(text_color)),
         Span::raw(" "),
         Span::styled(color.to_hex(), Style::default().fg(text_color)),
         Span::raw(" ("),
-        Span::styled(format!("{}, {}, {}", color.r, color.g, color.b), Style::default().fg(text_dim)),
+        Span::styled(
+            format!("{}, {}, {}", color.r, color.g, color.b),
+            Style::default().fg(text_dim),
+        ),
         Span::raw(")"),
     ])
 }

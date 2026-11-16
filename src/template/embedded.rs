@@ -1,24 +1,42 @@
 //! Embedded assets extraction, versioning, and distribution.
 
+use crate::error::Result;
+use crate::template::rules::{ProgramRule, extract_template_version};
 use std::fs;
 use std::path::Path;
-use crate::error::Result;
-use crate::template::rules::{extract_template_version, ProgramRule};
 
 /// Default rule assets embedded directly into the binary.
 pub const DEFAULT_RULES: &[(&str, &str)] = &[
     ("kitty.toml", include_str!("../../assets/rules/kitty.toml")),
-    ("waybar.toml", include_str!("../../assets/rules/waybar.toml")),
+    (
+        "waybar.toml",
+        include_str!("../../assets/rules/waybar.toml"),
+    ),
     ("rofi.toml", include_str!("../../assets/rules/rofi.toml")),
-    ("hyprland.toml", include_str!("../../assets/rules/hyprland.toml")),
+    (
+        "hyprland.toml",
+        include_str!("../../assets/rules/hyprland.toml"),
+    ),
 ];
 
 /// Default template assets embedded directly into the binary.
 pub const DEFAULT_TEMPLATES: &[(&str, &str)] = &[
-    ("kitty.tmpl", include_str!("../../assets/templates/kitty.tmpl")),
-    ("waybar.tmpl", include_str!("../../assets/templates/waybar.tmpl")),
-    ("rofi.tmpl", include_str!("../../assets/templates/rofi.tmpl")),
-    ("hyprland.tmpl", include_str!("../../assets/templates/hyprland.tmpl")),
+    (
+        "kitty.tmpl",
+        include_str!("../../assets/templates/kitty.tmpl"),
+    ),
+    (
+        "waybar.tmpl",
+        include_str!("../../assets/templates/waybar.tmpl"),
+    ),
+    (
+        "rofi.tmpl",
+        include_str!("../../assets/templates/rofi.tmpl"),
+    ),
+    (
+        "hyprland.tmpl",
+        include_str!("../../assets/templates/hyprland.tmpl"),
+    ),
 ];
 
 /// Synchronizes embedded rules and templates with the user's config directory.
@@ -30,7 +48,11 @@ pub const DEFAULT_TEMPLATES: &[(&str, &str)] = &[
 ///   - If current or newer, user's customizations are preserved untouched.
 ///
 /// Returns a list of filenames that were newly installed or upgraded.
-pub fn sync_default_assets<P: AsRef<Path>>(config_dir: P, force: bool, create_backups: bool) -> Result<Vec<String>> {
+pub fn sync_default_assets<P: AsRef<Path>>(
+    config_dir: P,
+    force: bool,
+    create_backups: bool,
+) -> Result<Vec<String>> {
     let rules_dir = config_dir.as_ref().join("rules");
     let templates_dir = config_dir.as_ref().join("templates");
 
@@ -54,8 +76,9 @@ pub fn sync_default_assets<P: AsRef<Path>>(config_dir: P, force: bool, create_ba
         };
 
         if !dest.exists() {
-            let _ = fs::write(&dest, embedded_content);
-            updated.push(name.to_string());
+            if fs::write(&dest, embedded_content).is_ok() {
+                updated.push(name.to_string());
+            }
         } else {
             let disk_content = fs::read_to_string(&dest).unwrap_or_default();
             let disk_rule = ProgramRule::from_toml(&disk_content);
@@ -66,8 +89,12 @@ pub fn sync_default_assets<P: AsRef<Path>>(config_dir: P, force: bool, create_ba
                     let backup_path = rules_dir.join(format!("{}.v{}.bak", name, disk_ver));
                     let _ = fs::write(&backup_path, &disk_content);
                 }
-                let _ = fs::write(&dest, embedded_content);
-                updated.push(format!("{} (v{} -> v{})", name, disk_ver, embedded_rule.version));
+                if fs::write(&dest, embedded_content).is_ok() {
+                    updated.push(format!(
+                        "{} (v{} -> v{})",
+                        name, disk_ver, embedded_rule.version
+                    ));
+                }
             }
         }
     }
@@ -78,8 +105,9 @@ pub fn sync_default_assets<P: AsRef<Path>>(config_dir: P, force: bool, create_ba
         let embedded_ver = extract_template_version(embedded_content);
 
         if !dest.exists() {
-            let _ = fs::write(&dest, embedded_content);
-            updated.push(name.to_string());
+            if fs::write(&dest, embedded_content).is_ok() {
+                updated.push(name.to_string());
+            }
         } else {
             let disk_content = fs::read_to_string(&dest).unwrap_or_default();
             let disk_ver = extract_template_version(&disk_content);
@@ -89,8 +117,9 @@ pub fn sync_default_assets<P: AsRef<Path>>(config_dir: P, force: bool, create_ba
                     let backup_path = templates_dir.join(format!("{}.v{}.bak", name, disk_ver));
                     let _ = fs::write(&backup_path, &disk_content);
                 }
-                let _ = fs::write(&dest, embedded_content);
-                updated.push(format!("{} (v{} -> v{})", name, disk_ver, embedded_ver));
+                if fs::write(&dest, embedded_content).is_ok() {
+                    updated.push(format!("{} (v{} -> v{})", name, disk_ver, embedded_ver));
+                }
             }
         }
     }
@@ -129,7 +158,8 @@ mod tests {
 
     #[test]
     fn test_sync_outdated_assets_migration() {
-        let temp_dir = std::env::temp_dir().join(format!("termonet_test_sync_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("termonet_test_sync_{}", std::process::id()));
         let _ = fs::remove_dir_all(&temp_dir);
         fs::create_dir_all(&temp_dir).unwrap();
 
@@ -153,8 +183,16 @@ import_line = "source = ~/.config/hypr/colors.conf"
 
         // Run sync with create_backups = true
         let updated = sync_default_assets(&temp_dir, false, true).unwrap();
-        assert!(updated.iter().any(|s| s.contains("hyprland.toml (v1 -> v2)")));
-        assert!(updated.iter().any(|s| s.contains("hyprland.tmpl (v1 -> v4)")));
+        assert!(
+            updated
+                .iter()
+                .any(|s| s.contains("hyprland.toml (v1 -> v2)"))
+        );
+        assert!(
+            updated
+                .iter()
+                .any(|s| s.contains("hyprland.tmpl (v1 -> v4)"))
+        );
 
         // Check that backup was created
         assert!(rules_dir.join("hyprland.toml.v1.bak").exists());
@@ -177,8 +215,15 @@ import_line = "source = ~/.config/hypr/colors.conf"
         fs::write(rules_dir.join("hyprland.toml"), old_rule).unwrap();
         let _ = fs::remove_file(rules_dir.join("hyprland.toml.v1.bak"));
         let updated_clean = sync_default_assets(&temp_dir, false, false).unwrap();
-        assert!(updated_clean.iter().any(|s| s.contains("hyprland.toml (v1 -> v2)")));
-        assert!(!rules_dir.join("hyprland.toml.v1.bak").exists(), "No .bak file when create_backups is false");
+        assert!(
+            updated_clean
+                .iter()
+                .any(|s| s.contains("hyprland.toml (v1 -> v2)"))
+        );
+        assert!(
+            !rules_dir.join("hyprland.toml.v1.bak").exists(),
+            "No .bak file when create_backups is false"
+        );
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

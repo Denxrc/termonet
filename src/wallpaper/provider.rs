@@ -115,7 +115,9 @@ impl WallpaperProvider for HyprpaperProvider {
     }
 
     fn is_available(&self) -> bool {
-        which("hyprctl") || which("hyprpaper") || std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some()
+        which("hyprctl")
+            || which("hyprpaper")
+            || std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some()
     }
 
     fn query(&self) -> Result<MonitorWallpapers> {
@@ -127,9 +129,15 @@ impl WallpaperProvider for HyprpaperProvider {
         let mut error = None;
         let mut resolved = None;
 
-        if let Ok(out) = Command::new("hyprctl").args(["hyprpaper", "listactive"]).output() {
+        if let Ok(out) = Command::new("hyprctl")
+            .args(["hyprpaper", "listactive"])
+            .output()
+        {
             let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-            raw = Some(format!("Command 'hyprctl hyprpaper listactive':\n{}", stdout.trim()));
+            raw = Some(format!(
+                "Command 'hyprctl hyprpaper listactive':\n{}",
+                stdout.trim()
+            ));
             if out.status.success() {
                 let parsed = crate::wallpaper::wayland::parse_hyprpaper_active_output(&stdout);
                 if !parsed.is_empty() {
@@ -149,11 +157,17 @@ impl WallpaperProvider for HyprpaperProvider {
                 candidates.push(home.join(".config/hypr/hyprpaper.conf"));
             }
             for conf in candidates {
-                if conf.exists() && let Ok(content) = std::fs::read_to_string(&conf) {
+                if conf.exists()
+                    && let Ok(content) = std::fs::read_to_string(&conf)
+                {
                     let parsed = crate::wallpaper::wayland::parse_hyprpaper_conf(&content);
                     if !parsed.is_empty() {
                         resolved = Some(parsed);
-                        raw = Some(format!("File {} ({} lines)", conf.display(), content.lines().count()));
+                        raw = Some(format!(
+                            "File {} ({} lines)",
+                            conf.display(),
+                            content.lines().count()
+                        ));
                         break;
                     }
                 }
@@ -199,7 +213,10 @@ impl WallpaperProvider for WpaperdProvider {
 
         if let Ok(out) = Command::new("wpaperctl").arg("all-wallpapers").output() {
             let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-            raw = Some(format!("Command 'wpaperctl all-wallpapers':\n{}", stdout.trim()));
+            raw = Some(format!(
+                "Command 'wpaperctl all-wallpapers':\n{}",
+                stdout.trim()
+            ));
             if out.status.success() {
                 let parsed = crate::wallpaper::wayland::parse_wpaperctl_output(&stdout);
                 if !parsed.is_empty() {
@@ -249,7 +266,10 @@ impl WallpaperProvider for SwaybgProvider {
 
         match crate::wallpaper::wayland::query_swaybg() {
             Ok(monitors) => {
-                raw = Some(format!("Scanned /proc: detected {} active monitor target(s)", monitors.outputs.len()));
+                raw = Some(format!(
+                    "Scanned /proc: detected {} active monitor target(s)",
+                    monitors.outputs.len()
+                ));
                 resolved = Some(monitors.outputs);
             }
             Err(e) => {
@@ -302,28 +322,40 @@ impl WallpaperProvider for GnomeProvider {
             .args(["get", "org.gnome.desktop.background", "picture-options"])
             .output()
         {
-            raw.push(format!("picture-options: {}", String::from_utf8_lossy(&out.stdout).trim()));
+            raw.push(format!(
+                "picture-options: {}",
+                String::from_utf8_lossy(&out.stdout).trim()
+            ));
         }
 
         if let Ok(out) = Command::new("gsettings")
             .args(["get", "org.gnome.desktop.interface", "color-scheme"])
             .output()
         {
-            raw.push(format!("color-scheme: {}", String::from_utf8_lossy(&out.stdout).trim()));
+            raw.push(format!(
+                "color-scheme: {}",
+                String::from_utf8_lossy(&out.stdout).trim()
+            ));
         }
 
         if let Ok(out) = Command::new("gsettings")
             .args(["get", "org.gnome.desktop.background", "picture-uri-dark"])
             .output()
         {
-            raw.push(format!("picture-uri-dark: {}", String::from_utf8_lossy(&out.stdout).trim()));
+            raw.push(format!(
+                "picture-uri-dark: {}",
+                String::from_utf8_lossy(&out.stdout).trim()
+            ));
         }
 
         if let Ok(out) = Command::new("gsettings")
             .args(["get", "org.gnome.desktop.background", "picture-uri"])
             .output()
         {
-            raw.push(format!("picture-uri: {}", String::from_utf8_lossy(&out.stdout).trim()));
+            raw.push(format!(
+                "picture-uri: {}",
+                String::from_utf8_lossy(&out.stdout).trim()
+            ));
         }
 
         match crate::wallpaper::de::query_gnome() {
@@ -339,7 +371,11 @@ impl WallpaperProvider for GnomeProvider {
             provider_id: self.id(),
             display_name: self.display_name(),
             available: self.is_available(),
-            raw_output: if raw.is_empty() { None } else { Some(raw.join("\n")) },
+            raw_output: if raw.is_empty() {
+                None
+            } else {
+                Some(raw.join("\n"))
+            },
             resolved_monitors: resolved,
             error,
         }
@@ -361,7 +397,9 @@ impl WallpaperProvider for KdeProvider {
 
     fn is_available(&self) -> bool {
         if let Some(config_dir) = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from)
-            && config_dir.join("plasma-org.kde.plasma.desktop-appletsrc").exists()
+            && config_dir
+                .join("plasma-org.kde.plasma.desktop-appletsrc")
+                .exists()
         {
             return true;
         }
@@ -381,7 +419,9 @@ impl WallpaperProvider for KdeProvider {
 
         match crate::wallpaper::de::query_kde() {
             Ok(monitors) => {
-                raw = Some("Parsed ~/.config/plasma-org.kde.plasma.desktop-appletsrc containments".into());
+                raw = Some(
+                    "Parsed ~/.config/plasma-org.kde.plasma.desktop-appletsrc containments".into(),
+                );
                 resolved = Some(monitors.outputs);
             }
             Err(e) => {
@@ -423,7 +463,9 @@ impl WallpaperProvider for FehProvider {
         let home = std::env::var_os("HOME").map(PathBuf::from);
         if let Some(h) = home {
             let fehbg = h.join(".fehbg");
-            if fehbg.exists() && let Ok(content) = std::fs::read_to_string(&fehbg) {
+            if fehbg.exists()
+                && let Ok(content) = std::fs::read_to_string(&fehbg)
+            {
                 if let Some(path) = clean_wallpaper_path(&content) {
                     let mut outputs = HashMap::new();
                     outputs.insert("default".to_string(), path);
@@ -441,7 +483,9 @@ impl WallpaperProvider for FehProvider {
                 }
             }
         }
-        Err(TermonetError::WallpaperNotFound("No active feh wallpaper found in ~/.fehbg".into()))
+        Err(TermonetError::WallpaperNotFound(
+            "No active feh wallpaper found in ~/.fehbg".into(),
+        ))
     }
 
     fn query_diagnostic(&self) -> ProviderDiagnostic {
@@ -451,7 +495,9 @@ impl WallpaperProvider for FehProvider {
 
         if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
             let p = home.join(".fehbg");
-            if p.exists() && let Ok(c) = std::fs::read_to_string(&p) {
+            if p.exists()
+                && let Ok(c) = std::fs::read_to_string(&p)
+            {
                 raw = Some(format!("Content of ~/.fehbg:\n{}", c.trim()));
             }
         }
@@ -495,7 +541,9 @@ impl WallpaperProvider for NitrogenProvider {
         let home = std::env::var_os("HOME").map(PathBuf::from);
         if let Some(h) = home {
             let cfg = h.join(".config/nitrogen/bg-saved.cfg");
-            if cfg.exists() && let Ok(content) = std::fs::read_to_string(&cfg) {
+            if cfg.exists()
+                && let Ok(content) = std::fs::read_to_string(&cfg)
+            {
                 let mut outputs = HashMap::new();
                 let mut current_screen = "default".to_string();
 
@@ -516,7 +564,9 @@ impl WallpaperProvider for NitrogenProvider {
                 }
             }
         }
-        Err(TermonetError::WallpaperNotFound("No active nitrogen wallpaper found in ~/.config/nitrogen/bg-saved.cfg".into()))
+        Err(TermonetError::WallpaperNotFound(
+            "No active nitrogen wallpaper found in ~/.config/nitrogen/bg-saved.cfg".into(),
+        ))
     }
 
     fn query_diagnostic(&self) -> ProviderDiagnostic {
@@ -526,8 +576,13 @@ impl WallpaperProvider for NitrogenProvider {
 
         if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
             let p = home.join(".config/nitrogen/bg-saved.cfg");
-            if p.exists() && let Ok(c) = std::fs::read_to_string(&p) {
-                raw = Some(format!("Content of ~/.config/nitrogen/bg-saved.cfg:\n{}", c.trim()));
+            if p.exists()
+                && let Ok(c) = std::fs::read_to_string(&p)
+            {
+                raw = Some(format!(
+                    "Content of ~/.config/nitrogen/bg-saved.cfg:\n{}",
+                    c.trim()
+                ));
             }
         }
 
@@ -580,9 +635,13 @@ pub fn all_providers() -> Vec<Box<dyn WallpaperProvider>> {
 #[must_use]
 pub fn run_all_diagnostics() -> String {
     let mut out = String::new();
-    out.push_str("==============================================================================\n");
+    out.push_str(
+        "==============================================================================\n",
+    );
     out.push_str("                        Termonet Wallpaper Diagnostics\n");
-    out.push_str("==============================================================================\n\n");
+    out.push_str(
+        "==============================================================================\n\n",
+    );
 
     let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_else(|_| "Unknown / Unset".into());
     let session_type = std::env::var("XDG_SESSION_TYPE").unwrap_or_else(|_| "Unknown".into());
@@ -593,9 +652,14 @@ pub fn run_all_diagnostics() -> String {
         out.push_str(&format!("Hyprland Signature:  {}\n", sig.to_string_lossy()));
     }
     if let Some(sock) = std::env::var_os("SWAYSOCK") {
-        out.push_str(&format!("Sway Socket:         {}\n", sock.to_string_lossy()));
+        out.push_str(&format!(
+            "Sway Socket:         {}\n",
+            sock.to_string_lossy()
+        ));
     }
-    out.push_str("\n------------------------------------------------------------------------------\n");
+    out.push_str(
+        "\n------------------------------------------------------------------------------\n",
+    );
 
     for provider in all_providers() {
         let diag = provider.query_diagnostic();
@@ -630,7 +694,9 @@ pub fn run_all_diagnostics() -> String {
         out.push('\n');
     }
 
-    out.push_str("==============================================================================\n");
+    out.push_str(
+        "==============================================================================\n",
+    );
     out
 }
 
