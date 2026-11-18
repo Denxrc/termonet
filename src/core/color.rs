@@ -102,11 +102,62 @@ impl RgbColor {
     pub fn to_rgb_string(&self) -> String {
         format!("{}, {}, {}", self.r, self.g, self.b)
     }
+
+    /// Parses an sRGB color from a HEX string (e.g. "#1a2b3c", "1a2b3c", "#abc", "abc", "0x1a2b3c").
+    pub fn from_hex(s: &str) -> crate::error::Result<Self> {
+        let trimmed = s.trim();
+        let hex = if let Some(stripped) = trimmed.strip_prefix('#') {
+            stripped
+        } else if let Some(stripped) = trimmed
+            .strip_prefix("0x")
+            .or_else(|| trimmed.strip_prefix("0X"))
+        {
+            stripped
+        } else {
+            trimmed
+        };
+
+        let parse_byte = |pair: &str| -> std::result::Result<u8, ()> {
+            u8::from_str_radix(pair, 16).map_err(|_| ())
+        };
+
+        if hex.len() == 6 {
+            let r = parse_byte(&hex[0..2])
+                .map_err(|()| crate::error::TermonetError::Config(format!("Invalid hex color '{s}'")))?;
+            let g = parse_byte(&hex[2..4])
+                .map_err(|()| crate::error::TermonetError::Config(format!("Invalid hex color '{s}'")))?;
+            let b = parse_byte(&hex[4..6])
+                .map_err(|()| crate::error::TermonetError::Config(format!("Invalid hex color '{s}'")))?;
+            Ok(Self::new(r, g, b))
+        } else if hex.len() == 3 {
+            let bytes = hex.as_bytes();
+            let r_str = format!("{}{}", bytes[0] as char, bytes[0] as char);
+            let g_str = format!("{}{}", bytes[1] as char, bytes[1] as char);
+            let b_str = format!("{}{}", bytes[2] as char, bytes[2] as char);
+            let r = parse_byte(&r_str)
+                .map_err(|()| crate::error::TermonetError::Config(format!("Invalid hex color '{s}'")))?;
+            let g = parse_byte(&g_str)
+                .map_err(|()| crate::error::TermonetError::Config(format!("Invalid hex color '{s}'")))?;
+            let b = parse_byte(&b_str)
+                .map_err(|()| crate::error::TermonetError::Config(format!("Invalid hex color '{s}'")))?;
+            Ok(Self::new(r, g, b))
+        } else {
+            Err(crate::error::TermonetError::Config(format!(
+                "Invalid hex color '{s}': expected #RRGGBB or #RGB"
+            )))
+        }
+    }
 }
 
 impl From<material_colors::color::Rgb> for RgbColor {
     fn from(c: material_colors::color::Rgb) -> Self {
         Self::new(c.red, c.green, c.blue)
+    }
+}
+
+impl From<RgbColor> for material_colors::color::Rgb {
+    fn from(c: RgbColor) -> Self {
+        Self::new(c.r, c.g, c.b)
     }
 }
 
@@ -222,5 +273,30 @@ mod tests {
         assert!(serialized.contains("r = 33"));
         assert!(serialized.contains("g = 150"));
         assert!(serialized.contains("b = 243"));
+    }
+
+    #[test]
+    fn test_rgb_color_from_hex_valid() {
+        assert_eq!(RgbColor::from_hex("#ffffff").unwrap(), RgbColor::new(255, 255, 255));
+        assert_eq!(RgbColor::from_hex("000000").unwrap(), RgbColor::new(0, 0, 0));
+        assert_eq!(RgbColor::from_hex("#385E72").unwrap(), RgbColor::new(0x38, 0x5e, 0x72));
+        assert_eq!(RgbColor::from_hex("#abc").unwrap(), RgbColor::new(0xaa, 0xbb, 0xcc));
+        assert_eq!(RgbColor::from_hex("f0a").unwrap(), RgbColor::new(0xff, 0x00, 0xaa));
+        assert_eq!(RgbColor::from_hex("0x123456").unwrap(), RgbColor::new(0x12, 0x34, 0x56));
+
+        let mat_rgb: material_colors::color::Rgb = RgbColor::new(10, 20, 30).into();
+        assert_eq!(mat_rgb.red, 10);
+        assert_eq!(mat_rgb.green, 20);
+        assert_eq!(mat_rgb.blue, 30);
+    }
+
+    #[test]
+    fn test_rgb_color_from_hex_invalid() {
+        assert!(RgbColor::from_hex("").is_err());
+        assert!(RgbColor::from_hex("#").is_err());
+        assert!(RgbColor::from_hex("#12").is_err());
+        assert!(RgbColor::from_hex("#1234").is_err());
+        assert!(RgbColor::from_hex("#1234567").is_err());
+        assert!(RgbColor::from_hex("#12g456").is_err());
     }
 }
