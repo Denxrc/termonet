@@ -349,13 +349,13 @@ Termonet guarantees configuration safety:
 
 ## 🗺️ Roadmap
 
-- [x] **v0.x (Prototype & Core Base)**:
+- [x] **v0.0 (Prototype & Core Base)**:
   - [x] Responsive TUI on `ratatui` with 5px pixel font logo
   - [x] Material You generation via `material-colors` (`Variant::Content`)
   - [x] First-run setup wizard and human-readable TOML persistence
   - [x] Bilingual interface (Russian & English)
   - [x] In-app manual wallpaper path input and auto-loading
-- [x] **v1.x (Full Wayland & X11 Release)**:
+- [x] **v1.0 (Full Wayland & X11 Release)**:
   - [x] MiniJinja template engine with custom filters and TrueColor / ANSI roles
   - [x] Built-in out-of-the-box rules and templates (Kitty, Waybar, Rofi, Hyprland Lua)
   - [x] Safe marker injection, legacy theme (Pywal) replacement, and `.original` master backups
@@ -364,9 +364,22 @@ Termonet guarantees configuration safety:
   - [x] Automatic X11 wallpaper extraction (`feh`, `nitrogen`)
   - [x] Multi-monitor duplicate filter with primary monitor selection (`primary_monitor`)
   - [x] Headless CLI auto-apply mode (`--apply`, `--force`) with idle state caching
-- [ ] **v2.x (Ecosystem Expansion)**:
-  - [ ] On-the-fly CLI color scheme overrides
-  - [ ] Expanded community template library
+- [ ] **v1.5 (CLI Theme Control, Expanded Templates & Stabilization)**:
+  - [ ] Instant theme toggling without wallpaper re-processing: `termonet --toggle-theme`, `termonet --theme <dark|light>`
+  - [ ] Custom seed generation via CLI: `termonet --color "#HEX"`
+  - [ ] Expansion of built-in templates: System GTK 3/4 (`gtk.css`), terminals (`foot`, `alacritty`, `ghostty`), notifications (`mako`, `dunst`), launcher `fuzzel`
+  - [ ] Real-world testing and stabilization of desktop environments (GNOME, KDE Plasma) and X11 (`feh`, `nitrogen`)
+- [ ] **v2.0 (Advanced Color Science, Presets & Visual UX)**:
+  - [ ] Material 3 scheme variant customization (`vibrant`, `expressive`, `tonal-spot`, `content`, `fidelity`, `monochrome`) via config & `--variant`
+  - [ ] Material 3 contrast level adjustment (`-1.0` to `1.0`) for daylight and night ergonomics (`--contrast`)
+  - [ ] Interactive candidate seed color selector in TUI
+  - [ ] Built-in reference static presets (Catppuccin Mocha/Latte, Nord, Gruvbox, Tokyo Night) via `termonet --preset <name>`
+  - [ ] Interactive code syntax & contrast mockup preview in TUI
+- [ ] **v3.0+ (Desktop Ecosystem & System Integration)**:
+  - [ ] XDG Desktop Portal synchronization (`org.freedesktop.appearance.color-scheme`) via DBus for system-wide browser/app dark mode
+  - [ ] Independent multi-monitor theme profiles for distinct wallpapers
+  - [ ] Palette export into standardized specifications (`base16`, `json`, `css`)
+  - [ ] *[Experimental / Planned]* Cross-platform Windows port (Win32 wallpaper query, Windows Terminal `settings.json`, PowerShell `$PROFILE`, GlazeWM/Zebar)
 
 ---
 
