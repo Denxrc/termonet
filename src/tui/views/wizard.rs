@@ -674,21 +674,26 @@ fn render_step_environment(
         ),
     ]));
 
-    let backend_options = [
-        (t.wizard_backend_auto, WallpaperBackend::Auto),
-        (t.wizard_backend_swww, WallpaperBackend::Swww),
-        (t.wizard_backend_hyprpaper, WallpaperBackend::Hyprpaper),
-        (t.wizard_backend_awww, WallpaperBackend::Awww),
-        (t.wizard_backend_wpaperd, WallpaperBackend::Wpaperd),
-        (t.wizard_backend_swaybg, WallpaperBackend::Swaybg),
-        (t.wizard_backend_gnome, WallpaperBackend::Gnome),
-        (t.wizard_backend_kde, WallpaperBackend::Kde),
-        (t.wizard_backend_feh, WallpaperBackend::Feh),
-        (t.wizard_backend_nitrogen, WallpaperBackend::Nitrogen),
-        (t.wizard_backend_manual, WallpaperBackend::Manual),
-    ];
+    let backend_label = |b: WallpaperBackend| -> &'static str {
+        match b {
+            WallpaperBackend::Auto => t.wizard_backend_auto,
+            WallpaperBackend::Swww => t.wizard_backend_swww,
+            WallpaperBackend::Hyprpaper => t.wizard_backend_hyprpaper,
+            WallpaperBackend::Awww => t.wizard_backend_awww,
+            WallpaperBackend::Wpaperd => t.wizard_backend_wpaperd,
+            WallpaperBackend::Swaybg => t.wizard_backend_swaybg,
+            WallpaperBackend::Gnome => t.wizard_backend_gnome,
+            WallpaperBackend::Kde => t.wizard_backend_kde,
+            WallpaperBackend::Feh => t.wizard_backend_feh,
+            WallpaperBackend::Nitrogen => t.wizard_backend_nitrogen,
+            WallpaperBackend::Manual => t.wizard_backend_manual,
+        }
+    };
 
-    for (offset, (label, backend)) in backend_options.into_iter().enumerate() {
+    let supported_backends = wizard.config.display_server.supported_backends();
+
+    for (offset, &backend) in supported_backends.iter().enumerate() {
+        let label = backend_label(backend);
         let idx = 2 + offset;
         let is_current_cursor = wizard.selected_idx == idx;
         let is_selected = wizard.config.wallpaper_backend == backend;

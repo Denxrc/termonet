@@ -208,8 +208,9 @@ fn render_footer(frame: &mut Frame, area: Rect, state: &AppState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::AppConfig;
+    use crate::config::{AppConfig, DisplayServer, WallpaperBackend};
     use crate::core::GeneratedPalette;
+    use crate::tui::app::{AppState, EnvSubStep, WizardStep};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::style::Color;
@@ -585,6 +586,45 @@ mod tests {
             state.wizard_state.as_ref().unwrap().step,
             WizardStep::Appearance
         );
+    }
+
+    #[test]
+    fn test_wizard_dynamic_backend_options() {
+        let config = AppConfig::default(); // default display server is Wayland
+        let mut wizard = WizardState::new(config);
+        wizard.step = WizardStep::Environment;
+        wizard.env_substep = EnvSubStep::ServerAndBackend;
+
+        // Wayland: 2 servers + 9 backends = 11 options
+        assert_eq!(wizard.max_options(), 11);
+
+        // Switch to X11
+        wizard.config.display_server = DisplayServer::X11;
+        // X11: 2 servers + 6 backends = 8 options
+        assert_eq!(wizard.max_options(), 8);
+    }
+
+    #[test]
+    fn test_wizard_server_switch_clamps_index_and_resets_backend() {
+        let mut state = AppState::new_wizard(AppConfig::default());
+        if let Some(ref mut wizard) = state.wizard_state {
+            wizard.step = WizardStep::Environment;
+            wizard.env_substep = EnvSubStep::ServerAndBackend;
+            wizard.config.display_server = DisplayServer::Wayland;
+            wizard.config.wallpaper_backend = WallpaperBackend::Swww; // Wayland-only
+            wizard.selected_idx = 10; // near bottom of Wayland list
+        }
+
+        // Switch to X11 (selected_idx 1)
+        if let Some(ref mut wizard) = state.wizard_state {
+            wizard.selected_idx = 1;
+        }
+        state.toggle_wizard_option();
+
+        let wizard = state.wizard_state.as_ref().unwrap();
+        assert_eq!(wizard.config.display_server, DisplayServer::X11);
+        assert_eq!(wizard.config.wallpaper_backend, WallpaperBackend::Auto);
+        assert!(wizard.selected_idx < wizard.max_options());
     }
 
     #[test]

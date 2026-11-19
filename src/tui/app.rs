@@ -143,7 +143,7 @@ impl WizardState {
             WizardStep::Language => 2,
             WizardStep::Appearance => 5,
             WizardStep::Environment => match self.env_substep {
-                EnvSubStep::ServerAndBackend => 13,
+                EnvSubStep::ServerAndBackend => 2 + self.config.display_server.supported_backends().len(),
                 EnvSubStep::Monitors => self
                     .discovered_monitors
                     .as_ref()
@@ -556,7 +556,7 @@ impl AppState {
     }
 
     /// Toggles or updates the selected setting in the current wizard step.
-    fn toggle_wizard_option(&mut self) {
+    pub fn toggle_wizard_option(&mut self) {
         let Some(wizard) = &mut self.wizard_state else {
             return;
         };
@@ -584,22 +584,31 @@ impl AppState {
             }
             WizardStep::Environment => match wizard.env_substep {
                 EnvSubStep::ServerAndBackend => {
-                    match wizard.selected_idx {
-                        0 => wizard.config.display_server = DisplayServer::Wayland,
-                        1 => wizard.config.display_server = DisplayServer::X11,
-                        2 => wizard.config.wallpaper_backend = WallpaperBackend::Auto,
-                        3 => wizard.config.wallpaper_backend = WallpaperBackend::Swww,
-                        4 => wizard.config.wallpaper_backend = WallpaperBackend::Hyprpaper,
-                        5 => wizard.config.wallpaper_backend = WallpaperBackend::Awww,
-                        6 => wizard.config.wallpaper_backend = WallpaperBackend::Wpaperd,
-                        7 => wizard.config.wallpaper_backend = WallpaperBackend::Swaybg,
-                        8 => wizard.config.wallpaper_backend = WallpaperBackend::Gnome,
-                        9 => wizard.config.wallpaper_backend = WallpaperBackend::Kde,
-                        10 => wizard.config.wallpaper_backend = WallpaperBackend::Feh,
-                        11 => wizard.config.wallpaper_backend = WallpaperBackend::Nitrogen,
-                        12 => wizard.config.wallpaper_backend = WallpaperBackend::Manual,
-                        _ => {}
+                    let backends = wizard.config.display_server.supported_backends();
+                    if wizard.selected_idx == 0 {
+                        wizard.config.display_server = DisplayServer::Wayland;
+                        if !DisplayServer::Wayland
+                            .supported_backends()
+                            .contains(&wizard.config.wallpaper_backend)
+                        {
+                            wizard.config.wallpaper_backend = WallpaperBackend::Auto;
+                        }
+                    } else if wizard.selected_idx == 1 {
+                        wizard.config.display_server = DisplayServer::X11;
+                        if !DisplayServer::X11
+                            .supported_backends()
+                            .contains(&wizard.config.wallpaper_backend)
+                        {
+                            wizard.config.wallpaper_backend = WallpaperBackend::Auto;
+                        }
+                    } else {
+                        let backend_idx = wizard.selected_idx.saturating_sub(2);
+                        if let Some(&backend) = backends.get(backend_idx) {
+                            wizard.config.wallpaper_backend = backend;
+                        }
                     }
+                    wizard.selected_idx =
+                        wizard.selected_idx.min(wizard.max_options().saturating_sub(1));
                     wizard.discovered_monitors = None;
                 }
                 EnvSubStep::Monitors => {
@@ -855,11 +864,22 @@ impl AppState {
         } else if current_step == Some(WizardStep::Environment)
             && self.wizard_state.as_ref().map(|w| w.env_substep)
                 == Some(EnvSubStep::ServerAndBackend)
-            && selected_idx == 12
         {
-            // Option 12 in Environment is Manual path -> trigger input dialog
+            let is_manual = if let Some(ref w) = self.wizard_state {
+                if w.selected_idx >= 2 {
+                    let backends = w.config.display_server.supported_backends();
+                    backends.get(w.selected_idx - 2) == Some(&WallpaperBackend::Manual)
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
             self.toggle_wizard_option();
-            self.open_wallpaper_input();
+            if is_manual {
+                self.open_wallpaper_input();
+            }
         } else {
             // Toggle current option without jumping screens
             self.toggle_wizard_option();

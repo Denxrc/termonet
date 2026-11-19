@@ -102,6 +102,34 @@ pub enum DisplayServer {
     X11,
 }
 
+impl DisplayServer {
+    /// Returns the slice of wallpaper backends supported by this display server.
+    #[must_use]
+    pub const fn supported_backends(&self) -> &'static [WallpaperBackend] {
+        match self {
+            Self::Wayland => &[
+                WallpaperBackend::Auto,
+                WallpaperBackend::Swww,
+                WallpaperBackend::Hyprpaper,
+                WallpaperBackend::Awww,
+                WallpaperBackend::Wpaperd,
+                WallpaperBackend::Swaybg,
+                WallpaperBackend::Gnome,
+                WallpaperBackend::Kde,
+                WallpaperBackend::Manual,
+            ],
+            Self::X11 => &[
+                WallpaperBackend::Auto,
+                WallpaperBackend::Feh,
+                WallpaperBackend::Nitrogen,
+                WallpaperBackend::Gnome,
+                WallpaperBackend::Kde,
+                WallpaperBackend::Manual,
+            ],
+        }
+    }
+}
+
 /// Known wallpaper backends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
