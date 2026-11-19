@@ -123,35 +123,52 @@ impl RgbColor {
             )));
         }
 
-        let parse_byte = |pair: &str| -> std::result::Result<u8, ()> {
-            u8::from_str_radix(pair, 16).map_err(|_| ())
+        let parse_nibble = |b: u8| -> std::result::Result<u8, ()> {
+            match b {
+                b'0'..=b'9' => Ok(b - b'0'),
+                b'a'..=b'f' => Ok(b - b'a' + 10),
+                b'A'..=b'F' => Ok(b - b'A' + 10),
+                _ => Err(()),
+            }
         };
 
+        let bytes = hex.as_bytes();
         if hex.len() == 6 {
-            let r = parse_byte(&hex[0..2]).map_err(|()| {
+            let n0 = parse_nibble(bytes[0]).map_err(|()| {
                 crate::error::TermonetError::Config(format!("Invalid hex color '{s}'"))
             })?;
-            let g = parse_byte(&hex[2..4]).map_err(|()| {
+            let n1 = parse_nibble(bytes[1]).map_err(|()| {
                 crate::error::TermonetError::Config(format!("Invalid hex color '{s}'"))
             })?;
-            let b = parse_byte(&hex[4..6]).map_err(|()| {
+            let n2 = parse_nibble(bytes[2]).map_err(|()| {
                 crate::error::TermonetError::Config(format!("Invalid hex color '{s}'"))
             })?;
+            let n3 = parse_nibble(bytes[3]).map_err(|()| {
+                crate::error::TermonetError::Config(format!("Invalid hex color '{s}'"))
+            })?;
+            let n4 = parse_nibble(bytes[4]).map_err(|()| {
+                crate::error::TermonetError::Config(format!("Invalid hex color '{s}'"))
+            })?;
+            let n5 = parse_nibble(bytes[5]).map_err(|()| {
+                crate::error::TermonetError::Config(format!("Invalid hex color '{s}'"))
+            })?;
+            let r = (n0 << 4) | n1;
+            let g = (n2 << 4) | n3;
+            let b = (n4 << 4) | n5;
             Ok(Self::new(r, g, b))
         } else if hex.len() == 3 {
-            let bytes = hex.as_bytes();
-            let r_str = format!("{}{}", bytes[0] as char, bytes[0] as char);
-            let g_str = format!("{}{}", bytes[1] as char, bytes[1] as char);
-            let b_str = format!("{}{}", bytes[2] as char, bytes[2] as char);
-            let r = parse_byte(&r_str).map_err(|()| {
+            let n0 = parse_nibble(bytes[0]).map_err(|()| {
                 crate::error::TermonetError::Config(format!("Invalid hex color '{s}'"))
             })?;
-            let g = parse_byte(&g_str).map_err(|()| {
+            let n1 = parse_nibble(bytes[1]).map_err(|()| {
                 crate::error::TermonetError::Config(format!("Invalid hex color '{s}'"))
             })?;
-            let b = parse_byte(&b_str).map_err(|()| {
+            let n2 = parse_nibble(bytes[2]).map_err(|()| {
                 crate::error::TermonetError::Config(format!("Invalid hex color '{s}'"))
             })?;
+            let r = (n0 << 4) | n0;
+            let g = (n1 << 4) | n1;
+            let b = (n2 << 4) | n2;
             Ok(Self::new(r, g, b))
         } else {
             Err(crate::error::TermonetError::Config(format!(

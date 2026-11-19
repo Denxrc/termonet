@@ -64,9 +64,9 @@ pub fn run_cli_mode_with_context(
             crate::config::TuiTheme::Light
         };
         if let Some(cfg_path) = custom_config_file {
-            let _ = config.save_to_path(cfg_path);
+            config.save_to_path(cfg_path)?;
         } else {
-            let _ = config.save();
+            config.save()?;
         }
         dark
     } else if args.toggle_theme {
@@ -80,17 +80,17 @@ pub fn run_cli_mode_with_context(
             crate::config::TuiTheme::Light
         };
         if let Some(cfg_path) = custom_config_file {
-            let _ = config.save_to_path(cfg_path);
+            config.save_to_path(cfg_path)?;
         } else {
-            let _ = config.save();
+            config.save()?;
         }
         new_is_dark
     } else {
         config.tui_theme.is_dark()
     };
 
-    let wallpaper_path_buf: Option<PathBuf>;
-    let fallback_wall_buf: Option<PathBuf>;
+    let mut wallpaper_path_buf: Option<PathBuf> = None;
+    let fallback_wall_buf: Option<PathBuf> = cache.last_wallpaper_path.as_ref().map(PathBuf::from);
 
     // 2. Resolve Palette and CacheSource
     let (palette, source) = if let Some(ref hex_str) = args.color {
@@ -102,11 +102,9 @@ pub fn run_cli_mode_with_context(
             && let Ok(rgb) = crate::core::RgbColor::from_hex(cached_hex)
         {
             let palette = crate::core::GeneratedPalette::from_seed_color(rgb.into());
-            let source = if let Some(ref wall_str) = cache.last_wallpaper_path {
-                fallback_wall_buf = Some(PathBuf::from(wall_str));
-                crate::config::CacheSource::Wallpaper(fallback_wall_buf.as_ref().unwrap())
-            } else {
-                crate::config::CacheSource::Color(rgb)
+            let source = match fallback_wall_buf.as_deref() {
+                Some(p) => crate::config::CacheSource::Wallpaper(p),
+                None => crate::config::CacheSource::Color(rgb),
             };
             (palette, source)
         } else {
@@ -117,11 +115,8 @@ pub fn run_cli_mode_with_context(
                 config.primary_monitor.as_deref(),
             )?;
             let palette = crate::core::GeneratedPalette::from_image_path(&wp)?;
-            wallpaper_path_buf = Some(wp);
-            (
-                palette,
-                crate::config::CacheSource::Wallpaper(wallpaper_path_buf.as_ref().unwrap()),
-            )
+            let wp_path = wallpaper_path_buf.insert(wp).as_path();
+            (palette, crate::config::CacheSource::Wallpaper(wp_path))
         }
     } else {
         // Standard wallpaper-based apply
@@ -142,19 +137,18 @@ pub fn run_cli_mode_with_context(
             )?
         };
 
-        wallpaper_path_buf = Some(wp);
-        let wp_ref = wallpaper_path_buf.as_ref().unwrap();
-        let source = crate::config::CacheSource::Wallpaper(wp_ref);
+        let wp_path = wallpaper_path_buf.insert(wp).as_path();
+        let source = crate::config::CacheSource::Wallpaper(wp_path);
         if !args.force && cache.is_up_to_date(&source, is_dark) {
             println!(
                 "Theme is already up to date with active wallpaper: {}",
-                wp_ref.display()
+                wp_path.display()
             );
             return Ok(true);
         }
 
-        println!("Generating Material You palette for: {}", wp_ref.display());
-        let palette = crate::core::GeneratedPalette::from_image_path(wp_ref)?;
+        println!("Generating Material You palette for: {}", wp_path.display());
+        let palette = crate::core::GeneratedPalette::from_image_path(wp_path)?;
         (palette, source)
     };
 
@@ -194,9 +188,9 @@ pub fn run_cli_mode_with_context(
     let mut new_cache = cache;
     new_cache.update_source(&source, is_dark, &palette.seed_color);
     if let Some(state_path) = custom_state_file {
-        let _ = new_cache.save_to_path(state_path);
+        new_cache.save_to_path(state_path)?;
     } else {
-        let _ = new_cache.save();
+        new_cache.save()?;
     }
 
     println!(

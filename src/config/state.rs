@@ -72,7 +72,7 @@ impl AppStateCache {
             .modified()
             .ok()
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs())
+            .map(|d| d.as_nanos())
             .unwrap_or(0);
         Some(format!("{len}:{mtime}"))
     }
@@ -123,20 +123,21 @@ impl AppStateCache {
                     return false;
                 }
 
-                // If file exists on disk and we have a fingerprint check, ensure contents haven't changed
-                if let Some(current_hash) = Self::compute_hash(p)
-                    && let Some(ref saved_hash) = self.last_wallpaper_hash
-                {
-                    return saved_hash == &current_hash;
+                // If file exists on disk and we have a fingerprint check, ensure contents haven't changed.
+                // If saved_hash exists but file is missing/unreadable on disk, return false.
+                match (self.last_wallpaper_hash.as_ref(), Self::compute_hash(p)) {
+                    (Some(saved), Some(current)) => saved == &current,
+                    (None, Some(_)) => true,
+                    _ => false,
                 }
-
-                true
             }
             CacheSource::Color(c) => {
                 if self.last_wallpaper_path.is_some() {
                     return false;
                 }
-                self.last_seed_color.as_deref() == Some(&c.to_hex())
+                self.last_seed_color
+                    .as_deref()
+                    .is_some_and(|s| s.eq_ignore_ascii_case(&c.to_hex()))
             }
         }
     }
@@ -159,13 +160,11 @@ impl AppStateCache {
             return false;
         }
 
-        if let Some(current_hash) = Self::compute_hash(p)
-            && let Some(ref saved_hash) = self.last_wallpaper_hash
-        {
-            return saved_hash == &current_hash;
+        match (self.last_wallpaper_hash.as_ref(), Self::compute_hash(p)) {
+            (Some(saved), Some(current)) => saved == &current,
+            (None, Some(_)) => true,
+            _ => false,
         }
-
-        true
     }
 }
 
@@ -179,10 +178,13 @@ mod tests {
             std::env::temp_dir().join(format!("termonet_test_state_{}", std::process::id()));
         let _ = fs::create_dir_all(&temp_dir);
         let file = temp_dir.join("state.toml");
+        let wall_file = temp_dir.join("wall.png");
+        fs::write(&wall_file, b"test_wallpaper_content")?;
 
+        let hash = AppStateCache::compute_hash(&wall_file);
         let cache = AppStateCache {
-            last_wallpaper_path: Some("/home/user/wall.png".into()),
-            last_wallpaper_hash: Some("abc123hash".into()),
+            last_wallpaper_path: Some(wall_file.display().to_string()),
+            last_wallpaper_hash: hash,
             last_seed_color: Some("#385e72".into()),
             last_is_dark: Some(true),
         };
@@ -191,16 +193,14 @@ mod tests {
 
         let loaded = AppStateCache::load_from_path(&file)?;
         assert_eq!(loaded, cache);
-        assert!(loaded.is_up_to_date(
-            &CacheSource::Wallpaper(Path::new("/home/user/wall.png")),
-            true
-        ));
+        assert!(loaded.is_up_to_date(&CacheSource::Wallpaper(&wall_file), true));
         assert!(!loaded.is_up_to_date(
             &CacheSource::Wallpaper(Path::new("/home/user/other.png")),
             true
         ));
 
         let _ = fs::remove_file(&file);
+        let _ = fs::remove_file(&wall_file);
         let _ = fs::remove_dir(&temp_dir);
         Ok(())
     }
@@ -237,26 +237,29 @@ mod tests {
     #[test]
     fn test_cache_invalidation_on_theme_mode_switch() {
         let mut cache = AppStateCache::default();
-        let wall = Path::new("/tmp/termonet_test_wall.png");
-        fs::write(wall, b"fake_png_data").unwrap();
+        let wall =
+            std::env::temp_dir().join(format!("termonet_test_wall_{}.png", std::process::id()));
+        fs::write(&wall, b"fake_png_data").unwrap();
 
-        let source = CacheSource::Wallpaper(wall);
+        let source = CacheSource::Wallpaper(&wall);
         cache.update_source(&source, true, &crate::core::RgbColor::new(0x38, 0x5e, 0x72));
 
         assert!(cache.is_up_to_date(&source, true));
         // Toggling to light mode (is_dark = false) must invalidate cache!
         assert!(!cache.is_up_to_date(&source, false));
 
-        let _ = fs::remove_file(wall);
+        // Deleting the file on disk must also invalidate cache
+        let _ = fs::remove_file(&wall);
+        assert!(!cache.is_up_to_date(&source, true));
     }
 
     #[test]
     fn test_cache_source_switching_from_wallpaper_to_color() {
         let mut cache = AppStateCache::default();
-        let wall = Path::new("/tmp/termonet_wall2.png");
-        fs::write(wall, b"data").unwrap();
+        let wall = std::env::temp_dir().join(format!("termonet_wall2_{}.png", std::process::id()));
+        fs::write(&wall, b"data").unwrap();
 
-        let wall_source = CacheSource::Wallpaper(wall);
+        let wall_source = CacheSource::Wallpaper(&wall);
         let color = crate::core::RgbColor::new(0x11, 0x22, 0x33);
         cache.update_source(&wall_source, true, &color);
 
@@ -271,6 +274,6 @@ mod tests {
         assert_eq!(cache.last_wallpaper_hash, None);
         assert_eq!(cache.last_seed_color.as_deref(), Some("#112233"));
 
-        let _ = fs::remove_file(wall);
+        let _ = fs::remove_file(&wall);
     }
 }
