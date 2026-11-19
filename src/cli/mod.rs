@@ -47,7 +47,8 @@ pub fn run_cli_mode(args: &CliArgs) -> crate::error::Result<bool> {
 
     // 2. Check cache to avoid idle duplicate executions
     let cache = AppStateCache::load().unwrap_or_default();
-    if !args.force && cache.is_up_to_date(&wallpaper_path) {
+    let source = crate::config::CacheSource::Wallpaper(&wallpaper_path);
+    if !args.force && cache.is_up_to_date(&source, config.tui_theme.is_dark()) {
         println!(
             "Theme is already up to date with active wallpaper: {}",
             wallpaper_path.display()
@@ -88,7 +89,7 @@ pub fn run_cli_mode(args: &CliArgs) -> crate::error::Result<bool> {
 
     // 4. Update cache
     let mut new_cache = cache;
-    new_cache.update(&wallpaper_path);
+    new_cache.update_source(&source, config.tui_theme.is_dark(), &palette.seed_color);
     let _ = new_cache.save();
 
     println!(

@@ -6,4 +6,4 @@ pub mod state;
 
 pub use paths::AppPaths;
 pub use settings::{AppConfig, DisplayServer, FontMode, Language, TuiTheme, WallpaperBackend};
-pub use state::AppStateCache;
+pub use state::{AppStateCache, CacheSource};
