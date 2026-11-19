@@ -25,6 +25,9 @@ fn print_help() {
         "  -a, --apply              Headless mode: apply theme from active wallpaper and exit"
     );
     println!("  -f, --force              Force re-application ignoring cached wallpaper state");
+    println!("  -c, --color <HEX>        Generate palette directly from seed HEX color (e.g. '#385e72')");
+    println!("      --toggle-theme       Instantly toggle between dark and light themes and apply");
+    println!("      --theme <MODE>       Set and apply theme mode ('dark' or 'light')");
     println!("\nGeneral Options:");
     println!("  -w, --wallpaper <PATH>   Path to wallpaper image (PNG, JPG, GIF, WebP)");
     println!("  -i, --wizard, --init     Launch first-run configuration wizard");
@@ -84,6 +87,31 @@ fn parse_cli_args(args: &[String]) -> Result<CliAction> {
             }
             "-f" | "--force" => {
                 cli_args.force = true;
+            }
+            "-c" | "--color" => {
+                if i + 1 < args.len() && !args[i + 1].starts_with('-') {
+                    cli_args.color = Some(args[i + 1].clone());
+                    i += 1;
+                } else {
+                    return Err(termonet::error::TermonetError::Config(
+                        "Option '-c/--color' requires a valid HEX color argument (e.g. '#385e72')".into(),
+                    ));
+                }
+            }
+            "--toggle-theme" => {
+                cli_args.toggle_theme = true;
+                cli_args.apply = true;
+            }
+            "--theme" => {
+                if i + 1 < args.len() && !args[i + 1].starts_with('-') {
+                    cli_args.theme = Some(args[i + 1].clone());
+                    cli_args.apply = true;
+                    i += 1;
+                } else {
+                    return Err(termonet::error::TermonetError::Config(
+                        "Option '--theme' requires a mode argument ('dark' or 'light')".into(),
+                    ));
+                }
             }
             "-w" | "--wallpaper" => {
                 if i + 1 < args.len() && !args[i + 1].starts_with('-') {
@@ -210,7 +238,7 @@ fn main() -> Result<()> {
     }
 
     // 1. Check if headless CLI mode was requested
-    if cli_args.apply {
+    if cli_args.apply || cli_args.toggle_theme || cli_args.theme.is_some() {
         run_cli_mode(&cli_args)?;
         return Ok(());
     }
