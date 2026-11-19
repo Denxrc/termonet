@@ -259,9 +259,8 @@ fn main() -> Result<()> {
         None
     };
 
-    if let Some(ref hex_str) = cli_args.color
-        && let Ok(color) = termonet::core::RgbColor::from_hex(hex_str)
-    {
+    if let Some(ref hex_str) = cli_args.color {
+        let color = termonet::core::RgbColor::from_hex(hex_str)?;
         let palette = GeneratedPalette::from_seed_color(color.into());
         state.palette = Some(palette);
         state.custom_seed_color = Some(color);

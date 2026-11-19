@@ -117,6 +117,12 @@ impl RgbColor {
             trimmed
         };
 
+        if !hex.is_ascii() {
+            return Err(crate::error::TermonetError::Config(format!(
+                "Invalid hex color '{s}': expected #RRGGBB or #RGB"
+            )));
+        }
+
         let parse_byte = |pair: &str| -> std::result::Result<u8, ()> {
             u8::from_str_radix(pair, 16).map_err(|_| ())
         };
@@ -322,5 +328,8 @@ mod tests {
         assert!(RgbColor::from_hex("#1234").is_err());
         assert!(RgbColor::from_hex("#1234567").is_err());
         assert!(RgbColor::from_hex("#12g456").is_err());
+        assert!(RgbColor::from_hex("€€").is_err());
+        assert!(RgbColor::from_hex("#😀a").is_err());
+        assert!(RgbColor::from_hex("красный").is_err());
     }
 }

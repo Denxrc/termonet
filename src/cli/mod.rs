@@ -248,8 +248,10 @@ mod tests {
             ..Default::default()
         };
 
-        let mut config = crate::config::AppConfig::default();
-        config.enabled_programs = Vec::new(); // isolate from real filesystem dotfiles
+        let config = crate::config::AppConfig {
+            enabled_programs: Vec::new(), // isolate from real filesystem dotfiles
+            ..Default::default()
+        };
 
         let res =
             run_cli_mode_with_context(&args, config, Some(Vec::new()), Some(&state_file), None);
@@ -279,8 +281,10 @@ mod tests {
             ..Default::default()
         };
 
-        let mut config = crate::config::AppConfig::default();
-        config.enabled_programs = Vec::new();
+        let config = crate::config::AppConfig {
+            enabled_programs: Vec::new(),
+            ..Default::default()
+        };
 
         run_cli_mode_with_context(
             &args_light,
