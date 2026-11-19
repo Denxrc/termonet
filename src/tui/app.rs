@@ -143,7 +143,9 @@ impl WizardState {
             WizardStep::Language => 2,
             WizardStep::Appearance => 5,
             WizardStep::Environment => match self.env_substep {
-                EnvSubStep::ServerAndBackend => 2 + self.config.display_server.supported_backends().len(),
+                EnvSubStep::ServerAndBackend => {
+                    2 + self.config.display_server.supported_backends().len()
+                }
                 EnvSubStep::Monitors => self
                     .discovered_monitors
                     .as_ref()
@@ -380,8 +382,10 @@ impl AppState {
             self.palette = Some(palette);
             self.custom_seed_color = Some(color);
             self.wallpaper_path = None;
-            self.status_message =
-                Some(format!("Palette generated from seed color: {}", color.to_hex()));
+            self.status_message = Some(format!(
+                "Palette generated from seed color: {}",
+                color.to_hex()
+            ));
             self.wallpaper_input = None;
             return true;
         }
@@ -626,8 +630,9 @@ impl AppState {
                             wizard.config.wallpaper_backend = backend;
                         }
                     }
-                    wizard.selected_idx =
-                        wizard.selected_idx.min(wizard.max_options().saturating_sub(1));
+                    wizard.selected_idx = wizard
+                        .selected_idx
+                        .min(wizard.max_options().saturating_sub(1));
                     wizard.discovered_monitors = None;
                 }
                 EnvSubStep::Monitors => {
@@ -1015,11 +1020,7 @@ impl AppState {
         // 4. Update state cache
         let mut cache = crate::config::AppStateCache::load().unwrap_or_default();
         if let Some(color) = self.custom_seed_color {
-            cache.update_source(
-                &crate::config::CacheSource::Color(color),
-                is_dark,
-                &color,
-            );
+            cache.update_source(&crate::config::CacheSource::Color(color), is_dark, &color);
             let _ = cache.save();
         } else if let Some(ref wall_path) = self.wallpaper_path {
             cache.update_source(

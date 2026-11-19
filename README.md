@@ -120,11 +120,23 @@ termonet
 # Headless mode: apply theme across all enabled programs from active wallpaper and exit
 termonet --apply
 
+# Instant theme mode toggle without re-analyzing wallpaper
+termonet --toggle-theme
+
+# Explicitly set theme mode to dark or light
+termonet --theme dark # or termonet --theme light
+
+# Generate palette from a specific HEX color in headless mode
+termonet -c "#385e72" -a
+
 # Force headless re-application (bypassing the state cache)
 termonet --apply --force
 
 # Apply a specific wallpaper image in headless mode
 termonet --apply -w ~/Pictures/Wallpapers/forest.png
+
+# Launch TUI with palette generated from a specific HEX color
+termonet -c "#385e72"
 
 # Launch TUI with a specific wallpaper image
 termonet -w ~/Pictures/Wallpapers/forest.png
@@ -147,6 +159,9 @@ Usage: termonet [OPTIONS] [WALLPAPER_PATH]
 Headless / Automation Options:
   -a, --apply              Headless mode: apply theme from active wallpaper and exit
   -f, --force              Force re-application ignoring cached wallpaper state
+  -c, --color <HEX>        Generate palette directly from seed HEX color (e.g. '#385e72')
+      --toggle-theme       Instantly toggle between dark and light themes and apply
+      --theme <MODE>       Set and apply theme mode ('dark' or 'light')
       --no-backup          Disable creation of backup copies (.bak, .original)
       --backup             Enable creation of backup copies (.bak, .original)
 
@@ -365,8 +380,9 @@ Termonet guarantees configuration safety:
   - [x] Multi-monitor duplicate filter with primary monitor selection (`primary_monitor`)
   - [x] Headless CLI auto-apply mode (`--apply`, `--force`) with idle state caching
 - [ ] **v1.5 (CLI Theme Control, Expanded Templates & Stabilization)**:
-  - [ ] Instant theme toggling without wallpaper re-processing: `termonet --toggle-theme`, `termonet --theme <dark|light>`
-  - [ ] Custom seed generation via CLI: `termonet --color "#HEX"`
+  - [x] Instant theme toggling without wallpaper re-processing: `termonet --toggle-theme`, `termonet --theme <dark|light>`
+  - [x] Custom seed generation via CLI: `termonet --color "#HEX"`
+  - [x] Dynamic wallpaper backend list in setup wizard (Wayland and X11 separation)
   - [ ] Expansion of built-in templates: System GTK 3/4 (`gtk.css`), terminals (`foot`, `alacritty`, `ghostty`), notifications (`mako`, `dunst`), launcher `fuzzel`
   - [ ] Real-world testing and stabilization of desktop environments (GNOME, KDE Plasma) and X11 (`feh`, `nitrogen`)
 - [ ] **v2.0 (Advanced Color Science, Presets & Visual UX)**:

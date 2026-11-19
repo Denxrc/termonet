@@ -635,7 +635,10 @@ mod tests {
         // User types "#e63946" in manual input modal
         let success = state.apply_manual_wallpaper("#e63946");
         assert!(success);
-        assert_eq!(state.custom_seed_color, Some(RgbColor::new(0xe6, 0x39, 0x46)));
+        assert_eq!(
+            state.custom_seed_color,
+            Some(RgbColor::new(0xe6, 0x39, 0x46))
+        );
         assert_eq!(state.wallpaper_path, None);
         assert!(state.palette.is_some());
         assert_eq!(

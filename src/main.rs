@@ -25,7 +25,9 @@ fn print_help() {
         "  -a, --apply              Headless mode: apply theme from active wallpaper and exit"
     );
     println!("  -f, --force              Force re-application ignoring cached wallpaper state");
-    println!("  -c, --color <HEX>        Generate palette directly from seed HEX color (e.g. '#385e72')");
+    println!(
+        "  -c, --color <HEX>        Generate palette directly from seed HEX color (e.g. '#385e72')"
+    );
     println!("      --toggle-theme       Instantly toggle between dark and light themes and apply");
     println!("      --theme <MODE>       Set and apply theme mode ('dark' or 'light')");
     println!("\nGeneral Options:");
@@ -94,7 +96,8 @@ fn parse_cli_args(args: &[String]) -> Result<CliAction> {
                     i += 1;
                 } else {
                     return Err(termonet::error::TermonetError::Config(
-                        "Option '-c/--color' requires a valid HEX color argument (e.g. '#385e72')".into(),
+                        "Option '-c/--color' requires a valid HEX color argument (e.g. '#385e72')"
+                            .into(),
                     ));
                 }
             }

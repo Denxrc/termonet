@@ -191,8 +191,14 @@ mod tests {
 
         let loaded = AppStateCache::load_from_path(&file)?;
         assert_eq!(loaded, cache);
-        assert!(loaded.is_up_to_date(&CacheSource::Wallpaper(Path::new("/home/user/wall.png")), true));
-        assert!(!loaded.is_up_to_date(&CacheSource::Wallpaper(Path::new("/home/user/other.png")), true));
+        assert!(loaded.is_up_to_date(
+            &CacheSource::Wallpaper(Path::new("/home/user/wall.png")),
+            true
+        ));
+        assert!(!loaded.is_up_to_date(
+            &CacheSource::Wallpaper(Path::new("/home/user/other.png")),
+            true
+        ));
 
         let _ = fs::remove_file(&file);
         let _ = fs::remove_dir(&temp_dir);

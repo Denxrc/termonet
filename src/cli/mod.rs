@@ -153,10 +153,7 @@ pub fn run_cli_mode_with_context(
             return Ok(true);
         }
 
-        println!(
-            "Generating Material You palette for: {}",
-            wp_ref.display()
-        );
+        println!("Generating Material You palette for: {}", wp_ref.display());
         let palette = crate::core::GeneratedPalette::from_image_path(wp_ref)?;
         (palette, source)
     };
@@ -183,13 +180,8 @@ pub fn run_cli_mode_with_context(
             .iter()
             .any(|p| p.eq_ignore_ascii_case(&rule.name))
         {
-            let hook_executed = rule.apply_with_hook(
-                &engine,
-                &palette,
-                is_dark,
-                config.create_backups,
-                true,
-            )?;
+            let hook_executed =
+                rule.apply_with_hook(&engine, &palette, is_dark, config.create_backups, true)?;
             applied_count += 1;
             println!("  ✔ Applied theme for: {}", rule.name);
             if hook_executed && let Some(ref cmd) = rule.reload_cmd {
@@ -244,7 +236,8 @@ mod tests {
 
     #[test]
     fn test_cli_color_apply_succeeds_without_wallpaper_daemon() {
-        let temp_dir = std::env::temp_dir().join(format!("termonet_test_cli_color_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("termonet_test_cli_color_{}", std::process::id()));
         let _ = std::fs::create_dir_all(&temp_dir);
         let state_file = temp_dir.join("state.toml");
 
@@ -258,7 +251,8 @@ mod tests {
         let mut config = crate::config::AppConfig::default();
         config.enabled_programs = Vec::new(); // isolate from real filesystem dotfiles
 
-        let res = run_cli_mode_with_context(&args, config, Some(Vec::new()), Some(&state_file), None);
+        let res =
+            run_cli_mode_with_context(&args, config, Some(Vec::new()), Some(&state_file), None);
         assert!(res.is_ok());
         assert!(res.unwrap());
 
@@ -271,7 +265,8 @@ mod tests {
 
     #[test]
     fn test_cli_theme_explicit_and_toggle() {
-        let temp_dir = std::env::temp_dir().join(format!("termonet_test_cli_theme_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("termonet_test_cli_theme_{}", std::process::id()));
         let _ = std::fs::create_dir_all(&temp_dir);
         let state_file = temp_dir.join("state.toml");
         let config_file = temp_dir.join("config.toml");
@@ -287,7 +282,14 @@ mod tests {
         let mut config = crate::config::AppConfig::default();
         config.enabled_programs = Vec::new();
 
-        run_cli_mode_with_context(&args_light, config.clone(), Some(Vec::new()), Some(&state_file), Some(&config_file)).unwrap();
+        run_cli_mode_with_context(
+            &args_light,
+            config.clone(),
+            Some(Vec::new()),
+            Some(&state_file),
+            Some(&config_file),
+        )
+        .unwrap();
 
         let cfg = crate::config::AppConfig::load_from_path(&config_file).unwrap();
         assert_eq!(cfg.tui_theme, crate::config::TuiTheme::Light);
@@ -299,7 +301,14 @@ mod tests {
             toggle_theme: true,
             ..Default::default()
         };
-        run_cli_mode_with_context(&args_toggle, cfg, Some(Vec::new()), Some(&state_file), Some(&config_file)).unwrap();
+        run_cli_mode_with_context(
+            &args_toggle,
+            cfg,
+            Some(Vec::new()),
+            Some(&state_file),
+            Some(&config_file),
+        )
+        .unwrap();
 
         let cfg2 = crate::config::AppConfig::load_from_path(&config_file).unwrap();
         assert_eq!(cfg2.tui_theme, crate::config::TuiTheme::Dark);
