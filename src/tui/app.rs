@@ -199,6 +199,7 @@ pub struct AppState {
     pub config: AppConfig,
     pub palette: Option<GeneratedPalette>,
     pub wallpaper_path: Option<String>,
+    pub custom_seed_color: Option<crate::core::RgbColor>,
     pub status_message: Option<String>,
 
     // Step 2: Programs interactive state
@@ -278,6 +279,7 @@ impl AppState {
             config,
             palette: None,
             wallpaper_path: None,
+            custom_seed_color: None,
             status_message: None,
             programs,
             selected_program_idx: 0,
@@ -302,6 +304,7 @@ impl AppState {
             config,
             palette: None,
             wallpaper_path: None,
+            custom_seed_color: None,
             status_message: None,
             programs,
             selected_program_idx: 0,
@@ -361,16 +364,29 @@ impl AppState {
         self.wallpaper_input = Some(WallpaperInputState::new(current_path));
     }
 
-    /// Attempts to apply the entered wallpaper path, generating a new palette and saving config.
+    /// Attempts to apply the entered wallpaper path or HEX color, generating a new palette and saving config.
     pub fn apply_manual_wallpaper(&mut self, raw_path: &str) -> bool {
         let trimmed = raw_path.trim();
         if trimmed.is_empty() {
             if let Some(ref mut input_state) = self.wallpaper_input {
-                input_state.error_msg = Some("Path cannot be empty".to_string());
+                input_state.error_msg = Some("Input cannot be empty".to_string());
             }
             return false;
         }
 
+        // 1. Check if input is a valid HEX color code
+        if let Ok(color) = crate::core::RgbColor::from_hex(trimmed) {
+            let palette = GeneratedPalette::from_seed_color(color.into());
+            self.palette = Some(palette);
+            self.custom_seed_color = Some(color);
+            self.wallpaper_path = None;
+            self.status_message =
+                Some(format!("Palette generated from seed color: {}", color.to_hex()));
+            self.wallpaper_input = None;
+            return true;
+        }
+
+        // 2. Otherwise treat as wallpaper file path
         let resolved = crate::wallpaper::clean_wallpaper_path(trimmed)
             .unwrap_or_else(|| crate::config::paths::AppPaths::expand_tilde(trimmed));
         if !resolved.exists() {
@@ -385,6 +401,7 @@ impl AppState {
                 let path_str = resolved.display().to_string();
                 self.palette = Some(palette);
                 self.wallpaper_path = Some(path_str.clone());
+                self.custom_seed_color = None;
                 self.config.manual_wallpaper_path = Some(path_str.clone());
                 self.config.wallpaper_backend = WallpaperBackend::Manual;
 
@@ -452,6 +469,7 @@ impl AppState {
         let path_str = path.display().to_string();
         self.palette = Some(palette);
         self.wallpaper_path = Some(path_str);
+        self.custom_seed_color = None;
         self.status_message = Some("Active wallpaper detected and palette regenerated!".into());
         Ok(())
     }
@@ -469,6 +487,7 @@ impl AppState {
         match GeneratedPalette::from_image_path(&path) {
             Ok(palette) => {
                 self.wallpaper_path = Some(path.display().to_string());
+                self.custom_seed_color = None;
                 self.palette = Some(palette);
                 self.status_message = Some(format!("Switched to monitor: {}", name));
             }
@@ -994,9 +1013,20 @@ impl AppState {
         let _ = self.config.save();
 
         // 4. Update state cache
-        if let Some(ref wall_path) = self.wallpaper_path {
-            let mut cache = crate::config::AppStateCache::load().unwrap_or_default();
-            cache.update(std::path::Path::new(wall_path));
+        let mut cache = crate::config::AppStateCache::load().unwrap_or_default();
+        if let Some(color) = self.custom_seed_color {
+            cache.update_source(
+                &crate::config::CacheSource::Color(color),
+                is_dark,
+                &color,
+            );
+            let _ = cache.save();
+        } else if let Some(ref wall_path) = self.wallpaper_path {
+            cache.update_source(
+                &crate::config::CacheSource::Wallpaper(std::path::Path::new(wall_path)),
+                is_dark,
+                &palette.seed_color,
+            );
             let _ = cache.save();
         }
 

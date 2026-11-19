@@ -45,11 +45,21 @@ pub fn render_palette(frame: &mut Frame, area: Rect, state: &AppState) {
         .split(area);
 
     // 1. Wallpaper & Seed indicator inside Step 1
-    let wp_text = state.wallpaper_path.as_deref().unwrap_or(t.no_wallpaper);
+    let custom_color_str;
+    let (label_text, wp_text) = if let Some(ref color) = state.custom_seed_color {
+        custom_color_str = format!("{} (HEX)", color.to_hex());
+        (t.seed_color, custom_color_str.as_str())
+    } else {
+        (
+            t.wallpaper_source,
+            state.wallpaper_path.as_deref().unwrap_or(t.no_wallpaper),
+        )
+    };
+
     let mut spans = vec![
         Span::raw(" "),
         Span::styled(
-            t.wallpaper_source,
+            label_text,
             Style::default()
                 .fg(secondary_color)
                 .add_modifier(Modifier::BOLD),

@@ -250,12 +250,25 @@ fn main() -> Result<()> {
         AppState::new(config)
     };
 
-    let resolved_wallpaper = resolve_tui_wallpaper(&mut state, wallpaper_path.as_deref());
-    if let Some(path) = resolved_wallpaper
+    let resolved_wallpaper = if cli_args.color.is_none() {
+        resolve_tui_wallpaper(&mut state, wallpaper_path.as_deref())
+    } else {
+        None
+    };
+
+    if let Some(ref hex_str) = cli_args.color
+        && let Ok(color) = termonet::core::RgbColor::from_hex(hex_str)
+    {
+        let palette = GeneratedPalette::from_seed_color(color.into());
+        state.palette = Some(palette);
+        state.custom_seed_color = Some(color);
+        state.wallpaper_path = None;
+    } else if let Some(path) = resolved_wallpaper
         && let Ok(palette) = GeneratedPalette::from_image_path(&path)
     {
         state.palette = Some(palette);
         state.wallpaper_path = Some(path.display().to_string());
+        state.custom_seed_color = None;
     }
 
     if state.palette.is_none() {

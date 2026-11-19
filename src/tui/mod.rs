@@ -209,7 +209,7 @@ fn render_footer(frame: &mut Frame, area: Rect, state: &AppState) {
 mod tests {
     use super::*;
     use crate::config::{AppConfig, DisplayServer, WallpaperBackend};
-    use crate::core::GeneratedPalette;
+    use crate::core::{GeneratedPalette, RgbColor};
     use crate::tui::app::{AppState, EnvSubStep, WizardStep};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
@@ -625,6 +625,23 @@ mod tests {
         assert_eq!(wizard.config.display_server, DisplayServer::X11);
         assert_eq!(wizard.config.wallpaper_backend, WallpaperBackend::Auto);
         assert!(wizard.selected_idx < wizard.max_options());
+    }
+
+    #[test]
+    fn test_tui_manual_hex_input_generates_palette() {
+        let mut state = AppState::new(AppConfig::default());
+        assert!(state.custom_seed_color.is_none());
+
+        // User types "#e63946" in manual input modal
+        let success = state.apply_manual_wallpaper("#e63946");
+        assert!(success);
+        assert_eq!(state.custom_seed_color, Some(RgbColor::new(0xe6, 0x39, 0x46)));
+        assert_eq!(state.wallpaper_path, None);
+        assert!(state.palette.is_some());
+        assert_eq!(
+            state.palette.as_ref().unwrap().seed_color,
+            RgbColor::new(0xe6, 0x39, 0x46)
+        );
     }
 
     #[test]
