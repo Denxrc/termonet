@@ -57,13 +57,31 @@ pub fn sync_default_assets<P: AsRef<Path>>(
     let templates_dir = config_dir.as_ref().join("templates");
 
     // Gracefully handle read-only environments
-    if let Err(e) = fs::create_dir_all(&rules_dir) {
-        if e.kind() == std::io::ErrorKind::PermissionDenied || e.raw_os_error() == Some(30) {
-            return Ok(Vec::new());
+    let ensure_dir = |dir: &Path| -> Result<bool> {
+        if let Err(e) = fs::create_dir_all(dir) {
+            if e.kind() == std::io::ErrorKind::PermissionDenied || e.raw_os_error() == Some(30) {
+                return Ok(false);
+            }
+            return Err(e.into());
         }
-        return Err(e.into());
+        Ok(true)
+    };
+
+    if !ensure_dir(&rules_dir)? || !ensure_dir(&templates_dir)? {
+        return Ok(Vec::new());
     }
-    let _ = fs::create_dir_all(&templates_dir);
+
+    let is_readonly_err = |e: &std::io::Error| {
+        e.kind() == std::io::ErrorKind::PermissionDenied || e.raw_os_error() == Some(30)
+    };
+
+    let write_or_ro = |dest: &Path, content: &str| -> Result<bool> {
+        match fs::write(dest, content) {
+            Ok(()) => Ok(true),
+            Err(e) if is_readonly_err(&e) => Ok(false),
+            Err(e) => Err(e.into()),
+        }
+    };
 
     let mut updated = Vec::new();
 
@@ -76,25 +94,30 @@ pub fn sync_default_assets<P: AsRef<Path>>(
         };
 
         if !dest.exists() {
-            if fs::write(&dest, embedded_content).is_ok() {
-                updated.push(name.to_string());
+            if !write_or_ro(&dest, embedded_content)? {
+                return Ok(updated);
             }
+            updated.push(name.to_string());
         } else {
-            let disk_content = fs::read_to_string(&dest).unwrap_or_default();
+            let disk_content = fs::read_to_string(&dest)?;
             let disk_rule = ProgramRule::from_toml(&disk_content);
-            let disk_ver = disk_rule.map(|r| r.version).unwrap_or(1);
+            let is_corrupted = disk_rule.is_err();
+            let disk_ver = disk_rule.map(|r| r.version).unwrap_or(0);
 
-            if force || disk_ver < embedded_rule.version {
+            if force || is_corrupted || disk_ver < embedded_rule.version {
                 if create_backups {
                     let backup_path = rules_dir.join(format!("{}.v{}.bak", name, disk_ver));
-                    let _ = fs::write(&backup_path, &disk_content);
+                    if !write_or_ro(&backup_path, &disk_content)? {
+                        return Ok(updated);
+                    }
                 }
-                if fs::write(&dest, embedded_content).is_ok() {
-                    updated.push(format!(
-                        "{} (v{} -> v{})",
-                        name, disk_ver, embedded_rule.version
-                    ));
+                if !write_or_ro(&dest, embedded_content)? {
+                    return Ok(updated);
                 }
+                updated.push(format!(
+                    "{} (v{} -> v{})",
+                    name, disk_ver, embedded_rule.version
+                ));
             }
         }
     }
@@ -105,21 +128,25 @@ pub fn sync_default_assets<P: AsRef<Path>>(
         let embedded_ver = extract_template_version(embedded_content);
 
         if !dest.exists() {
-            if fs::write(&dest, embedded_content).is_ok() {
-                updated.push(name.to_string());
+            if !write_or_ro(&dest, embedded_content)? {
+                return Ok(updated);
             }
+            updated.push(name.to_string());
         } else {
-            let disk_content = fs::read_to_string(&dest).unwrap_or_default();
+            let disk_content = fs::read_to_string(&dest)?;
             let disk_ver = extract_template_version(&disk_content);
 
             if force || disk_ver < embedded_ver {
                 if create_backups {
                     let backup_path = templates_dir.join(format!("{}.v{}.bak", name, disk_ver));
-                    let _ = fs::write(&backup_path, &disk_content);
+                    if !write_or_ro(&backup_path, &disk_content)? {
+                        return Ok(updated);
+                    }
                 }
-                if fs::write(&dest, embedded_content).is_ok() {
-                    updated.push(format!("{} (v{} -> v{})", name, disk_ver, embedded_ver));
+                if !write_or_ro(&dest, embedded_content)? {
+                    return Ok(updated);
                 }
+                updated.push(format!("{} (v{} -> v{})", name, disk_ver, embedded_ver));
             }
         }
     }
@@ -224,6 +251,32 @@ import_line = "source = ~/.config/hypr/colors.conf"
             !rules_dir.join("hyprland.toml.v1.bak").exists(),
             "No .bak file when create_backups is false"
         );
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_sync_repairs_corrupted_rule_and_propagates_non_ro_errors() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("termonet_test_sync_corrupt_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
+        let rules_dir = temp_dir.join("rules");
+        let templates_dir = temp_dir.join("templates");
+        fs::create_dir_all(&rules_dir).unwrap();
+        fs::create_dir_all(&templates_dir).unwrap();
+
+        // 1. Write invalid TOML for kitty.toml -> must be repaired with v0 -> v2 backup
+        fs::write(rules_dir.join("kitty.toml"), "invalid toml [[[").unwrap();
+        let updated = sync_default_assets(&temp_dir, false, true).unwrap();
+        assert!(updated.iter().any(|s| s.contains("kitty.toml (v0 -> v2)")));
+        assert!(rules_dir.join("kitty.toml.v0.bak").exists());
+        let repaired = fs::read_to_string(rules_dir.join("kitty.toml")).unwrap();
+        assert!(ProgramRule::from_toml(&repaired).is_ok());
+
+        // 2. Non-RO error: replace rofi.toml with a directory -> must return Err
+        let _ = fs::remove_file(rules_dir.join("rofi.toml"));
+        fs::create_dir_all(rules_dir.join("rofi.toml")).unwrap();
+        assert!(sync_default_assets(&temp_dir, false, false).is_err());
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

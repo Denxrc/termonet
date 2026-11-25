@@ -140,8 +140,24 @@ impl ProgramRule {
     /// Loads all available program rules: merges embedded defaults and user rules.
     /// If an existing user rule is an outdated default (lower version), the newer embedded default is preferred.
     pub fn load_all() -> Result<Vec<Self>> {
+        let (rules, _warnings) = Self::load_all_with_warnings()?;
+        Ok(rules)
+    }
+
+    /// Loads all available program rules and collects non-fatal warnings for malformed user rule files.
+    pub fn load_all_with_warnings() -> Result<(Vec<Self>, Vec<String>)> {
+        let rules_dir = AppPaths::rules_dir().ok();
+        Self::load_all_with_warnings_from(rules_dir.as_deref())
+    }
+
+    /// Loads rules from an explicit user rules directory merged with embedded defaults,
+    /// returning non-fatal warnings for any malformed user `.toml` files.
+    pub fn load_all_with_warnings_from(
+        rules_dir: Option<&Path>,
+    ) -> Result<(Vec<Self>, Vec<String>)> {
         let mut rules_map: std::collections::HashMap<String, Self> =
             std::collections::HashMap::new();
+        let mut warnings = Vec::new();
 
         // 1. Seed with embedded defaults
         for (_, content) in DEFAULT_RULES {
@@ -150,10 +166,10 @@ impl ProgramRule {
             }
         }
 
-        // 2. Scan user's rules directory (~/.config/termonet/rules/)
-        if let Ok(rules_dir) = AppPaths::rules_dir()
+        // 2. Scan user's rules directory
+        if let Some(rules_dir) = rules_dir
             && rules_dir.is_dir()
-            && let Ok(entries) = fs::read_dir(&rules_dir)
+            && let Ok(entries) = fs::read_dir(rules_dir)
         {
             let mut paths: Vec<_> = entries
                 .filter_map(std::result::Result::ok)
@@ -163,18 +179,26 @@ impl ProgramRule {
             paths.sort();
 
             for path in paths {
-                if let Ok(content) = fs::read_to_string(&path)
-                    && let Ok(user_rule) = Self::from_toml(&content)
-                {
-                    let key = user_rule.name.to_lowercase();
-                    if let Some(embedded_rule) = rules_map.get(&key) {
-                        // Only override if the user rule has equal or newer version
-                        if user_rule.version >= embedded_rule.version {
-                            rules_map.insert(key, user_rule);
+                match fs::read_to_string(&path) {
+                    Ok(content) => match Self::from_toml(&content) {
+                        Ok(user_rule) => {
+                            let key = user_rule.name.to_lowercase();
+                            if let Some(embedded_rule) = rules_map.get(&key) {
+                                // Only override if the user rule has equal or newer version
+                                if user_rule.version >= embedded_rule.version {
+                                    rules_map.insert(key, user_rule);
+                                }
+                            } else {
+                                // User's own custom rule
+                                rules_map.insert(key, user_rule);
+                            }
                         }
-                    } else {
-                        // User's own custom rule
-                        rules_map.insert(key, user_rule);
+                        Err(e) => {
+                            warnings.push(format!("Failed to parse rule {}: {}", path.display(), e))
+                        }
+                    },
+                    Err(e) => {
+                        warnings.push(format!("Failed to read rule {}: {}", path.display(), e))
                     }
                 }
             }
@@ -182,23 +206,38 @@ impl ProgramRule {
 
         let mut rules: Vec<_> = rules_map.into_values().collect();
         rules.sort_by(|a, b| a.name.cmp(&b.name));
-        Ok(rules)
+        Ok((rules, warnings))
     }
 
     /// Retrieves the raw template content for this rule.
     /// Automatically detects if a template on disk is an outdated default and provides the modern version.
     pub fn load_template_content(&self) -> Result<String> {
+        let templates_dir = AppPaths::templates_dir().ok();
+        self.load_template_content_from(templates_dir.as_deref())
+    }
+
+    /// Retrieves template content from an explicit templates directory, falling back to embedded defaults
+    /// if the file is missing or is an outdated embedded default.
+    pub fn load_template_content_from(&self, templates_dir: Option<&Path>) -> Result<String> {
         let embedded_content = DEFAULT_TEMPLATES
             .iter()
             .find(|(name, _)| *name == self.template)
             .map(|(_, content)| *content);
 
-        if let Ok(templates_dir) = AppPaths::templates_dir() {
-            let file_path = templates_dir.join(&self.template);
+        if let Some(dir) = templates_dir {
+            let file_path = dir.join(&self.template);
             if file_path.is_file()
                 && let Ok(disk_content) = fs::read_to_string(&file_path)
             {
-                return Ok(disk_content);
+                if let Some(emb) = embedded_content {
+                    let disk_ver = extract_template_version(&disk_content);
+                    let emb_ver = extract_template_version(emb);
+                    if disk_ver >= emb_ver {
+                        return Ok(disk_content);
+                    }
+                } else {
+                    return Ok(disk_content);
+                }
             }
         }
 
@@ -256,21 +295,16 @@ impl ProgramRule {
         Ok(())
     }
 
-    /// Safely executes an arbitrary shell reload command with detached stdio and a 2-second timeout.
-    /// Returns `true` if the process spawned and completed with a successful exit status.
-    pub fn execute_hook_command(cmd: &str) -> bool {
-        let mut child = match std::process::Command::new("sh")
-            .arg("-c")
-            .arg(cmd)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-        {
-            Ok(c) => c,
-            Err(_) => return false,
-        };
+    /// Returns the non-empty trimmed reload command if configured.
+    #[must_use]
+    pub fn effective_reload_cmd(&self) -> Option<&str> {
+        self.reload_cmd
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+    }
 
+    fn wait_child_with_timeout(mut child: std::process::Child) -> bool {
         let start = std::time::Instant::now();
         let timeout = std::time::Duration::from_secs(2);
         loop {
@@ -289,18 +323,75 @@ impl ProgramRule {
         }
     }
 
-    /// Safely executes this rule's reload hook command if defined.
+    /// Safely executes an arbitrary shell reload command with detached stdio and a 2-second timeout.
+    /// Returns `true` if the process spawned and completed with a successful exit status.
+    pub fn execute_hook_command(cmd: &str) -> bool {
+        let trimmed = cmd.trim();
+        if trimmed.is_empty() {
+            return false;
+        }
+        let child = match std::process::Command::new("sh")
+            .arg("-c")
+            .arg(trimmed)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+
+        Self::wait_child_with_timeout(child)
+    }
+
+    /// Spawns a reload command and reaps it on a background thread without blocking the caller.
+    /// Returns `true` if the command was non-empty and successfully spawned.
+    pub fn spawn_hook_detached(cmd: &str) -> bool {
+        let trimmed = cmd.trim();
+        if trimmed.is_empty() {
+            return false;
+        }
+        let child = match std::process::Command::new("sh")
+            .arg("-c")
+            .arg(trimmed)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+
+        std::thread::spawn(move || {
+            let _ = Self::wait_child_with_timeout(child);
+        });
+        true
+    }
+
+    /// Safely executes this rule's reload hook command synchronously if defined.
     /// Returns `true` if the hook command was executed successfully.
     pub fn execute_reload_hook(&self) -> bool {
-        if let Some(ref cmd) = self.reload_cmd {
+        if let Some(cmd) = self.effective_reload_cmd() {
             Self::execute_hook_command(cmd)
         } else {
             false
         }
     }
 
+    /// Spawns this rule's reload hook command without blocking the UI thread.
+    /// Returns `true` if a non-empty hook command was spawned.
+    pub fn spawn_reload_hook_detached(&self) -> bool {
+        if let Some(cmd) = self.effective_reload_cmd() {
+            Self::spawn_hook_detached(cmd)
+        } else {
+            false
+        }
+    }
+
     /// Renders the template, writes output files, updates target dotfiles,
-    /// and optionally triggers the configured reload hook.
+    /// and optionally triggers the configured reload hook synchronously.
     /// Returns `Ok(true)` if the hook was executed successfully, or `Ok(false)` otherwise.
     pub fn apply_with_hook(
         &self,
@@ -313,6 +404,24 @@ impl ProgramRule {
         self.apply(engine, palette, is_dark, create_backups)?;
         if run_hook {
             Ok(self.execute_reload_hook())
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// Renders the template, writes output files, updates target dotfiles,
+    /// and optionally triggers the reload hook asynchronously without blocking the TUI.
+    pub fn apply_with_hook_detached(
+        &self,
+        engine: &TemplateEngine,
+        palette: &GeneratedPalette,
+        is_dark: bool,
+        create_backups: bool,
+        run_hook: bool,
+    ) -> Result<bool> {
+        self.apply(engine, palette, is_dark, create_backups)?;
+        if run_hook {
+            Ok(self.spawn_reload_hook_detached())
         } else {
             Ok(false)
         }
@@ -365,19 +474,59 @@ pub fn inject_import(
     }
 
     // Case 2: Check for foreign / legacy color imports (e.g. pywal, old color includes)
+    let starts_with_directive = |line: &str, kw: &str| -> bool {
+        line.strip_prefix(kw).is_some_and(|rest| {
+            rest.is_empty()
+                || rest.starts_with(char::is_whitespace)
+                || rest.starts_with('=')
+                || rest.starts_with('(')
+        })
+    };
+
     let mut replaced = false;
+    let mut in_block_comment = false;
     let mut result = String::with_capacity(content.len() + block.len() + 8);
 
     for line in content.lines() {
         let trimmed = line.trim();
-        let is_legacy_color_import =
-            (trimmed.contains("colors") || trimmed.contains("wal") || trimmed.contains("termonet"))
-                && (trimmed.starts_with("include")
-                    || trimmed.starts_with("@import")
-                    || trimmed.starts_with("@theme")
-                    || trimmed.starts_with("source")
-                    || trimmed.starts_with("local")
-                    || trimmed.contains("require"));
+
+        let is_comment = if in_block_comment {
+            if trimmed.contains("*/") {
+                in_block_comment = false;
+            }
+            true
+        } else if trimmed.starts_with("/*") {
+            if !trimmed.contains("*/") {
+                in_block_comment = true;
+            }
+            true
+        } else {
+            trimmed.is_empty()
+                || trimmed.starts_with('#')
+                || trimmed.starts_with("//")
+                || trimmed.starts_with("--")
+        };
+
+        let lower = trimmed.to_ascii_lowercase();
+        let has_color_target = lower.contains("termonet")
+            || lower.contains("pywal")
+            || lower.contains("/wal/")
+            || lower.contains("\\wal\\")
+            || lower.contains("colors-")
+            || lower.contains("colors.")
+            || lower.contains("\"colors\"")
+            || lower.contains("'colors'");
+
+        let has_import_syntax = starts_with_directive(&lower, "include")
+            || starts_with_directive(&lower, "@import")
+            || starts_with_directive(&lower, "@theme")
+            || starts_with_directive(&lower, "source")
+            || (starts_with_directive(&lower, "local") && lower.contains("require"))
+            || lower.contains("require(")
+            || lower.contains("require \"")
+            || lower.contains("require '");
+
+        let is_legacy_color_import = !is_comment && has_color_target && has_import_syntax;
 
         if !replaced && is_legacy_color_import {
             result.push_str(&block);
@@ -406,6 +555,7 @@ pub fn inject_import(
                     let rest = &content[first_nl + 1..];
                     return format!("{}{}\n{}", shebang, block, rest);
                 }
+                return format!("{}\n{}\n", content, block);
             }
             if content.is_empty() {
                 format!("{}\n", block)
@@ -579,8 +729,169 @@ hl.config({
     fn test_execute_hook_command() {
         assert!(ProgramRule::execute_hook_command("true"));
         assert!(!ProgramRule::execute_hook_command("false"));
+        assert!(!ProgramRule::execute_hook_command(""));
+        assert!(!ProgramRule::execute_hook_command("   "));
         assert!(!ProgramRule::execute_hook_command(
             "non_existent_binary_xyz_12345"
         ));
+
+        let rule_empty = ProgramRule {
+            version: 2,
+            name: "EmptyHook".into(),
+            template: "kitty.tmpl".into(),
+            output_path: PathBuf::from("/tmp/out.conf"),
+            target_config: None,
+            import_line: None,
+            import_position: ImportPosition::Bottom,
+            reload_cmd: Some("   ".into()),
+            comment_style: None,
+        };
+        assert_eq!(rule_empty.effective_reload_cmd(), None);
+        assert!(!rule_empty.execute_reload_hook());
+        assert!(!rule_empty.spawn_reload_hook_detached());
+        assert!(!ProgramRule::spawn_hook_detached(""));
+        assert!(!ProgramRule::spawn_hook_detached("   "));
+    }
+
+    #[test]
+    fn test_spawn_hook_detached_is_non_blocking_and_apply_with_hook_detached() {
+        let start = std::time::Instant::now();
+        assert!(ProgramRule::spawn_hook_detached("sleep 1"));
+        assert!(
+            start.elapsed() < std::time::Duration::from_millis(250),
+            "spawn_hook_detached must return immediately without waiting for sleep"
+        );
+
+        let temp_dir =
+            std::env::temp_dir().join(format!("termonet_test_detached_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let rule = ProgramRule {
+            version: 2,
+            name: "DetachedTest".into(),
+            template: "kitty.tmpl".into(),
+            output_path: temp_dir.join("colors.conf"),
+            target_config: None,
+            import_line: None,
+            import_position: ImportPosition::Bottom,
+            reload_cmd: Some("sleep 1".into()),
+            comment_style: None,
+        };
+
+        let palette =
+            GeneratedPalette::from_seed_color(material_colors::color::Rgb::new(0x11, 0x22, 0x33));
+        let engine = TemplateEngine::new();
+
+        // run_hook = false -> returns Ok(false)
+        let ran_false = rule
+            .apply_with_hook_detached(&engine, &palette, true, false, false)
+            .unwrap();
+        assert!(!ran_false);
+
+        // run_hook = true -> spawns in background and returns Ok(true) immediately
+        let t0 = std::time::Instant::now();
+        let ran_true = rule
+            .apply_with_hook_detached(&engine, &palette, true, false, true)
+            .unwrap();
+        assert!(ran_true);
+        assert!(t0.elapsed() < std::time::Duration::from_millis(250));
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_load_all_with_warnings_reports_malformed_user_rule() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("termonet_test_rule_warn_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        fs::write(temp_dir.join("broken.toml"), "not = [valid toml").unwrap();
+        fs::write(
+            temp_dir.join("foot.toml"),
+            r#"
+version = 2
+name = "Foot"
+template = "foot.tmpl"
+output_path = "~/.config/foot/colors.ini"
+"#,
+        )
+        .unwrap();
+
+        let (rules, warnings) = ProgramRule::load_all_with_warnings_from(Some(&temp_dir)).unwrap();
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("broken.toml"));
+        assert!(rules.iter().any(|r| r.name == "Foot"));
+        assert!(rules.iter().any(|r| r.name == "Kitty"));
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_inject_import_ignores_non_import_wal_and_comments() {
+        let lua_conf = r##"-- Hyprland Lua
+local wallpaper_dir = "~/wallpapers"
+local border_colors = { "#ffffff" }
+"##;
+        let injected_lua = inject_import(
+            lua_conf,
+            "local colors = require(\"colors\")",
+            ImportPosition::Top,
+            CommentStyle::DoubleDash,
+        );
+        assert!(injected_lua.contains("local wallpaper_dir = \"~/wallpapers\""));
+        assert!(injected_lua.contains("local border_colors = { \"#ffffff\" }"));
+
+        let css_conf = r#"/*
+ * this theme requires custom colors
+ */
+window { background: #111111; }
+"#;
+        let injected_css = inject_import(
+            css_conf,
+            "@import 'colors.css';",
+            ImportPosition::Top,
+            CommentStyle::BlockCss,
+        );
+        assert!(injected_css.contains("this theme requires custom colors"));
+        assert!(injected_css.starts_with("/* >>> termonet colors >>> */"));
+    }
+
+    #[test]
+    fn test_load_template_content_prefers_modern_embedded_over_outdated_disk() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("termonet_test_tpl_ver_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        // Outdated v1 template on disk for kitty.tmpl (embedded is v4)
+        fs::write(temp_dir.join("kitty.tmpl"), "# termonet-version: 1\nold").unwrap();
+
+        let rule = ProgramRule {
+            version: 2,
+            name: "Kitty".into(),
+            template: "kitty.tmpl".into(),
+            output_path: PathBuf::from("/tmp/colors.conf"),
+            target_config: None,
+            import_line: None,
+            import_position: ImportPosition::Bottom,
+            reload_cmd: None,
+            comment_style: None,
+        };
+
+        let loaded = rule.load_template_content_from(Some(&temp_dir)).unwrap();
+        assert!(loaded.contains("termonet-version: 4"));
+
+        // User-customized v4+ template on disk must be respected
+        fs::write(
+            temp_dir.join("kitty.tmpl"),
+            "# termonet-version: 4\ncustom_user_content",
+        )
+        .unwrap();
+        let loaded_custom = rule.load_template_content_from(Some(&temp_dir)).unwrap();
+        assert!(loaded_custom.contains("custom_user_content"));
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }
