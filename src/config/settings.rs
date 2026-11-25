@@ -151,6 +151,15 @@ pub enum WallpaperBackend {
 /// Current configuration schema version.
 pub const CONFIG_SCHEMA_VERSION: u32 = 2;
 
+fn default_enabled_programs() -> Vec<String> {
+    vec![
+        "kitty".to_string(),
+        "waybar".to_string(),
+        "rofi".to_string(),
+        "hyprland".to_string(),
+    ]
+}
+
 /// Global Termonet configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -166,7 +175,7 @@ pub struct AppConfig {
     pub wallpaper_backend: WallpaperBackend,
     #[serde(default)]
     pub primary_monitor: Option<String>,
-    #[serde(default)]
+    #[serde(default = "default_enabled_programs")]
     pub enabled_programs: Vec<String>,
     #[serde(default)]
     pub manual_wallpaper_path: Option<String>,
@@ -183,12 +192,7 @@ impl Default for AppConfig {
             display_server: DisplayServer::Wayland,
             wallpaper_backend: WallpaperBackend::Auto,
             primary_monitor: None,
-            enabled_programs: vec![
-                "kitty".to_string(),
-                "waybar".to_string(),
-                "rofi".to_string(),
-                "hyprland".to_string(),
-            ],
+            enabled_programs: default_enabled_programs(),
             manual_wallpaper_path: None,
             create_backups: false,
         }
@@ -236,13 +240,15 @@ impl AppConfig {
             WallpaperBackend::Manual => "manual",
         };
 
+        let escape_toml_str = |s: &str| toml::Value::String(s.to_string()).to_string();
+
         let primary_mon_line = match &self.primary_monitor {
-            Some(mon) => format!("primary_monitor = \"{}\"", mon),
+            Some(mon) => format!("primary_monitor = {}", escape_toml_str(mon)),
             None => "# primary_monitor = \"eDP-1\"".to_string(),
         };
 
         let manual_path_line = match &self.manual_wallpaper_path {
-            Some(p) => format!("manual_wallpaper_path = \"{}\"", p),
+            Some(p) => format!("manual_wallpaper_path = {}", escape_toml_str(p)),
             None => "# manual_wallpaper_path = \"/path/to/wallpaper.png\"".to_string(),
         };
 
@@ -252,7 +258,7 @@ impl AppConfig {
             let items: Vec<String> = self
                 .enabled_programs
                 .iter()
-                .map(|p| format!("    \"{}\"", p))
+                .map(|p| format!("    {}", escape_toml_str(p)))
                 .collect();
             format!("{}\n", items.join(",\n"))
         };
@@ -342,13 +348,13 @@ create_backups = {create_backups}
         )
     }
 
-    /// Checks whether the raw configuration file on disk needs an automatic migration/sync.
-    /// This detects configs from older versions that lack newly added parameters
-    /// (such as `create_backups`), lack modern schema version headers, or contain outdated documentation.
+    /// Checks whether an auto-generated configuration file on disk needs an automatic migration/sync.
+    /// Custom minimal user configs without Termonet's generated header are left untouched.
     #[must_use]
     pub fn needs_migration(content: &str) -> bool {
-        !content.contains("create_backups")
-            || !content.contains("Schema Version: 2")
+        let is_generated = content.contains("Termonet Configuration");
+        (is_generated
+            && (!content.contains("create_backups") || !content.contains("Schema Version: 2")))
             || content.contains("\"alacritty\" - Alacritty terminal")
     }
 
@@ -559,6 +565,34 @@ enabled_programs = [
         let empty_config = empty_res.unwrap();
         assert_eq!(empty_config.language, Language::default());
         assert_eq!(empty_config.tui_theme, TuiTheme::default());
-        assert!(empty_config.enabled_programs.is_empty());
+        assert_eq!(
+            empty_config.enabled_programs,
+            AppConfig::default().enabled_programs
+        );
+
+        // Explicit empty enabled_programs = [] must remain empty
+        let explicit_empty: AppConfig = toml::from_str("enabled_programs = []").unwrap();
+        assert!(explicit_empty.enabled_programs.is_empty());
+    }
+
+    #[test]
+    fn test_commented_toml_escapes_special_chars() {
+        let config = AppConfig {
+            primary_monitor: Some(r#"DP-"1"\main"#.to_string()),
+            manual_wallpaper_path: Some(r#"/home/user/My "Walls"\bg.png"#.to_string()),
+            enabled_programs: vec![r#"my"app"#.to_string(), r#"path\app"#.to_string()],
+            ..Default::default()
+        };
+
+        let commented = config.to_commented_toml();
+        let parsed: AppConfig =
+            toml::from_str(&commented).expect("Escaped commented TOML must parse cleanly");
+        assert_eq!(parsed, config);
+    }
+
+    #[test]
+    fn test_custom_minimal_config_not_overwritten_by_migration() {
+        let minimal_custom = "language = \"en\"\ntui_theme = \"light\"\n";
+        assert!(!AppConfig::needs_migration(minimal_custom));
     }
 }

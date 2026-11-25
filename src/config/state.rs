@@ -14,7 +14,7 @@ pub enum CacheSource<'a> {
     Color(RgbColor),
 }
 
-/// State cache tracking the last applied wallpaper and theme mode.
+/// State cache tracking the last applied wallpaper, theme mode, and config fingerprint.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct AppStateCache {
     pub last_wallpaper_path: Option<String>,
@@ -23,6 +23,8 @@ pub struct AppStateCache {
     pub last_seed_color: Option<String>,
     #[serde(default)]
     pub last_is_dark: Option<bool>,
+    #[serde(default)]
+    pub last_config_fingerprint: Option<String>,
 }
 
 impl AppStateCache {
@@ -50,16 +52,11 @@ impl AppStateCache {
         self.save_to_path(path)
     }
 
-    /// Saves the current state cache to a specific file path.
+    /// Saves the current state cache to a specific file path atomically.
     pub fn save_to_path<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let path = path.as_ref();
-        if let Some(parent) = path.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-
         let serialized = toml::to_string_pretty(self)?;
-        fs::write(path, serialized)?;
-        Ok(())
+        crate::template::safe_write(path, &serialized, false)
     }
 
     /// Computes a lightweight file fingerprint based on file size and modification time.
@@ -86,8 +83,20 @@ impl AppStateCache {
 
     /// Updates cache with a specific source, theme mode, and seed color.
     pub fn update_source(&mut self, source: &CacheSource, is_dark: bool, seed_color: &RgbColor) {
+        self.update_source_with_fingerprint(source, is_dark, seed_color, None);
+    }
+
+    /// Updates cache with a specific source, theme mode, seed color, and config/rules fingerprint.
+    pub fn update_source_with_fingerprint(
+        &mut self,
+        source: &CacheSource,
+        is_dark: bool,
+        seed_color: &RgbColor,
+        config_fingerprint: Option<String>,
+    ) {
         self.last_is_dark = Some(is_dark);
         self.last_seed_color = Some(seed_color.to_hex());
+        self.last_config_fingerprint = config_fingerprint;
         match source {
             CacheSource::Wallpaper(p) => {
                 self.last_wallpaper_path = Some(p.display().to_string());
@@ -98,6 +107,76 @@ impl AppStateCache {
                 self.last_wallpaper_hash = None;
             }
         }
+    }
+
+    /// Computes a deterministic FNV-1a fingerprint of enabled programs and on-disk rules/templates.
+    #[must_use]
+    pub fn compute_config_fingerprint(
+        enabled_programs: &[String],
+        rules_dir: Option<&Path>,
+        templates_dir: Option<&Path>,
+    ) -> String {
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        let mix = |h: &mut u64, bytes: &[u8]| {
+            for &b in bytes {
+                *h ^= u64::from(b);
+                *h = h.wrapping_mul(0x0100_0000_01b3);
+            }
+            *h ^= 0xff;
+            *h = h.wrapping_mul(0x0100_0000_01b3);
+        };
+
+        let mut progs: Vec<String> = enabled_programs.iter().map(|p| p.to_lowercase()).collect();
+        progs.sort();
+        for p in &progs {
+            mix(&mut hash, p.as_bytes());
+        }
+
+        let hash_dir = |dir: &Path, h: &mut u64| {
+            if let Ok(entries) = fs::read_dir(dir) {
+                let mut paths: Vec<_> = entries
+                    .filter_map(std::result::Result::ok)
+                    .map(|e| e.path())
+                    .filter(|p| p.is_file())
+                    .collect();
+                paths.sort();
+                for p in paths {
+                    if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                        mix(h, name.as_bytes());
+                    }
+                    if let Some(file_hash) = Self::compute_hash(&p) {
+                        mix(h, file_hash.as_bytes());
+                    }
+                }
+            }
+        };
+
+        if let Some(r_dir) = rules_dir {
+            mix(&mut hash, b"rules");
+            hash_dir(r_dir, &mut hash);
+        }
+        if let Some(t_dir) = templates_dir {
+            mix(&mut hash, b"templates");
+            hash_dir(t_dir, &mut hash);
+        }
+
+        format!("{hash:016x}")
+    }
+
+    /// Checks if source, theme mode, and optional config fingerprint match the cached state.
+    #[must_use]
+    pub fn is_up_to_date_with_config(
+        &self,
+        source: &CacheSource,
+        current_is_dark: bool,
+        config_fingerprint: Option<&str>,
+    ) -> bool {
+        if let Some(fp) = config_fingerprint
+            && self.last_config_fingerprint.as_deref() != Some(fp)
+        {
+            return false;
+        }
+        self.is_up_to_date(source, current_is_dark)
     }
 
     /// Checks if source and theme mode match the cached state.
@@ -123,11 +202,9 @@ impl AppStateCache {
                     return false;
                 }
 
-                // If file exists on disk and we have a fingerprint check, ensure contents haven't changed.
-                // If saved_hash exists but file is missing/unreadable on disk, return false.
+                // Require a saved fingerprint and an existing readable file with matching size+mtime.
                 match (self.last_wallpaper_hash.as_ref(), Self::compute_hash(p)) {
                     (Some(saved), Some(current)) => saved == &current,
-                    (None, Some(_)) => true,
                     _ => false,
                 }
             }
@@ -187,6 +264,7 @@ mod tests {
             last_wallpaper_hash: hash,
             last_seed_color: Some("#385e72".into()),
             last_is_dark: Some(true),
+            last_config_fingerprint: None,
         };
 
         cache.save_to_path(&file)?;
@@ -275,5 +353,61 @@ mod tests {
         assert_eq!(cache.last_seed_color.as_deref(), Some("#112233"));
 
         let _ = fs::remove_file(&wall);
+    }
+
+    #[test]
+    fn test_cache_invalidates_when_hash_missing_or_config_changes() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("termonet_test_state_fp_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
+        let rules_dir = temp_dir.join("rules");
+        let tpl_dir = temp_dir.join("templates");
+        fs::create_dir_all(&rules_dir).unwrap();
+        fs::create_dir_all(&tpl_dir).unwrap();
+
+        let wall = temp_dir.join("wall.png");
+        fs::write(&wall, b"img").unwrap();
+        let source = CacheSource::Wallpaper(&wall);
+        let color = RgbColor::new(0x11, 0x22, 0x33);
+
+        // Missing last_wallpaper_hash must NOT count as up-to-date
+        let partial_cache = AppStateCache {
+            last_wallpaper_path: Some(wall.display().to_string()),
+            last_wallpaper_hash: None,
+            last_seed_color: Some("#112233".into()),
+            last_is_dark: Some(true),
+            last_config_fingerprint: None,
+        };
+        assert!(!partial_cache.is_up_to_date(&source, true));
+
+        let fp1 = AppStateCache::compute_config_fingerprint(
+            &["kitty".into()],
+            Some(&rules_dir),
+            Some(&tpl_dir),
+        );
+        let mut cache = AppStateCache::default();
+        cache.update_source_with_fingerprint(&source, true, &color, Some(fp1.clone()));
+        assert!(cache.is_up_to_date_with_config(&source, true, Some(&fp1)));
+
+        // Adding a program invalidates fingerprint
+        let fp2 = AppStateCache::compute_config_fingerprint(
+            &["kitty".into(), "waybar".into()],
+            Some(&rules_dir),
+            Some(&tpl_dir),
+        );
+        assert_ne!(fp1, fp2);
+        assert!(!cache.is_up_to_date_with_config(&source, true, Some(&fp2)));
+
+        // Modifying a template file invalidates fingerprint
+        fs::write(tpl_dir.join("kitty.tmpl"), "background #000000").unwrap();
+        let fp3 = AppStateCache::compute_config_fingerprint(
+            &["kitty".into()],
+            Some(&rules_dir),
+            Some(&tpl_dir),
+        );
+        assert_ne!(fp1, fp3);
+        assert!(!cache.is_up_to_date_with_config(&source, true, Some(&fp3)));
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }
