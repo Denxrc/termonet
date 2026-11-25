@@ -83,26 +83,6 @@ impl RgbColor {
         std::str::from_utf8(&bytes).unwrap_or("#000000").to_string()
     }
 
-    /// Formats the color as a lowercase HEX string without a leading hash (e.g. "1a2b3c").
-    #[must_use]
-    pub fn to_stripped_hex(&self) -> String {
-        let bytes = [
-            HEX_DIGITS[(self.r >> 4) as usize],
-            HEX_DIGITS[(self.r & 0xf) as usize],
-            HEX_DIGITS[(self.g >> 4) as usize],
-            HEX_DIGITS[(self.g & 0xf) as usize],
-            HEX_DIGITS[(self.b >> 4) as usize],
-            HEX_DIGITS[(self.b & 0xf) as usize],
-        ];
-        std::str::from_utf8(&bytes).unwrap_or("000000").to_string()
-    }
-
-    /// Formats the color as a comma-separated RGB string (e.g. "26, 43, 60").
-    #[must_use]
-    pub fn to_rgb_string(&self) -> String {
-        format!("{}, {}, {}", self.r, self.g, self.b)
-    }
-
     /// Parses an sRGB color from a HEX string (e.g. "#1a2b3c", "1a2b3c", "#abc", "abc", "0x1a2b3c").
     pub fn from_hex(s: &str) -> crate::error::Result<Self> {
         let trimmed = s.trim();
@@ -278,18 +258,12 @@ mod tests {
     fn test_rgb_color_formatting_and_lut() {
         let color = RgbColor::new(0x1a, 0x2b, 0x3c);
         assert_eq!(color.to_hex(), "#1a2b3c");
-        assert_eq!(color.to_stripped_hex(), "1a2b3c");
-        assert_eq!(color.to_rgb_string(), "26, 43, 60");
 
         let black = RgbColor::new(0, 0, 0);
         assert_eq!(black.to_hex(), "#000000");
-        assert_eq!(black.to_stripped_hex(), "000000");
-        assert_eq!(black.to_rgb_string(), "0, 0, 0");
 
         let white = RgbColor::new(255, 255, 255);
         assert_eq!(white.to_hex(), "#ffffff");
-        assert_eq!(white.to_stripped_hex(), "ffffff");
-        assert_eq!(white.to_rgb_string(), "255, 255, 255");
     }
 
     #[test]

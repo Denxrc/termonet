@@ -154,12 +154,6 @@ pub fn sync_default_assets<P: AsRef<Path>>(
     Ok(updated)
 }
 
-/// Unpacks default embedded rules and templates to user's config directory if not already present.
-pub fn unpack_default_assets<P: AsRef<Path>>(config_dir: P) -> Result<()> {
-    sync_default_assets(config_dir, false, false)?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

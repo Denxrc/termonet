@@ -51,7 +51,7 @@ fn print_help() {
     println!("  1, 2, 3, 4               Jump directly to specific step");
     println!("  Up / Down (k / j)        Navigate programs and hooks list");
     println!("  Space                    Toggle selected program or hook");
-    println!("  Enter                    Apply theme (in Step 4) / Confirm selection (in Wizard)");
+    println!("  Enter                    Apply theme (in Step 4) / Toggle or save (in Wizard)");
     println!(
         "  Tab / m                  Cycle active monitor wallpapers (in Step 1, multi-monitor)"
     );

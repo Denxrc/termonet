@@ -74,13 +74,6 @@ impl AppStateCache {
         Some(format!("{len}:{mtime}"))
     }
 
-    /// Updates cache with the given wallpaper path and its current content fingerprint.
-    pub fn update<P: AsRef<Path>>(&mut self, wallpaper_path: P) {
-        let p = wallpaper_path.as_ref();
-        self.last_wallpaper_path = Some(p.display().to_string());
-        self.last_wallpaper_hash = Self::compute_hash(p);
-    }
-
     /// Updates cache with a specific source, theme mode, and seed color.
     pub fn update_source(&mut self, source: &CacheSource, is_dark: bool, seed_color: &RgbColor) {
         self.update_source_with_fingerprint(source, is_dark, seed_color, None);
@@ -216,31 +209,6 @@ impl AppStateCache {
                     .as_deref()
                     .is_some_and(|s| s.eq_ignore_ascii_case(&c.to_hex()))
             }
-        }
-    }
-
-    /// Backward-compatible check for wallpaper paths alone.
-    #[must_use]
-    pub fn is_up_to_date_path<P: AsRef<Path>>(&self, wallpaper_path: P) -> bool {
-        let p = wallpaper_path.as_ref();
-        let path_str = p.to_string_lossy();
-        let matches_path = self.last_wallpaper_path.as_deref() == Some(path_str.as_ref())
-            || (self.last_wallpaper_path.as_ref().is_some_and(|last| {
-                if let (Ok(p1), Ok(p2)) = (fs::canonicalize(p), fs::canonicalize(last)) {
-                    p1 == p2
-                } else {
-                    false
-                }
-            }));
-
-        if !matches_path {
-            return false;
-        }
-
-        match (self.last_wallpaper_hash.as_ref(), Self::compute_hash(p)) {
-            (Some(saved), Some(current)) => saved == &current,
-            (None, Some(_)) => true,
-            _ => false,
         }
     }
 }

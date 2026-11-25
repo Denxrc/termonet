@@ -70,16 +70,6 @@ impl PixelFont {
         lines
     }
 
-    /// Renders text into Ratatui `Line` elements with the given `Style`.
-    #[must_use]
-    pub fn render_lines<'a>(text: &str, style: Style) -> Vec<Line<'a>> {
-        let rendered = Self::render(text);
-        rendered
-            .into_iter()
-            .map(|l| Line::from(vec![Span::styled(l, style)]))
-            .collect()
-    }
-
     /// Returns the pre-rendered, cached 3-line banner for "TERMONET".
     /// Eliminates all per-frame glyph bitmask rendering and String allocations in the TUI render loop.
     #[must_use]

@@ -32,10 +32,6 @@ pub enum TermonetError {
     /// Configuration validation or parsing error.
     #[error("Configuration error: {0}")]
     Config(String),
-
-    /// Command execution failure when running reload hooks.
-    #[error("Hook execution error: {0}")]
-    HookExecution(String),
 }
 
 /// Global Result type alias using `TermonetError`.

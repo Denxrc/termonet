@@ -75,7 +75,7 @@ Termonet organizes its workflow into 4 focused steps:
 | `1`, `2`, `3`, `4` | Jump directly to step 1..4 |
 | `Up` / `Down` (`k` / `j`) | Navigate items in lists |
 | `Space` | Toggle selected program or hook checkbox |
-| `Enter` | Apply theme (in Step 4) / Confirm selection (in Wizard) |
+| `Enter` | Apply theme (in Step 4) / Toggle option or save (in Wizard) |
 | `Tab` / `m` | Cycle active monitor wallpapers (in Step 1, multi-monitor) |
 | `w` / `o` | Open manual wallpaper path input dialog (in Step 1) |
 | `r` | Auto-detect wallpaper from active wallpaper daemon (in Step 1) |
@@ -189,7 +189,7 @@ Termonet configuration is stored at `~/.config/termonet/config.toml`. The file i
 # Interface language ("ru" | "en")
 language = "en"
 
-# Visual color theme variant for TUI ("dark" | "light" | "system")
+# Visual color theme variant for TUI ("dark" | "light" | "system" via desktop color-scheme)
 tui_theme = "dark"
 
 # Header font rendering mode ("pixel" | "standard")
@@ -346,8 +346,8 @@ Every color object exposes direct properties:
 ### 5. Non-Destructive Safety & Auto-Backups
 
 Termonet guarantees configuration safety:
-- **Master Backup (`.original`)**: Created once on the very first injection and **never overwritten**, ensuring your untouched original configs can always be restored.
-- **Safety Backup (`.bak`)**: Created prior to every file write.
+- **Master Backup (`.original`)**: Created once on the very first modification of a `target_config` when `create_backups = true` and **never overwritten**, ensuring your untouched original configs can always be restored.
+- **Safety Backup (`.bak`)**: When `create_backups = true` (disabled by default for clean overwrites), created prior to modifying `target_config`. Generated color palette files (`output_path`) are updated atomically without `.bak` clutter.
 - **Managed Marker Blocks**: Import lines are wrapped in recognizable comments:
   ```ini
   # >>> termonet colors >>>

@@ -310,7 +310,6 @@ mod tests {
         // Check HEX formats
         assert!(palette.seed_color.to_hex().starts_with('#'));
         assert_eq!(palette.seed_color.to_hex().len(), 7);
-        assert_eq!(palette.seed_color.to_stripped_hex().len(), 6);
 
         // Verify dark scheme roles exist
         assert_ne!(palette.dark.primary.to_hex(), "");

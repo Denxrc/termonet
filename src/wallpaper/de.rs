@@ -200,32 +200,6 @@ pub fn parse_kde_containments(content: &str) -> HashMap<String, PathBuf> {
     result
 }
 
-/// Backwards compatibility wrapper for parsing KDE applet configuration.
-#[must_use]
-pub fn parse_kde_appletsrc(content: &str) -> Option<PathBuf> {
-    let parsed = parse_kde_containments(content);
-    if let Some(p) = parsed.get("default") {
-        return Some(p.clone());
-    }
-    if let Some(p) = parsed.values().next() {
-        return Some(p.clone());
-    }
-
-    // Fallback: flat search across any Image= line
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if let Some((key, val)) = trimmed.split_once('=') {
-            let key = key.trim();
-            if (key == "Image" || key == "usersWallpapers")
-                && let Some(path) = sanitize_wallpaper_path(val.trim())
-            {
-                return Some(path);
-            }
-        }
-    }
-    None
-}
-
 /// Resolves a KDE Plasma theme package directory (e.g. `/usr/share/wallpapers/Next/`)
 /// to a physical image file inside `contents/images/` or `contents/images_dark/`.
 #[must_use]
@@ -378,22 +352,6 @@ mod tests {
         assert_eq!(parse_gnome_uri("none"), None);
         assert_eq!(parse_gnome_uri("'none'"), None);
         assert_eq!(parse_gnome_uri("\"none\""), None);
-    }
-
-    #[test]
-    fn test_parse_kde_appletsrc() {
-        let content = "\
-[Containments][1][Applets][2][Configuration][General]
-Image=file:///usr/share/wallpapers/Next/contents/images/3840x2160.png
-SlidePaths=/usr/share/wallpapers
-";
-        let parsed = parse_kde_appletsrc(content);
-        assert_eq!(
-            parsed,
-            Some(PathBuf::from(
-                "/usr/share/wallpapers/Next/contents/images/3840x2160.png"
-            ))
-        );
     }
 
     #[test]

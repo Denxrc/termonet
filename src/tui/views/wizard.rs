@@ -33,6 +33,56 @@ fn summary_item_line<'a>(
     ])
 }
 
+#[allow(clippy::too_many_arguments)]
+fn radio_option_line<'a>(
+    label: &'a str,
+    extra_spans: Vec<Span<'a>>,
+    is_current_cursor: bool,
+    is_selected: bool,
+    primary_color: Color,
+    text_color: Color,
+    text_muted: Color,
+    text_dim: Color,
+) -> Line<'a> {
+    let cursor_span = if is_current_cursor {
+        Span::styled(
+            "   ➔  ",
+            Style::default()
+                .fg(primary_color)
+                .add_modifier(Modifier::BOLD),
+        )
+    } else {
+        Span::styled("      ", Style::default())
+    };
+
+    let radio_span = if is_selected {
+        Span::styled(
+            "[●] ",
+            Style::default()
+                .fg(primary_color)
+                .add_modifier(Modifier::BOLD),
+        )
+    } else {
+        Span::styled("[ ] ", Style::default().fg(text_dim))
+    };
+
+    let label_style = if is_current_cursor {
+        Style::default()
+            .fg(text_color)
+            .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+    } else if is_selected {
+        Style::default().fg(text_color).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(text_muted)
+    };
+
+    let mut spans = vec![cursor_span, radio_span, Span::styled(label, label_style)];
+    for extra in extra_spans {
+        spans.push(Span::styled(extra.content, label_style));
+    }
+    Line::from(spans)
+}
+
 /// Renders the complete First-Run Wizard interface.
 pub fn render_wizard(frame: &mut Frame, area: Rect, state: &AppState) {
     let t = get_translations(state.config.language);
@@ -367,46 +417,16 @@ fn render_step_language(
     ];
 
     for (idx, (label, lang)) in options.into_iter().enumerate() {
-        let is_current_cursor = wizard.selected_idx == idx;
-        let is_selected = wizard.config.language == lang;
-
-        let cursor_span = if is_current_cursor {
-            Span::styled(
-                "   ➔  ",
-                Style::default()
-                    .fg(primary_color)
-                    .add_modifier(Modifier::BOLD),
-            )
-        } else {
-            Span::styled("      ", Style::default())
-        };
-
-        let radio_span = if is_selected {
-            Span::styled(
-                "[●] ",
-                Style::default()
-                    .fg(primary_color)
-                    .add_modifier(Modifier::BOLD),
-            )
-        } else {
-            Span::styled("[ ] ", Style::default().fg(text_dim))
-        };
-
-        let label_style = if is_current_cursor {
-            Style::default()
-                .fg(text_color)
-                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
-        } else if is_selected {
-            Style::default().fg(text_color).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(text_muted)
-        };
-
-        lines.push(Line::from(vec![
-            cursor_span,
-            radio_span,
-            Span::styled(label, label_style),
-        ]));
+        lines.push(radio_option_line(
+            label,
+            Vec::new(),
+            wizard.selected_idx == idx,
+            wizard.config.language == lang,
+            primary_color,
+            text_color,
+            text_muted,
+            text_dim,
+        ));
         lines.push(Line::raw(""));
     }
 
@@ -463,46 +483,16 @@ fn render_step_appearance(
     ];
 
     for (idx, (label, theme)) in theme_options.into_iter().enumerate() {
-        let is_current_cursor = wizard.selected_idx == idx;
-        let is_selected = wizard.config.tui_theme == theme;
-
-        let cursor_span = if is_current_cursor {
-            Span::styled(
-                "   ➔  ",
-                Style::default()
-                    .fg(primary_color)
-                    .add_modifier(Modifier::BOLD),
-            )
-        } else {
-            Span::styled("      ", Style::default())
-        };
-
-        let radio_span = if is_selected {
-            Span::styled(
-                "[●] ",
-                Style::default()
-                    .fg(primary_color)
-                    .add_modifier(Modifier::BOLD),
-            )
-        } else {
-            Span::styled("[ ] ", Style::default().fg(text_dim))
-        };
-
-        let label_style = if is_current_cursor {
-            Style::default()
-                .fg(text_color)
-                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
-        } else if is_selected {
-            Style::default().fg(text_color).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(text_muted)
-        };
-
-        lines.push(Line::from(vec![
-            cursor_span,
-            radio_span,
-            Span::styled(label, label_style),
-        ]));
+        lines.push(radio_option_line(
+            label,
+            Vec::new(),
+            wizard.selected_idx == idx,
+            wizard.config.tui_theme == theme,
+            primary_color,
+            text_color,
+            text_muted,
+            text_dim,
+        ));
     }
 
     lines.push(Line::raw(""));
@@ -530,46 +520,16 @@ fn render_step_appearance(
 
     for (offset, (label, mode)) in font_options.into_iter().enumerate() {
         let idx = 3 + offset;
-        let is_current_cursor = wizard.selected_idx == idx;
-        let is_selected = wizard.config.font_mode == mode;
-
-        let cursor_span = if is_current_cursor {
-            Span::styled(
-                "   ➔  ",
-                Style::default()
-                    .fg(primary_color)
-                    .add_modifier(Modifier::BOLD),
-            )
-        } else {
-            Span::styled("      ", Style::default())
-        };
-
-        let radio_span = if is_selected {
-            Span::styled(
-                "[●] ",
-                Style::default()
-                    .fg(primary_color)
-                    .add_modifier(Modifier::BOLD),
-            )
-        } else {
-            Span::styled("[ ] ", Style::default().fg(text_dim))
-        };
-
-        let label_style = if is_current_cursor {
-            Style::default()
-                .fg(text_color)
-                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
-        } else if is_selected {
-            Style::default().fg(text_color).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(text_muted)
-        };
-
-        lines.push(Line::from(vec![
-            cursor_span,
-            radio_span,
-            Span::styled(label, label_style),
-        ]));
+        lines.push(radio_option_line(
+            label,
+            Vec::new(),
+            wizard.selected_idx == idx,
+            wizard.config.font_mode == mode,
+            primary_color,
+            text_color,
+            text_muted,
+            text_dim,
+        ));
     }
 
     frame.render_widget(Paragraph::new(lines).block(block), area);
@@ -615,46 +575,16 @@ fn render_step_environment(
     ];
 
     for (idx, (label, server)) in server_options.into_iter().enumerate() {
-        let is_current_cursor = wizard.selected_idx == idx;
-        let is_selected = wizard.config.display_server == server;
-
-        let cursor_span = if is_current_cursor {
-            Span::styled(
-                "   ➔  ",
-                Style::default()
-                    .fg(primary_color)
-                    .add_modifier(Modifier::BOLD),
-            )
-        } else {
-            Span::styled("      ", Style::default())
-        };
-
-        let radio_span = if is_selected {
-            Span::styled(
-                "[●] ",
-                Style::default()
-                    .fg(primary_color)
-                    .add_modifier(Modifier::BOLD),
-            )
-        } else {
-            Span::styled("[ ] ", Style::default().fg(text_dim))
-        };
-
-        let label_style = if is_current_cursor {
-            Style::default()
-                .fg(text_color)
-                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
-        } else if is_selected {
-            Style::default().fg(text_color).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(text_muted)
-        };
-
-        lines.push(Line::from(vec![
-            cursor_span,
-            radio_span,
-            Span::styled(label, label_style),
-        ]));
+        lines.push(radio_option_line(
+            label,
+            Vec::new(),
+            wizard.selected_idx == idx,
+            wizard.config.display_server == server,
+            primary_color,
+            text_color,
+            text_muted,
+            text_dim,
+        ));
     }
 
     lines.push(Line::from(vec![
@@ -694,66 +624,26 @@ fn render_step_environment(
     for (offset, &backend) in supported_backends.iter().enumerate() {
         let label = backend_label(backend);
         let idx = 2 + offset;
-        let is_current_cursor = wizard.selected_idx == idx;
-        let is_selected = wizard.config.wallpaper_backend == backend;
-
-        let cursor_span = if is_current_cursor {
-            Span::styled(
-                "   ➔  ",
-                Style::default()
-                    .fg(primary_color)
-                    .add_modifier(Modifier::BOLD),
-            )
-        } else {
-            Span::styled("      ", Style::default())
-        };
-
-        let radio_span = if is_selected {
-            Span::styled(
-                "[●] ",
-                Style::default()
-                    .fg(primary_color)
-                    .add_modifier(Modifier::BOLD),
-            )
-        } else {
-            Span::styled("[ ] ", Style::default().fg(text_dim))
-        };
-
-        let label_style = if is_current_cursor {
-            Style::default()
-                .fg(text_color)
-                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
-        } else if is_selected {
-            Style::default().fg(text_color).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(text_muted)
-        };
-
-        if backend == WallpaperBackend::Manual {
+        let extra = if backend == WallpaperBackend::Manual {
             if let Some(ref p) = wizard.config.manual_wallpaper_path {
-                lines.push(Line::from(vec![
-                    cursor_span,
-                    radio_span,
-                    Span::styled(label, label_style),
-                    Span::raw(" ("),
-                    Span::styled(p.as_str(), label_style),
-                    Span::raw(")"),
-                ]));
+                vec![Span::raw(" ("), Span::raw(p.as_str()), Span::raw(")")]
             } else {
-                lines.push(Line::from(vec![
-                    cursor_span,
-                    radio_span,
-                    Span::styled(label, label_style),
-                    Span::styled(" — [w]", label_style),
-                ]));
+                vec![Span::raw(" — [w]")]
             }
         } else {
-            lines.push(Line::from(vec![
-                cursor_span,
-                radio_span,
-                Span::styled(label, label_style),
-            ]));
-        }
+            Vec::new()
+        };
+
+        lines.push(radio_option_line(
+            label,
+            extra,
+            wizard.selected_idx == idx,
+            wizard.config.wallpaper_backend == backend,
+            primary_color,
+            text_color,
+            text_muted,
+            text_dim,
+        ));
     }
 
     frame.render_widget(Paragraph::new(lines).block(block), area);
@@ -1092,46 +982,16 @@ fn render_step_finish(
     ];
 
     for (idx, (label, is_backup_enabled)) in backup_options.into_iter().enumerate() {
-        let is_current_cursor = wizard.selected_idx == idx;
-        let is_selected = wizard.config.create_backups == is_backup_enabled;
-
-        let cursor_span = if is_current_cursor {
-            Span::styled(
-                "   ➔  ",
-                Style::default()
-                    .fg(primary_color)
-                    .add_modifier(Modifier::BOLD),
-            )
-        } else {
-            Span::styled("      ", Style::default())
-        };
-
-        let radio_span = if is_selected {
-            Span::styled(
-                "[●] ",
-                Style::default()
-                    .fg(primary_color)
-                    .add_modifier(Modifier::BOLD),
-            )
-        } else {
-            Span::styled("[ ] ", Style::default().fg(text_dim))
-        };
-
-        let label_style = if is_current_cursor {
-            Style::default()
-                .fg(text_color)
-                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
-        } else if is_selected {
-            Style::default().fg(text_color).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(text_muted)
-        };
-
-        lines.push(Line::from(vec![
-            cursor_span,
-            radio_span,
-            Span::styled(label, label_style),
-        ]));
+        lines.push(radio_option_line(
+            label,
+            Vec::new(),
+            wizard.selected_idx == idx,
+            wizard.config.create_backups == is_backup_enabled,
+            primary_color,
+            text_color,
+            text_muted,
+            text_dim,
+        ));
     }
 
     lines.push(Line::raw(""));

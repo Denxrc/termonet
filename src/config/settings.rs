@@ -149,7 +149,7 @@ pub enum WallpaperBackend {
 }
 
 /// Current configuration schema version.
-pub const CONFIG_SCHEMA_VERSION: u32 = 2;
+const CONFIG_SCHEMA_VERSION: u32 = 2;
 
 fn default_enabled_programs() -> Vec<String> {
     vec![
@@ -200,12 +200,6 @@ impl Default for AppConfig {
 }
 
 impl AppConfig {
-    /// Checks whether the configuration file exists on disk.
-    pub fn config_exists() -> Result<bool> {
-        let path = AppPaths::config_file()?;
-        Ok(path.exists())
-    }
-
     /// Generates a well-documented, commented TOML configuration string.
     #[must_use]
     pub fn to_commented_toml(&self) -> String {
@@ -270,7 +264,7 @@ impl AppConfig {
 # Termonet Configuration
 # Fast, Dynamic Material You System Theme & Palette Generator for Linux
 # Path: ~/.config/termonet/config.toml
-# Schema Version: 2
+# Schema Version: {CONFIG_SCHEMA_VERSION}
 # ==============================================================================
 
 # [General & Interface]
@@ -285,7 +279,7 @@ language = "{lang}"
 # Allowed options:
 #   "dark"   - Dark theme (recommended for terminal emulators)
 #   "light"  - Light theme
-#   "system" - Follow terminal background luminance
+#   "system" - Follow desktop color-scheme (gsettings / XDG Desktop Portal)
 tui_theme = "{theme}"
 
 # Header logo rendering mode.
@@ -308,7 +302,7 @@ display_server = "{server}"
 #   "awww"      - Modern Wayland animated wallpaper daemon (successor to swww)
 #   "swww"      - Wayland animated wallpaper daemon (compatible with awww)
 #   "hyprpaper" - Hyprland native IPC wallpaper utility
-#   "wpaperd"   - Wayland wallpaper daemon via symlinks
+#   "wpaperd"   - Wayland wallpaper daemon (via wpaperctl CLI and symlinks)
 #   "swaybg"    - Sway / wlroots wallpaper background process
 #   "gnome"     - GNOME desktop (gsettings org.gnome.desktop.background)
 #   "kde"       - KDE Plasma desktop (plasma-org.kde.plasma.desktop-appletsrc)
@@ -353,8 +347,8 @@ create_backups = {create_backups}
     #[must_use]
     pub fn needs_migration(content: &str) -> bool {
         let is_generated = content.contains("Termonet Configuration");
-        (is_generated
-            && (!content.contains("create_backups") || !content.contains("Schema Version: 2")))
+        let schema_marker = format!("Schema Version: {CONFIG_SCHEMA_VERSION}");
+        (is_generated && (!content.contains("create_backups") || !content.contains(&schema_marker)))
             || content.contains("\"alacritty\" - Alacritty terminal")
     }
 

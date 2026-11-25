@@ -219,19 +219,6 @@ pub fn query_auto_monitors() -> Result<MonitorWallpapers> {
     ))
 }
 
-/// Automatically detects the active wallpaper by concurrently querying supported backends.
-/// Dispatches parallel queries across worker threads and evaluates results according
-/// to the detected compositor and desktop environment context.
-pub fn query_auto(primary_monitor: Option<&str>) -> Result<PathBuf> {
-    query_auto_monitors()?
-        .resolve_primary(primary_monitor)
-        .ok_or_else(|| {
-            TermonetError::WallpaperNotFound(
-                "No active wallpaper detected from automatic backends".into(),
-            )
-        })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
