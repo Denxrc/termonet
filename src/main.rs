@@ -45,6 +45,7 @@ fn print_help() {
         "      --reset-rules, --update-rules Force reset default rules and templates to latest"
     );
     println!("      --debug-wallpaper    Print active wallpaper managers diagnostic report");
+    println!("  -V, --version            Print version information");
     println!("  -h, --help               Print help information");
     println!("\nTUI Controls:");
     println!("  Left / Right (h / l)     Switch between steps / windows (1..4)");
@@ -93,6 +94,10 @@ fn parse_cli_args(args: &[String]) -> Result<CliAction> {
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
+            "-V" | "--version" => {
+                println!("termonet {}", env!("CARGO_PKG_VERSION"));
+                return Ok(CliAction::Exit);
+            }
             "-h" | "--help" => {
                 print_help();
                 return Ok(CliAction::Exit);
@@ -376,5 +381,10 @@ mod tests {
             "--help".to_string(),
         ];
         assert_eq!(parse_cli_args(&args_help).unwrap(), CliAction::Exit);
+
+        for flag in ["-V", "--version"] {
+            let args_ver = vec!["termonet".to_string(), flag.to_string()];
+            assert_eq!(parse_cli_args(&args_ver).unwrap(), CliAction::Exit);
+        }
     }
 }
