@@ -4,7 +4,7 @@ pub use crate::config::AppStateCache;
 use std::path::PathBuf;
 
 /// Command line execution arguments.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CliArgs {
     pub apply: bool,
     pub force: bool,
@@ -47,8 +47,22 @@ pub fn run_cli_mode_with_context(
         AppStateCache::load().unwrap_or_default()
     };
 
-    // 1. Determine target theme mode (is_dark: bool)
-    let is_dark = if let Some(ref theme_str) = args.theme {
+    let config_fp = if custom_rules.is_none() {
+        Some(AppStateCache::compute_config_fingerprint(
+            &config.enabled_programs,
+            crate::config::AppPaths::rules_dir().ok().as_deref(),
+            crate::config::AppPaths::templates_dir().ok().as_deref(),
+        ))
+    } else {
+        Some(AppStateCache::compute_config_fingerprint(
+            &config.enabled_programs,
+            None,
+            None,
+        ))
+    };
+
+    // 1. Determine target theme mode (is_dark: bool) without persisting config until apply succeeds
+    let (is_dark, theme_modified) = if let Some(ref theme_str) = args.theme {
         let dark = match theme_str.to_lowercase().as_str() {
             "dark" => true,
             "light" => false,
@@ -63,12 +77,7 @@ pub fn run_cli_mode_with_context(
         } else {
             crate::config::TuiTheme::Light
         };
-        if let Some(cfg_path) = custom_config_file {
-            config.save_to_path(cfg_path)?;
-        } else {
-            config.save()?;
-        }
-        dark
+        (dark, true)
     } else if args.toggle_theme {
         let current_is_dark = cache
             .last_is_dark
@@ -79,44 +88,62 @@ pub fn run_cli_mode_with_context(
         } else {
             crate::config::TuiTheme::Light
         };
-        if let Some(cfg_path) = custom_config_file {
-            config.save_to_path(cfg_path)?;
-        } else {
-            config.save()?;
-        }
-        new_is_dark
+        (new_is_dark, true)
     } else {
-        config.tui_theme.is_dark()
+        (config.tui_theme.is_dark(), false)
     };
 
     let mut wallpaper_path_buf: Option<PathBuf> = None;
     let fallback_wall_buf: Option<PathBuf> = cache.last_wallpaper_path.as_ref().map(PathBuf::from);
+    let cached_wallpaper_still_exists = fallback_wall_buf.as_deref().is_none_or(|p| p.exists());
 
-    // 2. Resolve Palette and CacheSource
+    // 2. Resolve Palette and CacheSource (checking cache before expensive image decoding)
     let (palette, source) = if let Some(ref hex_str) = args.color {
         let rgb = crate::core::RgbColor::from_hex(hex_str)?;
+        let src = crate::config::CacheSource::Color(rgb);
+        if !args.force && cache.is_up_to_date_with_config(&src, is_dark, config_fp.as_deref()) {
+            println!("Theme is already up to date.");
+            return Ok(true);
+        }
         let palette = crate::core::GeneratedPalette::from_seed_color(rgb.into());
-        (palette, crate::config::CacheSource::Color(rgb))
+        (palette, src)
     } else if (args.toggle_theme || args.theme.is_some()) && args.wallpaper.is_none() {
-        if let Some(ref cached_hex) = cache.last_seed_color
+        if cached_wallpaper_still_exists
+            && let Some(ref cached_hex) = cache.last_seed_color
             && let Ok(rgb) = crate::core::RgbColor::from_hex(cached_hex)
         {
-            let palette = crate::core::GeneratedPalette::from_seed_color(rgb.into());
             let source = match fallback_wall_buf.as_deref() {
                 Some(p) => crate::config::CacheSource::Wallpaper(p),
                 None => crate::config::CacheSource::Color(rgb),
             };
+            if !args.force
+                && cache.is_up_to_date_with_config(&source, is_dark, config_fp.as_deref())
+            {
+                println!("Theme is already up to date.");
+                return Ok(true);
+            }
+            let palette = crate::core::GeneratedPalette::from_seed_color(rgb.into());
             (palette, source)
         } else {
-            // No cached seed color -> fallback to active wallpaper
+            // No valid cached seed/wallpaper -> fallback to active wallpaper
             let wp = crate::wallpaper::get_current_wallpaper(
                 &config.wallpaper_backend,
                 config.manual_wallpaper_path.as_deref(),
                 config.primary_monitor.as_deref(),
             )?;
-            let palette = crate::core::GeneratedPalette::from_image_path(&wp)?;
             let wp_path = wallpaper_path_buf.insert(wp).as_path();
-            (palette, crate::config::CacheSource::Wallpaper(wp_path))
+            let source = crate::config::CacheSource::Wallpaper(wp_path);
+            if !args.force
+                && cache.is_up_to_date_with_config(&source, is_dark, config_fp.as_deref())
+            {
+                println!(
+                    "Theme is already up to date with active wallpaper: {}",
+                    wp_path.display()
+                );
+                return Ok(true);
+            }
+            let palette = crate::core::GeneratedPalette::from_image_path(wp_path)?;
+            (palette, source)
         }
     } else {
         // Standard wallpaper-based apply
@@ -139,7 +166,7 @@ pub fn run_cli_mode_with_context(
 
         let wp_path = wallpaper_path_buf.insert(wp).as_path();
         let source = crate::config::CacheSource::Wallpaper(wp_path);
-        if !args.force && cache.is_up_to_date(&source, is_dark) {
+        if !args.force && cache.is_up_to_date_with_config(&source, is_dark, config_fp.as_deref()) {
             println!(
                 "Theme is already up to date with active wallpaper: {}",
                 wp_path.display()
@@ -151,12 +178,6 @@ pub fn run_cli_mode_with_context(
         let palette = crate::core::GeneratedPalette::from_image_path(wp_path)?;
         (palette, source)
     };
-
-    // Check if color or toggle is already up to date (when not force)
-    if !args.force && cache.is_up_to_date(&source, is_dark) {
-        println!("Theme is already up to date.");
-        return Ok(true);
-    }
 
     let engine = crate::template::TemplateEngine::new();
 
@@ -178,15 +199,27 @@ pub fn run_cli_mode_with_context(
                 rule.apply_with_hook(&engine, &palette, is_dark, config.create_backups, true)?;
             applied_count += 1;
             println!("  ✔ Applied theme for: {}", rule.name);
-            if hook_executed && let Some(ref cmd) = rule.reload_cmd {
-                println!("    Hook executed: {}", cmd);
+            if let Some(cmd) = rule.effective_reload_cmd() {
+                if hook_executed {
+                    println!("    Hook executed: {}", cmd);
+                } else {
+                    eprintln!("    Warning: hook failed or timed out: {}", cmd);
+                }
             }
         }
     }
 
-    // 4. Update cache
+    // 4. Persist config changes (if --theme / --toggle-theme) and update cache only after apply succeeds
+    if theme_modified {
+        if let Some(cfg_path) = custom_config_file {
+            config.save_to_path(cfg_path)?;
+        } else {
+            config.save()?;
+        }
+    }
+
     let mut new_cache = cache;
-    new_cache.update_source(&source, is_dark, &palette.seed_color);
+    new_cache.update_source_with_fingerprint(&source, is_dark, &palette.seed_color, config_fp);
     if let Some(state_path) = custom_state_file {
         new_cache.save_to_path(state_path)?;
     } else {
@@ -312,6 +345,59 @@ mod tests {
         assert_eq!(cfg2.tui_theme, crate::config::TuiTheme::Dark);
         let cache2 = AppStateCache::load_from_path(&state_file).unwrap();
         assert_eq!(cache2.last_is_dark, Some(true));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_cli_theme_does_not_mutate_config_on_apply_failure() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "termonet_test_cli_transactional_{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let state_file = temp_dir.join("state.toml");
+        let config_file = temp_dir.join("config.toml");
+
+        let initial_config = crate::config::AppConfig {
+            tui_theme: crate::config::TuiTheme::Dark,
+            enabled_programs: vec!["Broken".into()],
+            ..Default::default()
+        };
+        initial_config.save_to_path(&config_file).unwrap();
+
+        let failing_rule = crate::template::ProgramRule {
+            version: 1,
+            name: "Broken".into(),
+            template: "missing_nonexistent_template_xyz.tmpl".into(),
+            output_path: temp_dir.join("out.conf"),
+            target_config: None,
+            import_line: None,
+            import_position: crate::template::ImportPosition::Bottom,
+            reload_cmd: None,
+            comment_style: None,
+        };
+
+        let args = CliArgs {
+            theme: Some("light".into()),
+            color: Some("#385e72".into()),
+            apply: true,
+            ..Default::default()
+        };
+
+        let res = run_cli_mode_with_context(
+            &args,
+            initial_config,
+            Some(vec![failing_rule]),
+            Some(&state_file),
+            Some(&config_file),
+        );
+        assert!(res.is_err());
+
+        // config_file must still have Dark theme because apply failed
+        let persisted = crate::config::AppConfig::load_from_path(&config_file).unwrap();
+        assert_eq!(persisted.tui_theme, crate::config::TuiTheme::Dark);
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

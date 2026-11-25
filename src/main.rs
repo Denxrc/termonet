@@ -2,14 +2,20 @@
 
 use std::env;
 use std::path::PathBuf;
-use termonet::cli::{CliArgs, run_cli_mode};
+use termonet::cli::{CliArgs, run_cli_mode_with_context};
 use termonet::config::AppConfig;
 use termonet::core::GeneratedPalette;
 use termonet::error::Result;
 use termonet::tui::{AppState, run_tui};
 
+#[derive(Debug, PartialEq, Eq)]
 enum CliAction {
     Exit,
+    ResetRules {
+        no_backup: bool,
+        backup: bool,
+    },
+    DebugWallpaper,
     Run {
         cli_args: CliArgs,
         wallpaper_path: Option<String>,
@@ -55,9 +61,14 @@ fn print_help() {
     println!("  q / Esc                  Quit");
 }
 
-fn handle_reset_rules() -> Result<()> {
+fn handle_reset_rules(no_backup: bool, backup: bool) -> Result<()> {
     if let Ok(config_dir) = termonet::config::AppPaths::config_dir() {
-        let cfg = AppConfig::load()?.unwrap_or_default();
+        let mut cfg = AppConfig::load()?.unwrap_or_default();
+        if no_backup {
+            cfg.create_backups = false;
+        } else if backup {
+            cfg.create_backups = true;
+        }
         let updated =
             termonet::template::sync_default_assets(config_dir, true, cfg.create_backups)?;
         println!("Default rules and templates synchronized:");
@@ -75,6 +86,8 @@ fn handle_reset_rules() -> Result<()> {
 fn parse_cli_args(args: &[String]) -> Result<CliAction> {
     let mut wallpaper_path: Option<String> = None;
     let mut force_wizard = false;
+    let mut reset_rules = false;
+    let mut debug_wallpaper = false;
     let mut cli_args = CliArgs::default();
 
     let mut i = 1;
@@ -136,20 +149,31 @@ fn parse_cli_args(args: &[String]) -> Result<CliAction> {
                 cli_args.backup = true;
             }
             "--reset-rules" | "--update-rules" => {
-                handle_reset_rules()?;
-                return Ok(CliAction::Exit);
+                reset_rules = true;
             }
             "--debug-wallpaper" => {
-                let report = termonet::wallpaper::provider::run_all_diagnostics();
-                println!("{report}");
-                return Ok(CliAction::Exit);
+                debug_wallpaper = true;
             }
             arg if !arg.starts_with('-') => {
                 wallpaper_path = Some(arg.to_string());
             }
-            _ => {}
+            unknown => {
+                return Err(termonet::error::TermonetError::Config(format!(
+                    "Unknown option: '{unknown}'. Run 'termonet --help' for usage."
+                )));
+            }
         }
         i += 1;
+    }
+
+    if reset_rules {
+        return Ok(CliAction::ResetRules {
+            no_backup: cli_args.no_backup,
+            backup: cli_args.backup,
+        });
+    }
+    if debug_wallpaper {
+        return Ok(CliAction::DebugWallpaper);
     }
 
     cli_args.wallpaper = wallpaper_path.clone();
@@ -167,42 +191,40 @@ fn resolve_tui_wallpaper(state: &mut AppState, cli_wallpaper: Option<&str>) -> O
         if p.exists() {
             return Some(p);
         }
-        eprintln!("Warning: Specified wallpaper not found: {}", cli_p);
+        state.status_message = Some(format!("Specified wallpaper not found: {}", cli_p));
         return None;
     }
 
-    if state.config.wallpaper_backend != termonet::config::WallpaperBackend::Manual
-        && let Ok(monitors) = termonet::wallpaper::get_wallpaper_monitors(
+    let wp = if state.config.wallpaper_backend != termonet::config::WallpaperBackend::Manual {
+        if let Ok(monitors) = termonet::wallpaper::get_wallpaper_monitors(
             &state.config.wallpaper_backend,
             state.config.manual_wallpaper_path.as_deref(),
-        )
-        && monitors.has_divergent_wallpapers()
-    {
-        let sorted = monitors.sorted_outputs();
-        state.active_monitors = sorted;
-        state.current_monitor_idx = if let Some(ref primary) = state.config.primary_monitor {
-            state
-                .active_monitors
-                .iter()
-                .position(|(name, _)| name == primary)
-                .unwrap_or(0)
+        ) {
+            if monitors.has_divergent_wallpapers() {
+                let sorted = monitors.sorted_outputs();
+                state.active_monitors = sorted;
+                state.current_monitor_idx = if let Some(ref primary) = state.config.primary_monitor
+                {
+                    state
+                        .active_monitors
+                        .iter()
+                        .position(|(name, _)| name == primary)
+                        .unwrap_or(0)
+                } else {
+                    0
+                };
+                state
+                    .active_monitors
+                    .get(state.current_monitor_idx)
+                    .map(|(_, p)| p.clone())
+            } else {
+                monitors.resolve_primary(state.config.primary_monitor.as_deref())
+            }
         } else {
-            0
-        };
-    }
-
-    let wp = if !state.active_monitors.is_empty() {
-        state
-            .active_monitors
-            .get(state.current_monitor_idx)
-            .map(|(_, p)| p.clone())
+            None
+        }
     } else {
-        termonet::wallpaper::get_current_wallpaper(
-            &state.config.wallpaper_backend,
-            state.config.manual_wallpaper_path.as_deref(),
-            state.config.primary_monitor.as_deref(),
-        )
-        .ok()
+        None
     };
 
     wp.or_else(|| {
@@ -219,6 +241,15 @@ fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
     let (cli_args, wallpaper_path, force_wizard) = match parse_cli_args(&args)? {
         CliAction::Exit => return Ok(()),
+        CliAction::ResetRules { no_backup, backup } => {
+            handle_reset_rules(no_backup, backup)?;
+            return Ok(());
+        }
+        CliAction::DebugWallpaper => {
+            let report = termonet::wallpaper::provider::run_all_diagnostics();
+            println!("{report}");
+            return Ok(());
+        }
         CliAction::Run {
             cli_args,
             wallpaper_path,
@@ -242,7 +273,7 @@ fn main() -> Result<()> {
 
     // 1. Check if headless CLI mode was requested
     if cli_args.apply || cli_args.toggle_theme || cli_args.theme.is_some() {
-        run_cli_mode(&cli_args)?;
+        run_cli_mode_with_context(&cli_args, config, None, None, None)?;
         return Ok(());
     }
 
@@ -265,12 +296,21 @@ fn main() -> Result<()> {
         state.palette = Some(palette);
         state.custom_seed_color = Some(color);
         state.wallpaper_path = None;
-    } else if let Some(path) = resolved_wallpaper
-        && let Ok(palette) = GeneratedPalette::from_image_path(&path)
-    {
-        state.palette = Some(palette);
-        state.wallpaper_path = Some(path.display().to_string());
-        state.custom_seed_color = None;
+    } else if let Some(path) = resolved_wallpaper {
+        match GeneratedPalette::from_image_path(&path) {
+            Ok(palette) => {
+                state.palette = Some(palette);
+                state.wallpaper_path = Some(path.display().to_string());
+                state.custom_seed_color = None;
+            }
+            Err(e) => {
+                state.status_message = Some(format!(
+                    "Failed to load wallpaper {}: {}",
+                    path.display(),
+                    e
+                ));
+            }
+        }
     }
 
     if state.palette.is_none() {
@@ -292,4 +332,45 @@ fn main() -> Result<()> {
     run_tui(state)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_cli_args_rejects_unknown_flags() {
+        let args = vec!["termonet".to_string(), "--unknown-flag".to_string()];
+        assert!(parse_cli_args(&args).is_err());
+
+        let typo = vec![
+            "termonet".to_string(),
+            "--theem".to_string(),
+            "dark".to_string(),
+        ];
+        assert!(parse_cli_args(&typo).is_err());
+    }
+
+    #[test]
+    fn test_parse_cli_args_defers_reset_rules_with_backup_flags() {
+        let args = vec![
+            "termonet".to_string(),
+            "--reset-rules".to_string(),
+            "--no-backup".to_string(),
+        ];
+        assert_eq!(
+            parse_cli_args(&args).unwrap(),
+            CliAction::ResetRules {
+                no_backup: true,
+                backup: false
+            }
+        );
+
+        let args_help = vec![
+            "termonet".to_string(),
+            "--reset-rules".to_string(),
+            "--help".to_string(),
+        ];
+        assert_eq!(parse_cli_args(&args_help).unwrap(), CliAction::Exit);
+    }
 }
