@@ -5,7 +5,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Paragraph, Wrap},
 };
 
 use crate::core::color::RgbColor;
@@ -38,10 +38,10 @@ pub fn render_palette(frame: &mut Frame, area: Rect, state: &AppState) {
     let text_color = state.text_color();
     let text_dim = state.text_dim();
 
-    // Split vertically: top wallpaper source card (2 lines) and main palette columns
+    // Split vertically: top wallpaper source card (3 lines for wrapped header + status) and main palette columns
     let v_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(2), Constraint::Min(8)])
+        .constraints([Constraint::Length(3), Constraint::Min(8)])
         .split(area);
 
     // 1. Wallpaper & Seed indicator inside Step 1
@@ -138,9 +138,7 @@ pub fn render_palette(frame: &mut Frame, area: Rect, state: &AppState) {
     let wp_line = Line::from(spans);
     let mut header_lines = vec![wp_line];
     if let Some(ref status) = state.status_message {
-        let is_err = status.to_lowercase().contains("error")
-            || status.to_lowercase().contains("failed")
-            || status.to_lowercase().contains("ошибк");
+        let is_err = state.status_is_error;
         let status_color = if is_err {
             if is_dark {
                 Color::LightRed
@@ -161,7 +159,10 @@ pub fn render_palette(frame: &mut Frame, area: Rect, state: &AppState) {
             Span::styled(status.as_str(), Style::default().fg(status_color)),
         ]));
     }
-    frame.render_widget(Paragraph::new(header_lines), v_chunks[0]);
+    frame.render_widget(
+        Paragraph::new(header_lines).wrap(Wrap { trim: false }),
+        v_chunks[0],
+    );
 
     // 2. Split horizontally into 2 columns: Material You Roles (left) and Terminal ANSI Colors (right)
     let columns = Layout::default()
@@ -269,6 +270,37 @@ pub fn render_wallpaper_input_modal(frame: &mut Frame, area: Rect, state: &AppSt
     let popup_area = centered_rect(75, 7, area);
     frame.render_widget(ratatui::widgets::Clear, popup_area);
 
+    // Horizontally scroll input around cursor so long paths remain visible inside the modal
+    let (raw_before, raw_after) = if input_state.input.is_char_boundary(input_state.cursor_pos) {
+        (
+            &input_state.input[..input_state.cursor_pos],
+            &input_state.input[input_state.cursor_pos..],
+        )
+    } else {
+        (input_state.input.as_str(), "")
+    };
+    let visible_cols = (popup_area.width as usize).saturating_sub(8).max(8);
+    let before_chars = raw_before.chars().count();
+    let max_before = visible_cols.saturating_sub(1);
+    let visible_before = if before_chars > max_before {
+        let skip = before_chars - max_before;
+        raw_before
+            .char_indices()
+            .nth(skip)
+            .map(|(idx, _)| &raw_before[idx..])
+            .unwrap_or("")
+    } else {
+        raw_before
+    };
+    let remaining_cols = visible_cols
+        .saturating_sub(visible_before.chars().count())
+        .saturating_sub(1);
+    let visible_after = raw_after
+        .char_indices()
+        .nth(remaining_cols)
+        .map(|(idx, _)| &raw_after[..idx])
+        .unwrap_or(raw_after);
+
     let mut lines = vec![
         Line::from(vec![Span::styled(
             format!("  {} ", t.wallpaper_input_prompt),
@@ -282,28 +314,14 @@ pub fn render_wallpaper_input_modal(frame: &mut Frame, area: Rect, state: &AppSt
                     .fg(primary_color)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(
-                if input_state.input.is_char_boundary(input_state.cursor_pos) {
-                    &input_state.input[..input_state.cursor_pos]
-                } else {
-                    &input_state.input
-                },
-                Style::default().fg(text_color),
-            ),
+            Span::styled(visible_before, Style::default().fg(text_color)),
             Span::styled(
                 "█",
                 Style::default()
                     .fg(primary_color)
                     .add_modifier(Modifier::SLOW_BLINK),
             ),
-            Span::styled(
-                if input_state.input.is_char_boundary(input_state.cursor_pos) {
-                    &input_state.input[input_state.cursor_pos..]
-                } else {
-                    ""
-                },
-                Style::default().fg(text_color),
-            ),
+            Span::styled(visible_after, Style::default().fg(text_color)),
         ]),
     ];
 

@@ -78,7 +78,9 @@ pub fn render_programs(frame: &mut Frame, area: Rect, state: &AppState) {
             Style::default().fg(text_dim)
         };
 
-        let pad_len = 14usize.saturating_sub(program.name.len()).min(SPACES.len());
+        let pad_len = 14usize
+            .saturating_sub(program.name.chars().count())
+            .min(SPACES.len());
 
         program_lines.push(Line::from(vec![
             cursor_marker,
@@ -93,13 +95,23 @@ pub fn render_programs(frame: &mut Frame, area: Rect, state: &AppState) {
         program_lines.push(Line::raw(""));
     }
 
+    let inner_height = chunks[1].height.saturating_sub(2);
+    let cursor_row = (state.selected_program_idx.saturating_mul(2)) as u16;
+    let scroll_y = if inner_height > 0 && cursor_row + 1 >= inner_height {
+        cursor_row + 2 - inner_height
+    } else {
+        0
+    };
+
     let programs_block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(primary_color))
         .title(t.programs_title);
 
     frame.render_widget(
-        Paragraph::new(program_lines).block(programs_block),
+        Paragraph::new(program_lines)
+            .block(programs_block)
+            .scroll((scroll_y, 0)),
         chunks[1],
     );
 }

@@ -426,8 +426,14 @@ mod tests {
 
     #[test]
     fn test_wizard_finish_step_space_saves() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("termonet_test_wizard_space_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        let cfg_path = temp_dir.join("config.toml");
+
         let config = AppConfig::default();
         let mut state = AppState::new_wizard(config);
+        state.custom_config_path = Some(cfg_path.clone());
 
         // Jump to Step 5 (Finish)
         state.handle_key(crossterm::event::KeyEvent::from(
@@ -443,12 +449,23 @@ mod tests {
             crossterm::event::KeyCode::Char(' '),
         ));
         assert!(!state.is_wizard);
+        assert!(cfg_path.exists());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
     fn test_wizard_finish_step_backup_selection() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "termonet_test_wizard_backup_{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        let cfg_path = temp_dir.join("config.toml");
+
         let config = AppConfig::default();
         let mut state = AppState::new_wizard(config);
+        state.custom_config_path = Some(cfg_path.clone());
 
         // Jump to Step 5 (Finish)
         state.handle_key(crossterm::event::KeyEvent::from(
@@ -492,6 +509,9 @@ mod tests {
         ));
         assert!(!state.is_wizard);
         assert!(!state.config.create_backups);
+        assert!(cfg_path.exists());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
@@ -798,7 +818,10 @@ mod tests {
             comment_style: Some(crate::template::CommentStyle::Hash),
         };
 
-        let config = AppConfig::default();
+        let config = AppConfig {
+            language: crate::config::Language::En,
+            ..Default::default()
+        };
         let mut state = AppState::new(config);
         let seed = material_colors::color::Rgb::new(0x42, 0x85, 0xf4);
         state.palette = Some(crate::core::GeneratedPalette::from_seed_color(seed));
@@ -825,7 +848,29 @@ mod tests {
                 .unwrap()
                 .contains("successfully")
         );
+        assert!(!state.status_is_error);
         assert!(temp_dir.join("colors-termonet.conf").exists());
+
+        // Verify Status line is actually visible inside render_apply (not clipped by border)
+        let backend = TestBackend::new(100, 24);
+        let mut terminal = Terminal::new(backend).expect("failed to create test terminal");
+        terminal
+            .draw(|f| {
+                views::render_apply(f, f.area(), &state);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let mut rendered_text = String::new();
+        for y in 0..6 {
+            for x in 0..100 {
+                rendered_text.push_str(buffer[(x, y)].symbol());
+            }
+            rendered_text.push('\n');
+        }
+        assert!(
+            rendered_text.contains("Theme applied"),
+            "Status line must be visible inside Apply action box, got:\n{rendered_text}"
+        );
 
         let target_content = std::fs::read_to_string(&kitty_conf).unwrap();
         assert!(target_content.contains("# >>> termonet colors >>>"));
@@ -1086,5 +1131,96 @@ mod tests {
             state.handle_key(crossterm::event::KeyEvent::from(key));
         }
         assert!(state.is_running);
+    }
+
+    #[test]
+    fn test_settings_esc_rolls_back_changes_and_respects_empty_programs() {
+        let initial_config = AppConfig {
+            language: crate::config::Language::Ru,
+            tui_theme: crate::config::TuiTheme::Dark,
+            enabled_programs: Vec::new(),
+            ..Default::default()
+        };
+        let mut state = AppState::new(initial_config);
+        // Empty enabled_programs must keep all programs disabled in TUI
+        assert!(state.programs.iter().all(|p| !p.enabled));
+
+        // Open settings wizard from main TUI
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Char('s'),
+        ));
+        assert!(state.is_wizard);
+
+        // Select English (index 1) on Language step
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Down,
+        ));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Char(' '),
+        ));
+        assert_eq!(state.config.language, crate::config::Language::En);
+
+        // Move to Appearance and select Light theme (index 1)
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Right,
+        ));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Down,
+        ));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Char(' '),
+        ));
+        assert_eq!(state.config.tui_theme, crate::config::TuiTheme::Light);
+        assert!(!state.is_dark_mode());
+
+        // Press Esc -> must cancel and roll back language & theme
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Esc,
+        ));
+        assert!(!state.is_wizard);
+        assert_eq!(state.config.language, crate::config::Language::Ru);
+        assert_eq!(state.config.tui_theme, crate::config::TuiTheme::Dark);
+        assert!(state.is_dark_mode());
+    }
+
+    #[test]
+    fn test_render_palette_narrow_and_scrolling_modal_input() {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("failed to create test terminal");
+
+        let config = AppConfig {
+            language: crate::config::Language::Ru,
+            ..Default::default()
+        };
+        let mut state = AppState::new(config);
+        let seed = material_colors::color::Rgb::new(0x42, 0x85, 0xf4);
+        state.palette = Some(GeneratedPalette::from_seed_color(seed));
+        state.wallpaper_path = Some("/home/user/very/long/path/to/wallpapers/nature.png".into());
+        state.open_wallpaper_input();
+        if let Some(ref mut inp) = state.wallpaper_input {
+            inp.input =
+                "/home/user/extremely/long/nested/directory/structure/wallpaper_final_v2.png"
+                    .into();
+            inp.cursor_pos = inp.input.len();
+        }
+
+        terminal
+            .draw(|f| {
+                views::render_palette(f, f.area(), &state);
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let full_text: String = (0..24)
+            .flat_map(|y| (0..80).map(move |x| buffer[(x, y)].symbol()))
+            .collect();
+        assert!(
+            full_text.contains("█"),
+            "Horizontally scrolled modal must keep cursor visible"
+        );
+        assert!(
+            full_text.contains("wallpaper_final_v2.png"),
+            "Tail of long path around cursor must be visible"
+        );
     }
 }

@@ -106,7 +106,9 @@ pub fn render_hooks(frame: &mut Frame, area: Rect, state: &AppState) {
                 Style::default().fg(text_dim)
             };
 
-            let pad_len = 14usize.saturating_sub(prog.name.len()).min(SPACES.len());
+            let pad_len = 14usize
+                .saturating_sub(prog.name.chars().count())
+                .min(SPACES.len());
             let cmd_text = prog.reload_cmd.as_deref().unwrap_or("");
             let desc_text = prog.reload_desc.as_deref().unwrap_or("");
 
@@ -122,10 +124,23 @@ pub fn render_hooks(frame: &mut Frame, area: Rect, state: &AppState) {
         }
     }
 
+    let inner_height = chunks[1].height.saturating_sub(2);
+    let cursor_row = (state.selected_hook_idx.saturating_mul(2)) as u16;
+    let scroll_y = if inner_height > 0 && cursor_row + 1 >= inner_height {
+        cursor_row + 2 - inner_height
+    } else {
+        0
+    };
+
     let hooks_block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(primary_color))
         .title(t.hooks_title);
 
-    frame.render_widget(Paragraph::new(hook_lines).block(hooks_block), chunks[1]);
+    frame.render_widget(
+        Paragraph::new(hook_lines)
+            .block(hooks_block)
+            .scroll((scroll_y, 0)),
+        chunks[1],
+    );
 }

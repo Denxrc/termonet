@@ -158,14 +158,13 @@ fn render_wizard_header(frame: &mut Frame, area: Rect, state: &AppState, use_pix
             ])
             .split(area);
 
-        let pixel_lines = PixelFont::render_lines(
-            "TERMONET",
+        let pixel_lines = PixelFont::termonet_banner(
             Style::default()
                 .fg(primary_color)
                 .add_modifier(Modifier::BOLD),
         );
         frame.render_widget(
-            Paragraph::new(pixel_lines).alignment(Alignment::Center),
+            Paragraph::new(pixel_lines.as_slice()).alignment(Alignment::Center),
             chunks[0],
         );
 
@@ -877,7 +876,7 @@ fn render_step_programs(
         .border_style(Style::default().fg(primary_color))
         .title(t.wizard_programs_title);
 
-    let rules = crate::template::ProgramRule::load_all().unwrap_or_default();
+    let rules = &wizard.available_rules;
 
     let mut lines = vec![
         Line::raw(""),
@@ -949,7 +948,18 @@ fn render_step_programs(
         ]));
     }
 
-    frame.render_widget(Paragraph::new(lines).block(block), area);
+    let inner_height = area.height.saturating_sub(2);
+    let cursor_row = (3 + wizard.selected_idx) as u16;
+    let scroll_y = if inner_height > 0 && cursor_row >= inner_height {
+        cursor_row + 1 - inner_height
+    } else {
+        0
+    };
+
+    frame.render_widget(
+        Paragraph::new(lines).block(block).scroll((scroll_y, 0)),
+        area,
+    );
 }
 
 fn render_step_finish(
@@ -1134,9 +1144,18 @@ fn render_step_finish(
         Color::Rgb(215, 220, 225)
     };
 
+    let btn_fg = state
+        .active_scheme()
+        .map(|s| Color::from(s.on_primary))
+        .unwrap_or(if state.is_dark_mode() {
+            Color::Black
+        } else {
+            Color::White
+        });
+
     let btn_style = if is_btn_cursor {
         Style::default()
-            .fg(Color::Black)
+            .fg(btn_fg)
             .bg(primary_color)
             .add_modifier(Modifier::BOLD)
     } else {

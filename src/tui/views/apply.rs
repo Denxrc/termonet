@@ -30,10 +30,29 @@ pub fn render_apply(frame: &mut Frame, area: Rect, state: &AppState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(5), // Big Action Card
+            Constraint::Length(6), // Big Action Card (4 content lines + 2 border lines)
             Constraint::Min(6),    // List of programs to be updated
         ])
         .split(area);
+
+    let btn_fg = state
+        .active_scheme()
+        .map(|s| Color::from(s.on_primary))
+        .unwrap_or(if state.is_dark_mode() {
+            Color::Black
+        } else {
+            Color::White
+        });
+
+    let status_fg = if state.status_is_error {
+        if state.is_dark_mode() {
+            Color::LightRed
+        } else {
+            Color::Rgb(180, 20, 20)
+        }
+    } else {
+        text_color
+    };
 
     // 1. Action Card
     let action_lines = vec![
@@ -41,7 +60,7 @@ pub fn render_apply(frame: &mut Frame, area: Rect, state: &AppState) {
         Line::from(vec![Span::styled(
             format!("   {}   ", t.apply_button),
             Style::default()
-                .fg(Color::Black)
+                .fg(btn_fg)
                 .bg(primary_color)
                 .add_modifier(Modifier::BOLD),
         )]),
@@ -54,7 +73,7 @@ pub fn render_apply(frame: &mut Frame, area: Rect, state: &AppState) {
             Span::styled(
                 state.status_message.as_deref().unwrap_or(t.apply_ready),
                 Style::default()
-                    .fg(text_color)
+                    .fg(status_fg)
                     .add_modifier(Modifier::ITALIC),
             ),
         ]),
