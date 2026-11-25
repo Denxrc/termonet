@@ -187,22 +187,31 @@ pub fn query_auto_monitors() -> Result<MonitorWallpapers> {
         ]
     };
 
-    for monitors in prioritized.into_iter().flatten() {
-        if monitors.outputs.values().any(|p| p.exists()) {
+    for mut monitors in prioritized.into_iter().flatten() {
+        monitors
+            .outputs
+            .retain(|_, p| path::validate_wallpaper_path(p));
+        if !monitors.outputs.is_empty() {
             return Ok(monitors);
         }
     }
 
     // Secondary fallbacks for X11 tools (feh, nitrogen)
-    if let Ok(monitors) = provider::FehProvider.query()
-        && monitors.outputs.values().any(|p| p.exists())
-    {
-        return Ok(monitors);
+    if let Ok(mut monitors) = provider::FehProvider.query() {
+        monitors
+            .outputs
+            .retain(|_, p| path::validate_wallpaper_path(p));
+        if !monitors.outputs.is_empty() {
+            return Ok(monitors);
+        }
     }
-    if let Ok(monitors) = provider::NitrogenProvider.query()
-        && monitors.outputs.values().any(|p| p.exists())
-    {
-        return Ok(monitors);
+    if let Ok(mut monitors) = provider::NitrogenProvider.query() {
+        monitors
+            .outputs
+            .retain(|_, p| path::validate_wallpaper_path(p));
+        if !monitors.outputs.is_empty() {
+            return Ok(monitors);
+        }
     }
 
     Err(TermonetError::WallpaperNotFound(

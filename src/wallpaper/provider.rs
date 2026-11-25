@@ -318,52 +318,76 @@ impl WallpaperProvider for GnomeProvider {
         let mut resolved = None;
         let mut error = None;
 
-        if let Ok(out) = Command::new("gsettings")
-            .args(["get", "org.gnome.desktop.background", "picture-options"])
-            .output()
-        {
-            raw.push(format!(
-                "picture-options: {}",
-                String::from_utf8_lossy(&out.stdout).trim()
-            ));
-        }
-
-        if let Ok(out) = Command::new("gsettings")
-            .args(["get", "org.gnome.desktop.interface", "color-scheme"])
-            .output()
-        {
-            raw.push(format!(
-                "color-scheme: {}",
-                String::from_utf8_lossy(&out.stdout).trim()
-            ));
-        }
-
-        if let Ok(out) = Command::new("gsettings")
-            .args(["get", "org.gnome.desktop.background", "picture-uri-dark"])
-            .output()
-        {
-            raw.push(format!(
-                "picture-uri-dark: {}",
-                String::from_utf8_lossy(&out.stdout).trim()
-            ));
-        }
-
-        if let Ok(out) = Command::new("gsettings")
-            .args(["get", "org.gnome.desktop.background", "picture-uri"])
-            .output()
-        {
-            raw.push(format!(
-                "picture-uri: {}",
-                String::from_utf8_lossy(&out.stdout).trim()
-            ));
-        }
-
-        match crate::wallpaper::de::query_gnome() {
-            Ok(monitors) => {
-                resolved = Some(monitors.outputs);
+        let run_gsettings = |args: [&str; 3]| -> Option<String> {
+            let out = Command::new("gsettings").args(args).output().ok()?;
+            if out.status.success() {
+                Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+            } else {
+                None
             }
-            Err(e) => {
-                error = Some(e.to_string());
+        };
+
+        let pic_opts = run_gsettings(["get", "org.gnome.desktop.background", "picture-options"]);
+        if let Some(ref v) = pic_opts {
+            raw.push(format!("picture-options: {v}"));
+        }
+
+        let color_scheme = run_gsettings(["get", "org.gnome.desktop.interface", "color-scheme"]);
+        if let Some(ref v) = color_scheme {
+            raw.push(format!("color-scheme: {v}"));
+        }
+
+        let uri_dark = run_gsettings(["get", "org.gnome.desktop.background", "picture-uri-dark"]);
+        if let Some(ref v) = uri_dark {
+            raw.push(format!("picture-uri-dark: {v}"));
+        }
+
+        let uri_light = run_gsettings(["get", "org.gnome.desktop.background", "picture-uri"]);
+        if let Some(ref v) = uri_light {
+            raw.push(format!("picture-uri: {v}"));
+        }
+
+        let disabled = pic_opts
+            .as_deref()
+            .is_some_and(|v| v.trim_matches(|c| c == '\'' || c == '"') == "none");
+        if disabled {
+            error =
+                Some("GNOME wallpaper rendering is disabled (picture-options is 'none')".into());
+        } else {
+            let is_dark = color_scheme
+                .as_deref()
+                .is_some_and(|v| v.contains("prefer-dark"));
+            let candidates = if is_dark {
+                [uri_dark.as_deref(), uri_light.as_deref()]
+            } else {
+                [uri_light.as_deref(), uri_dark.as_deref()]
+            };
+
+            let is_supported = |p: &Path| {
+                p.extension().and_then(|e| e.to_str()).is_some_and(|ext| {
+                    matches!(
+                        ext.to_ascii_lowercase().as_str(),
+                        "png" | "jpg" | "jpeg" | "webp" | "gif"
+                    )
+                })
+            };
+
+            for raw_uri in candidates.into_iter().flatten() {
+                if let Some(path) = clean_wallpaper_path(raw_uri)
+                    && is_supported(&path)
+                {
+                    let mut map = HashMap::new();
+                    map.insert("default".to_string(), path);
+                    resolved = Some(map);
+                    break;
+                }
+            }
+
+            if resolved.is_none() {
+                error = Some(
+                    "No active GNOME wallpaper found via gsettings or wallpaper file does not exist"
+                        .into(),
+                );
             }
         }
 
@@ -440,6 +464,96 @@ impl WallpaperProvider for KdeProvider {
     }
 }
 
+/// Tokenizes a shell command line respecting single quotes, double quotes, and backslash escapes.
+fn shell_tokenize(line: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+    let mut has_token = false;
+
+    for ch in line.chars() {
+        if escaped {
+            current.push(ch);
+            escaped = false;
+            has_token = true;
+            continue;
+        }
+        if in_single {
+            if ch == '\'' {
+                in_single = false;
+            } else {
+                current.push(ch);
+            }
+            has_token = true;
+            continue;
+        }
+        if in_double {
+            match ch {
+                '"' => in_double = false,
+                '\\' => escaped = true,
+                _ => current.push(ch),
+            }
+            has_token = true;
+            continue;
+        }
+        match ch {
+            '\'' => {
+                in_single = true;
+                has_token = true;
+            }
+            '"' => {
+                in_double = true;
+                has_token = true;
+            }
+            '\\' => {
+                escaped = true;
+                has_token = true;
+            }
+            c if c.is_whitespace() => {
+                if has_token {
+                    tokens.push(std::mem::take(&mut current));
+                    has_token = false;
+                }
+            }
+            c => {
+                current.push(c);
+                has_token = true;
+            }
+        }
+    }
+    if has_token {
+        tokens.push(current);
+    }
+    tokens
+}
+
+/// Parses `~/.fehbg` script content and extracts the first existing wallpaper file path.
+#[must_use]
+pub fn parse_fehbg_content(content: &str) -> Option<PathBuf> {
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let tokens = shell_tokenize(trimmed);
+        if tokens.is_empty() {
+            continue;
+        }
+        // Scan from the end because feh places image path arguments after flags
+        for tok in tokens.iter().rev() {
+            if tok.starts_with('-') || tok == "feh" || tok.ends_with("/feh") {
+                continue;
+            }
+            if let Some(path) = clean_wallpaper_path(tok) {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
 /// Provider for feh (X11).
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FehProvider;
@@ -465,22 +579,11 @@ impl WallpaperProvider for FehProvider {
             let fehbg = h.join(".fehbg");
             if fehbg.exists()
                 && let Ok(content) = std::fs::read_to_string(&fehbg)
+                && let Some(path) = parse_fehbg_content(&content)
             {
-                if let Some(path) = clean_wallpaper_path(&content) {
-                    let mut outputs = HashMap::new();
-                    outputs.insert("default".to_string(), path);
-                    return Ok(MonitorWallpapers { outputs });
-                }
-                for token in content.split_whitespace() {
-                    let clean = token.trim_matches(|c| c == '\'' || c == '"');
-                    if (clean.starts_with('/') || clean.starts_with('~'))
-                        && let Some(path) = clean_wallpaper_path(clean)
-                    {
-                        let mut outputs = HashMap::new();
-                        outputs.insert("default".to_string(), path);
-                        return Ok(MonitorWallpapers { outputs });
-                    }
-                }
+                let mut outputs = HashMap::new();
+                outputs.insert("default".to_string(), path);
+                return Ok(MonitorWallpapers { outputs });
             }
         }
         Err(TermonetError::WallpaperNotFound(
@@ -518,6 +621,37 @@ impl WallpaperProvider for FehProvider {
     }
 }
 
+fn nitrogen_config_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from) {
+        candidates.push(xdg.join("nitrogen/bg-saved.cfg"));
+    }
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        candidates.push(home.join(".config/nitrogen/bg-saved.cfg"));
+    }
+    candidates
+}
+
+/// Parses `~/.config/nitrogen/bg-saved.cfg` contents and validates file paths on disk.
+#[must_use]
+pub fn parse_nitrogen_cfg(content: &str) -> HashMap<String, PathBuf> {
+    let mut outputs = HashMap::new();
+    let mut current_screen = "default".to_string();
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            current_screen = trimmed[1..trimmed.len() - 1].to_string();
+        } else if let Some((k, v)) = trimmed.split_once('=')
+            && k.trim() == "file"
+            && let Some(path) = clean_wallpaper_path(v.trim())
+        {
+            outputs.insert(current_screen.clone(), path);
+        }
+    }
+    outputs
+}
+
 /// Provider for nitrogen (X11).
 #[derive(Debug, Default, Clone, Copy)]
 pub struct NitrogenProvider;
@@ -532,40 +666,22 @@ impl WallpaperProvider for NitrogenProvider {
     }
 
     fn is_available(&self) -> bool {
-        std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .is_some_and(|h| h.join(".config/nitrogen/bg-saved.cfg").exists())
+        nitrogen_config_candidates().iter().any(|p| p.exists())
     }
 
     fn query(&self) -> Result<MonitorWallpapers> {
-        let home = std::env::var_os("HOME").map(PathBuf::from);
-        if let Some(h) = home {
-            let cfg = h.join(".config/nitrogen/bg-saved.cfg");
+        for cfg in nitrogen_config_candidates() {
             if cfg.exists()
                 && let Ok(content) = std::fs::read_to_string(&cfg)
             {
-                let mut outputs = HashMap::new();
-                let mut current_screen = "default".to_string();
-
-                for line in content.lines() {
-                    let trimmed = line.trim();
-                    if trimmed.starts_with('[') && trimmed.ends_with(']') {
-                        current_screen = trimmed[1..trimmed.len() - 1].to_string();
-                    } else if let Some((k, v)) = trimmed.split_once('=')
-                        && k.trim() == "file"
-                        && let Some(path) = clean_wallpaper_path(v.trim())
-                    {
-                        outputs.insert(current_screen.clone(), path);
-                    }
-                }
-
+                let outputs = parse_nitrogen_cfg(&content);
                 if !outputs.is_empty() {
                     return Ok(MonitorWallpapers { outputs });
                 }
             }
         }
         Err(TermonetError::WallpaperNotFound(
-            "No active nitrogen wallpaper found in ~/.config/nitrogen/bg-saved.cfg".into(),
+            "No active nitrogen wallpaper found in bg-saved.cfg".into(),
         ))
     }
 
@@ -574,15 +690,12 @@ impl WallpaperProvider for NitrogenProvider {
         let mut resolved = None;
         let mut error = None;
 
-        if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
-            let p = home.join(".config/nitrogen/bg-saved.cfg");
+        for p in nitrogen_config_candidates() {
             if p.exists()
                 && let Ok(c) = std::fs::read_to_string(&p)
             {
-                raw = Some(format!(
-                    "Content of ~/.config/nitrogen/bg-saved.cfg:\n{}",
-                    c.trim()
-                ));
+                raw = Some(format!("Content of {}:\n{}", p.display(), c.trim()));
+                break;
             }
         }
 
@@ -721,5 +834,47 @@ mod tests {
         assert!(report.contains("awww / swww"));
         assert!(report.contains("hyprpaper"));
         assert!(report.contains("swaybg"));
+    }
+
+    #[test]
+    fn test_parse_fehbg_with_shebang_quotes_and_spaces() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("termonet_test_fehbg_{}", std::process::id()));
+        let wall_dir = temp_dir.join("My Pictures");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&wall_dir).unwrap();
+        let wall_file = wall_dir.join("sunset view.png");
+        std::fs::write(&wall_file, b"fake").unwrap();
+
+        let fehbg = format!(
+            "#!/bin/sh\nfeh --no-fehbg --bg-fill '{}'\n",
+            wall_file.display()
+        );
+        assert_eq!(parse_fehbg_content(&fehbg), Some(wall_file.clone()));
+
+        let fehbg_double_quoted =
+            format!("#!/bin/sh\nfeh --bg-scale \"{}\"\n", wall_file.display());
+        assert_eq!(parse_fehbg_content(&fehbg_double_quoted), Some(wall_file));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_parse_nitrogen_cfg() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("termonet_test_nitrogen_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let wall = temp_dir.join("wall.png");
+        std::fs::write(&wall, b"fake").unwrap();
+
+        let cfg = format!(
+            "[xin_0]\nfile={}\nmode=4\nbgcolor=#000000\n",
+            wall.display()
+        );
+        let parsed = parse_nitrogen_cfg(&cfg);
+        assert_eq!(parsed.get("xin_0"), Some(&wall));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

@@ -37,17 +37,34 @@ fn hex_digit(b: u8) -> Option<u8> {
     }
 }
 
-/// Expands environment variables like `$HOME` or `${HOME}` and user tilde `~`.
+/// Expands environment variables like `$HOME` or `${HOME}` (on token boundaries) and user tilde `~`.
 #[must_use]
 pub fn expand_env_and_tilde(input: &str) -> PathBuf {
     let mut res = input.to_string();
     if let Some(home) = std::env::var_os("HOME") {
         let home_str = home.to_string_lossy();
-        if res.contains("$HOME") {
-            res = res.replace("$HOME", &home_str);
-        }
         if res.contains("${HOME}") {
             res = res.replace("${HOME}", &home_str);
+        }
+        if res.contains("$HOME") {
+            let mut out = String::with_capacity(res.len());
+            let mut rest = res.as_str();
+            while let Some(idx) = rest.find("$HOME") {
+                out.push_str(&rest[..idx]);
+                let after = &rest[idx + "$HOME".len()..];
+                let next_is_ident = after
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_');
+                if next_is_ident {
+                    out.push_str("$HOME");
+                } else {
+                    out.push_str(&home_str);
+                }
+                rest = after;
+            }
+            out.push_str(rest);
+            res = out;
         }
     }
     AppPaths::expand_tilde(&res)
@@ -80,8 +97,12 @@ pub fn sanitize_wallpaper_path(raw: &str) -> Option<PathBuf> {
         return None;
     }
 
-    // Safely remove `file://` prefix
-    if let Some(without_file) = trimmed.strip_prefix("file://") {
+    // Safely remove `file://localhost` or `file://` prefix
+    if let Some(without_localhost) = trimmed.strip_prefix("file://localhost/") {
+        // Keep the leading `/` of the local path
+        trimmed = &trimmed["file://localhost".len()..];
+        let _ = without_localhost;
+    } else if let Some(without_file) = trimmed.strip_prefix("file://") {
         trimmed = without_file;
     }
 
@@ -269,6 +290,24 @@ mod tests {
             let _ = clean_wallpaper_path(input);
             let _ = percent_decode(input);
             let _ = validate_wallpaper_path(Path::new(input));
+        }
+    }
+
+    #[test]
+    fn test_sanitize_file_localhost_and_home_boundary() {
+        assert_eq!(
+            sanitize_wallpaper_path("file://localhost/home/user/wall.png"),
+            Some(PathBuf::from("/home/user/wall.png"))
+        );
+
+        let expanded = expand_env_and_tilde("$HOME_OLD/Pictures/wall.png");
+        assert_eq!(expanded, PathBuf::from("$HOME_OLD/Pictures/wall.png"));
+
+        if let Ok(home) = std::env::var("HOME") {
+            assert_eq!(
+                expand_env_and_tilde("$HOME/Pictures/wall.png"),
+                PathBuf::from(home).join("Pictures/wall.png")
+            );
         }
     }
 }

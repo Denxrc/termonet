@@ -132,9 +132,8 @@ pub fn parse_kde_containments(content: &str) -> HashMap<String, PathBuf> {
                 if let Some((id_str, rest)) = after.split_once(']') {
                     current_id = Some(id_str.to_string());
                     in_root_containment = rest.is_empty();
-                    in_wallpaper_sub = rest.contains("Wallpaper")
-                        || rest.contains("Configuration][General")
-                        || rest.contains("General");
+                    in_wallpaper_sub =
+                        rest.starts_with("[Wallpaper]") || rest.contains("][Wallpaper]");
                 } else {
                     current_id = Some(after.to_string());
                     in_root_containment = true;
@@ -163,7 +162,7 @@ pub fn parse_kde_containments(content: &str) -> HashMap<String, PathBuf> {
                 } else if key == "plugin" {
                     entry.plugin = Some(val.to_string());
                 }
-            } else if in_wallpaper_sub && (key == "Image" || key == "usersWallpapers") {
+            } else if in_wallpaper_sub && key == "Image" {
                 entry.image = Some(val.to_string());
             }
         }
@@ -192,8 +191,10 @@ pub fn parse_kde_containments(content: &str) -> HashMap<String, PathBuf> {
 
     if let Some(pri) = primary_path {
         result.insert("default".to_string(), pri);
-    } else if let Some((_, first_path)) = result.iter().next() {
-        result.insert("default".to_string(), first_path.clone());
+    } else if let Some(first_key) = result.keys().min().cloned()
+        && let Some(first_path) = result.get(&first_key).cloned()
+    {
+        result.insert("default".to_string(), first_path);
     }
 
     result
@@ -489,5 +490,42 @@ Image=file:///usr/share/wallpapers/FolderView.png
         assert_eq!(resolved, Some(high_res));
 
         let _ = std::fs::remove_dir_all(&temp_theme);
+    }
+
+    #[test]
+    fn test_parse_kde_containments_ignores_users_wallpapers_and_applets() {
+        let content = "\
+[Containments][1]
+lastScreen=1
+plugin=org.kde.desktopcontainment
+
+[Containments][1][Wallpaper][org.kde.image][General]
+Image=file:///usr/share/wallpapers/Active.png
+usersWallpapers=/usr/share/wallpapers/Old1.png,/usr/share/wallpapers/Old2.png
+
+[Containments][1][Applets][9][Configuration][General]
+Image=file:///usr/share/wallpapers/WidgetIcon.png
+
+[Containments][2]
+lastScreen=2
+plugin=org.kde.desktopcontainment
+
+[Containments][2][Wallpaper][org.kde.image][General]
+Image=file:///usr/share/wallpapers/Second.png
+";
+        let parsed = parse_kde_containments(content);
+        assert_eq!(
+            parsed.get("1"),
+            Some(&PathBuf::from("/usr/share/wallpapers/Active.png"))
+        );
+        assert_eq!(
+            parsed.get("2"),
+            Some(&PathBuf::from("/usr/share/wallpapers/Second.png"))
+        );
+        // Deterministic fallback picks lowest screen key ("1") when screen 0 is absent
+        assert_eq!(
+            parsed.get("default"),
+            Some(&PathBuf::from("/usr/share/wallpapers/Active.png"))
+        );
     }
 }

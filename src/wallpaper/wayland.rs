@@ -9,17 +9,38 @@ use std::time::Duration;
 
 use crate::error::{Result, TermonetError};
 use crate::wallpaper::monitor::MonitorWallpapers;
-use crate::wallpaper::path::sanitize_wallpaper_path;
+use crate::wallpaper::path::{
+    clean_wallpaper_path, sanitize_wallpaper_path, validate_wallpaper_path,
+};
+
+fn retain_existing(mut map: HashMap<String, PathBuf>) -> HashMap<String, PathBuf> {
+    map.retain(|_, p| validate_wallpaper_path(p));
+    map
+}
+
+fn parse_awww_cache_bytes(bytes: &[u8]) -> Option<PathBuf> {
+    let text = String::from_utf8_lossy(bytes);
+    for segment in text.split(['\0', '\n', '\r']).rev() {
+        let seg = segment.trim();
+        if seg.is_empty() {
+            continue;
+        }
+        if let Some(path) = clean_wallpaper_path(seg) {
+            return Some(path);
+        }
+    }
+    None
+}
 
 /// Queries active wallpapers from `awww` or `swww` CLI or disk cache.
-/// Prioritizes the modern `awww` binary, falling back to `swww` and finally inspecting ~/.cache/awww.
+/// Prioritizes the modern `awww` binary, falling back to `swww` and finally inspecting cache directories.
 pub fn query_awww_or_swww() -> Result<MonitorWallpapers> {
     // 1. Try awww query CLI (with --all to capture all namespaces)
     if let Ok(output) = Command::new("awww").args(["query", "--all"]).output()
         && output.status.success()
     {
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let parsed = parse_awww_or_swww_output(&stdout);
+        let parsed = retain_existing(parse_awww_or_swww_output(&stdout));
         if !parsed.is_empty() {
             return Ok(MonitorWallpapers { outputs: parsed });
         }
@@ -30,13 +51,13 @@ pub fn query_awww_or_swww() -> Result<MonitorWallpapers> {
         && output.status.success()
     {
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let parsed = parse_awww_or_swww_output(&stdout);
+        let parsed = retain_existing(parse_awww_or_swww_output(&stdout));
         if !parsed.is_empty() {
             return Ok(MonitorWallpapers { outputs: parsed });
         }
     }
 
-    // 3. Fallback: inspect disk cache in ~/.cache/awww and ~/.cache/swww only if runtime socket/dir exists
+    // 3. Fallback: inspect disk cache in $XDG_CACHE_HOME / ~/.cache only if runtime socket/dir exists
     let runtime_dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
     let daemon_running = runtime_dir.as_ref().is_some_and(|rt| {
         rt.join("awww.sock").exists()
@@ -49,20 +70,27 @@ pub fn query_awww_or_swww() -> Result<MonitorWallpapers> {
     }
 
     Err(TermonetError::WallpaperNotFound(
-        "No active awww or swww wallpaper detected (checked awww query, swww query, and ~/.cache/awww)".into(),
+        "No active awww or swww wallpaper detected (checked awww query, swww query, and cache)"
+            .into(),
     ))
 }
 
-/// Fallback: scans ~/.cache/awww/ and ~/.cache/swww/ for cached active outputs.
+/// Fallback: scans `$XDG_CACHE_HOME/{awww,swww}` and `~/.cache/{awww,swww}` for cached active outputs.
 pub fn query_awww_or_swww_cache() -> Result<MonitorWallpapers> {
-    let home = std::env::var_os("HOME").map(PathBuf::from);
-    let Some(home) = home else {
+    let mut cache_dirs = Vec::new();
+    if let Some(xdg_cache) = std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from) {
+        cache_dirs.push(xdg_cache.join("awww"));
+        cache_dirs.push(xdg_cache.join("swww"));
+    }
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        cache_dirs.push(home.join(".cache/awww"));
+        cache_dirs.push(home.join(".cache/swww"));
+    }
+    if cache_dirs.is_empty() {
         return Err(TermonetError::WallpaperNotFound(
-            "HOME directory not set".into(),
+            "Neither XDG_CACHE_HOME nor HOME directory is set".into(),
         ));
-    };
-
-    let cache_dirs = [home.join(".cache/awww"), home.join(".cache/swww")];
+    }
 
     let mut outputs = HashMap::new();
 
@@ -86,9 +114,8 @@ pub fn query_awww_or_swww_cache() -> Result<MonitorWallpapers> {
                         if file_name.starts_with('_') || file_name.starts_with('.') {
                             continue;
                         }
-                        if let Ok(content) = std::fs::read_to_string(sub.path())
-                            && let Some(path) = sanitize_wallpaper_path(&content)
-                            && path.exists()
+                        if let Ok(bytes) = std::fs::read(sub.path())
+                            && let Some(path) = parse_awww_cache_bytes(&bytes)
                         {
                             outputs.insert(file_name, path);
                         }
@@ -102,9 +129,8 @@ pub fn query_awww_or_swww_cache() -> Result<MonitorWallpapers> {
                     .to_string();
                 if !file_name.starts_with('_')
                     && !file_name.starts_with('.')
-                    && let Ok(content) = std::fs::read_to_string(&p)
-                    && let Some(path) = sanitize_wallpaper_path(&content)
-                    && path.exists()
+                    && let Ok(bytes) = std::fs::read(&p)
+                    && let Some(path) = parse_awww_cache_bytes(&bytes)
                 {
                     outputs.insert(file_name, path);
                 }
@@ -233,8 +259,10 @@ pub fn query_hyprpaper() -> Result<MonitorWallpapers> {
             let _ = stream.set_write_timeout(Some(Duration::from_millis(150)));
             if stream.write_all(b"listactive\n").is_ok() {
                 let mut response = String::new();
-                if stream.read_to_string(&mut response).is_ok() {
-                    let parsed = parse_hyprpaper_active_output(&response);
+                // Read response; even if timeout occurs on an open stream, parse any buffered reply
+                let _ = stream.read_to_string(&mut response);
+                if !response.is_empty() {
+                    let parsed = retain_existing(parse_hyprpaper_active_output(&response));
                     if !parsed.is_empty() {
                         return Ok(MonitorWallpapers { outputs: parsed });
                     }
@@ -250,20 +278,25 @@ pub fn query_hyprpaper() -> Result<MonitorWallpapers> {
         && output.status.success()
     {
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let parsed = parse_hyprpaper_active_output(&stdout);
+        let parsed = retain_existing(parse_hyprpaper_active_output(&stdout));
         if !parsed.is_empty() {
             return Ok(MonitorWallpapers { outputs: parsed });
         }
     }
 
-    // 3. Fallback: Parse ~/.config/hypr/hyprpaper.conf
-    let home = std::env::var_os("HOME").map(PathBuf::from);
-    if let Some(h) = home {
-        let conf_path = h.join(".config/hypr/hyprpaper.conf");
+    // 3. Fallback: Parse $XDG_CONFIG_HOME/hypr/hyprpaper.conf or ~/.config/hypr/hyprpaper.conf
+    let mut conf_candidates = Vec::new();
+    if let Some(xdg_cfg) = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from) {
+        conf_candidates.push(xdg_cfg.join("hypr/hyprpaper.conf"));
+    }
+    if let Some(h) = std::env::var_os("HOME").map(PathBuf::from) {
+        conf_candidates.push(h.join(".config/hypr/hyprpaper.conf"));
+    }
+    for conf_path in conf_candidates {
         if conf_path.exists()
             && let Ok(content) = std::fs::read_to_string(&conf_path)
         {
-            let parsed = parse_hyprpaper_conf(&content);
+            let parsed = retain_existing(parse_hyprpaper_conf(&content));
             if !parsed.is_empty() {
                 return Ok(MonitorWallpapers { outputs: parsed });
             }
@@ -308,10 +341,20 @@ pub fn parse_hyprpaper_active_output(raw: &str) -> HashMap<String, PathBuf> {
     map
 }
 
+fn strip_hypr_comment(line: &str) -> &str {
+    let bytes = line.as_bytes();
+    for (idx, &b) in bytes.iter().enumerate() {
+        if b == b'#' && (idx == 0 || bytes[idx - 1].is_ascii_whitespace()) {
+            return &line[..idx];
+        }
+    }
+    line
+}
+
 /// Parses static wallpaper declarations from `hyprpaper.conf`.
 /// Supports:
 /// - Single-line legacy syntax: `wallpaper = DP-1,/path` or `wallpaper = ,/path`
-/// - Modern block syntax: `wallpaper { monitor = DP-1 \n path = /path }`
+/// - Modern block syntax: `wallpaper { monitor = DP-1 \n path = /path }` (including single-line blocks)
 ///
 /// Ignores `preload = ...` and comments starting with `#`.
 #[must_use]
@@ -321,51 +364,92 @@ pub fn parse_hyprpaper_conf(content: &str) -> HashMap<String, PathBuf> {
     let mut current_block_monitor: Option<String> = None;
     let mut current_block_path: Option<String> = None;
 
-    for line in content.lines() {
-        let line_clean = if let Some((before_hash, _)) = line.split_once('#') {
-            before_hash
+    let flush_block = |map: &mut HashMap<String, PathBuf>,
+                       mon: &mut Option<String>,
+                       path: &mut Option<String>| {
+        if let Some(path_str) = path.take() {
+            let m = mon.take().unwrap_or_else(|| "default".to_string());
+            let key = if m.is_empty() {
+                "default".to_string()
+            } else {
+                m
+            };
+            if let Some(p) = sanitize_wallpaper_path(&path_str) {
+                map.insert(key, p);
+            }
         } else {
-            line
-        };
-        let trimmed = line_clean.trim();
+            mon.take();
+        }
+    };
+
+    for line in content.lines() {
+        let trimmed = strip_hypr_comment(line).trim();
         if trimmed.is_empty() {
             continue;
         }
 
-        if in_wallpaper_block {
-            if trimmed == "}" || trimmed.starts_with('}') {
-                in_wallpaper_block = false;
-                if let Some(path_str) = current_block_path.take() {
-                    let mon = current_block_monitor
-                        .take()
-                        .unwrap_or_else(|| "default".to_string());
-                    let key = if mon.is_empty() {
-                        "default".to_string()
-                    } else {
-                        mon
-                    };
-                    if let Some(path) = sanitize_wallpaper_path(&path_str) {
-                        map.insert(key, path);
+        if !in_wallpaper_block
+            && trimmed.starts_with("wallpaper")
+            && let Some((_, after_brace)) = trimmed.split_once('{')
+        {
+            in_wallpaper_block = true;
+            current_block_monitor = None;
+            current_block_path = None;
+            let rest = after_brace.trim();
+            if !rest.is_empty() {
+                let (inner, closed) = if let Some((before_close, _)) = rest.split_once('}') {
+                    (before_close, true)
+                } else {
+                    (rest, false)
+                };
+                for part in inner.split(';') {
+                    if let Some((k, v)) = part.trim().split_once('=') {
+                        let k = k.trim();
+                        let v = v.trim();
+                        if k == "monitor" {
+                            current_block_monitor = Some(v.to_string());
+                        } else if k == "path" {
+                            current_block_path = Some(v.to_string());
+                        }
                     }
                 }
-                continue;
-            }
-            if let Some((k, v)) = trimmed.split_once('=') {
-                let k = k.trim();
-                let v = v.trim();
-                if k == "monitor" {
-                    current_block_monitor = Some(v.to_string());
-                } else if k == "path" {
-                    current_block_path = Some(v.to_string());
+                if closed {
+                    in_wallpaper_block = false;
+                    flush_block(
+                        &mut map,
+                        &mut current_block_monitor,
+                        &mut current_block_path,
+                    );
                 }
             }
             continue;
         }
 
-        if trimmed.starts_with("wallpaper") && trimmed.contains('{') {
-            in_wallpaper_block = true;
-            current_block_monitor = None;
-            current_block_path = None;
+        if in_wallpaper_block {
+            let (inner, closed) = if let Some((before_close, _)) = trimmed.split_once('}') {
+                (before_close.trim(), true)
+            } else {
+                (trimmed, false)
+            };
+            for part in inner.split(';') {
+                if let Some((k, v)) = part.trim().split_once('=') {
+                    let k = k.trim();
+                    let v = v.trim();
+                    if k == "monitor" {
+                        current_block_monitor = Some(v.to_string());
+                    } else if k == "path" {
+                        current_block_path = Some(v.to_string());
+                    }
+                }
+            }
+            if closed {
+                in_wallpaper_block = false;
+                flush_block(
+                    &mut map,
+                    &mut current_block_monitor,
+                    &mut current_block_path,
+                );
+            }
             continue;
         }
 
@@ -459,6 +543,7 @@ pub fn query_swaybg_from_proc(proc_root: &Path) -> Result<MonitorWallpapers> {
         }
     }
 
+    let outputs = retain_existing(outputs);
     if outputs.is_empty() {
         Err(TermonetError::WallpaperNotFound(
             "No active swaybg process found in proc".into(),
@@ -550,7 +635,7 @@ pub fn query_wpaperd() -> Result<MonitorWallpapers> {
         && output.status.success()
     {
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let parsed = parse_wpaperctl_output(&stdout);
+        let parsed = retain_existing(parse_wpaperctl_output(&stdout));
         if !parsed.is_empty() {
             return Ok(MonitorWallpapers { outputs: parsed });
         }
@@ -603,7 +688,7 @@ pub fn query_wpaperd_from_dir(dir: &Path) -> Result<MonitorWallpapers> {
             } else {
                 target
             };
-            if resolved.exists() {
+            if validate_wallpaper_path(&resolved) {
                 outputs.insert(file_name, resolved);
             }
         }
@@ -750,19 +835,27 @@ wallpaper = ,/home/user/fallback.png
 
     #[test]
     fn test_query_swaybg_from_mock_proc() {
-        let temp_dir = std::env::temp_dir().join("termonet_test_proc");
+        let temp_dir =
+            std::env::temp_dir().join(format!("termonet_test_proc_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&temp_dir);
         let pid_dir = temp_dir.join("1234");
+        let missing_pid_dir = temp_dir.join("1235");
         std::fs::create_dir_all(&pid_dir).unwrap();
+        std::fs::create_dir_all(&missing_pid_dir).unwrap();
 
-        let cmdline_content = b"/usr/bin/swaybg\0-o\0DP-2\0-i\0/tmp/swaywall.png\0";
-        std::fs::write(pid_dir.join("cmdline"), cmdline_content).unwrap();
+        let wall_file = temp_dir.join("swaywall.png");
+        std::fs::write(&wall_file, b"fake").unwrap();
+
+        let cmdline_content = format!("/usr/bin/swaybg\0-o\0DP-2\0-i\0{}\0", wall_file.display());
+        std::fs::write(pid_dir.join("cmdline"), cmdline_content.as_bytes()).unwrap();
+
+        // Missing wallpaper file must be filtered out per Invariant 5
+        let missing_cmdline = b"/usr/bin/swaybg\0-o\0HDMI-1\0-i\0/non_existent_swaywall_xyz.png\0";
+        std::fs::write(missing_pid_dir.join("cmdline"), missing_cmdline).unwrap();
 
         let res = query_swaybg_from_proc(&temp_dir).unwrap();
-        assert_eq!(
-            res.outputs.get("DP-2"),
-            Some(&PathBuf::from("/tmp/swaywall.png"))
-        );
+        assert_eq!(res.outputs.get("DP-2"), Some(&wall_file));
+        assert!(!res.outputs.contains_key("HDMI-1"));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
@@ -851,5 +944,41 @@ DP-1: /home/user/Pictures/wallp.png
             parsed.get("HDMI-A-1"),
             Some(&PathBuf::from("/home/user/wall2.png"))
         );
+    }
+
+    #[test]
+    fn test_parse_hyprpaper_conf_inline_blocks_and_hash_paths() {
+        let raw = r#"
+wallpaper { monitor = DP-1; path = /home/user/Pictures/art#1.png }
+wallpaper = HDMI-A-1,/home/user/Pictures/wall#2.jpg # trailing comment
+"#;
+        let parsed = parse_hyprpaper_conf(raw);
+        assert_eq!(
+            parsed.get("DP-1"),
+            Some(&PathBuf::from("/home/user/Pictures/art#1.png"))
+        );
+        assert_eq!(
+            parsed.get("HDMI-A-1"),
+            Some(&PathBuf::from("/home/user/Pictures/wall#2.jpg"))
+        );
+    }
+
+    #[test]
+    fn test_parse_awww_cache_bytes_with_null_delimiter() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("termonet_test_awww_cache_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let wall = temp_dir.join("cached.png");
+        std::fs::write(&wall, b"fake").unwrap();
+
+        let raw_bytes = format!("Lanczos3\0{}", wall.display());
+        assert_eq!(parse_awww_cache_bytes(raw_bytes.as_bytes()), Some(wall));
+        assert_eq!(
+            parse_awww_cache_bytes(b"Lanczos3\0/non_existent_cache_file.png"),
+            None
+        );
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
