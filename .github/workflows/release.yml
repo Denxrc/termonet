@@ -4,20 +4,36 @@ on:
   push:
     tags:
       - "v*.*.*"
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build and attach binaries to (e.g. v1.5.2)"
+        required: true
+        type: string
 
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.event.release.tag_name || github.ref_name }}
+  cancel-in-progress: false
+
 env:
   CARGO_TERM_COLOR: always
+  RELEASE_TAG: ${{ github.event.inputs.tag || github.event.release.tag_name || github.ref_name }}
 
 jobs:
   check:
     name: Verify Format, Clippy & Tests
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout repository
+      - name: Checkout target tag
         uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -51,8 +67,10 @@ jobs:
             archive_suffix: linux-aarch64
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Checkout repository
+      - name: Checkout target tag
         uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Install musl toolchain
         run: |
@@ -84,7 +102,7 @@ jobs:
           ldd "$BIN" || true
           mkdir -p dist/pkg
           cp "$BIN" README.md README.ru.md LICENSE dist/pkg/
-          tar -C dist/pkg -czf "dist/termonet-${{ github.ref_name }}-${{ matrix.archive_suffix }}.tar.gz" termonet README.md README.ru.md LICENSE
+          tar -C dist/pkg -czf "dist/termonet-${RELEASE_TAG}-${{ matrix.archive_suffix }}.tar.gz" termonet README.md README.ru.md LICENSE
 
       - name: Upload release archive artifact
         uses: actions/upload-artifact@v7
@@ -113,7 +131,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
@@ -122,6 +140,7 @@ jobs:
       - name: Upload binaries to GitHub Release
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
           generate_release_notes: ${{ steps.release_check.outputs.exists == 'false' }}
           files: |
             dist/*.tar.gz
