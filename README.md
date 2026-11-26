@@ -10,8 +10,9 @@
 
 **Fast, dynamic Material You system theme and palette generator for Linux**
 
+[![CI](https://github.com/Denxrc/termonet/actions/workflows/ci.yml/badge.svg)](https://github.com/Denxrc/termonet/actions/workflows/ci.yml)
 [![Rust Edition 2024](https://img.shields.io/badge/rust-edition_2024-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/version-1.5.1-blue.svg)](Cargo.toml)
+[![Version](https://img.shields.io/badge/version-1.5.2-blue.svg)](Cargo.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20(Wayland%20%2F%20X11)-lightgrey.svg)]()
 [![XERJ Corpus Hub](https://hub.xerj.org/contributors/Denxrc/badge.svg)](https://hub.xerj.org/contributors/Denxrc)
@@ -44,10 +45,10 @@ It extracts dominant hues from your desktop wallpapers and calculates authentic,
   - Full localization in **English** and **Russian**.
   - Seamless setup for TUI themes (Dark / Light / System), font styles, display servers (Wayland / X11), and wallpaper backends.
   - Can be invoked anytime directly in-app via `s` or `F2`.
-- 🖼️ **On-the-Fly Wallpaper Changing**:
-  - Press `w` on the Palette screen to type or paste any image path in a modal popup.
+- 🖼️ **On-the-Fly Wallpaper & Color Switching**:
+  - Press `w` or `o` on the Palette screen to type or paste either an image path or a HEX color code (`#385e72`, `0x385e72`, `abc`) in a modal popup.
   - Automatic `~` home directory expansion (`~/Pictures/wall.png` ➔ `/home/user/Pictures/wall.png`).
-  - Real-time palette recalculation and automatic persistence to configuration.
+  - Real-time palette recalculation and automatic persistence to configuration (for wallpaper paths).
 - 📝 **Self-Documenting Configuration**:
   - Saves a clean, human-readable `~/.config/termonet/config.toml` complete with descriptive comments and allowed values for all options.
 - 🛡️ **Zero-Privilege & Read-Only Safety**:
@@ -62,7 +63,7 @@ Termonet organizes its workflow into 4 focused steps:
 
 | Step | Screen | Description |
 | :---: | :--- | :--- |
-| **1** | **Palette** | Preview Material You color roles and ANSI terminal swatches; press `w` to enter a new wallpaper path |
+| **1** | **Palette** | Preview Material You color roles and ANSI terminal swatches; press `w` / `o` to enter a wallpaper path or HEX color |
 | **2** | **Programs** | Toggle supported applications (Kitty, Waybar, Rofi, Hyprland) or custom targets |
 | **3** | **Hooks** | Configure application reload hooks and commands (e.g. `hyprctl reload`, `killall -SIGUSR2 waybar`) |
 | **4** | **Apply** | Review planned file writes and service reload commands before final execution |
@@ -77,17 +78,27 @@ Termonet organizes its workflow into 4 focused steps:
 | `Space` | Toggle selected program or hook checkbox |
 | `Enter` | Apply theme (in Step 4) / Toggle option or save (in Wizard) |
 | `Tab` / `m` | Cycle active monitor wallpapers (in Step 1, multi-monitor) |
-| `w` / `o` | Open manual wallpaper path input dialog (in Step 1) |
+| `w` / `o` | Open manual wallpaper path or HEX color input dialog (in Step 1) |
 | `r` | Auto-detect wallpaper from active wallpaper daemon (in Step 1) |
 | `s` / `F2` | Open setup / settings wizard |
-| `Esc` | Close input modal / cancel settings wizard |
+| `Esc` | Close input modal / cancel settings wizard / quit on main screen |
 | `q` | Quit Termonet |
 
 ---
 
 ## 🚀 Installation & Building
 
-### Prerequisites
+### Pre-built Binaries (Linux `x86_64` & `aarch64`)
+
+Static binaries (built with `musl`, no system `glibc` version dependency) are published automatically on [GitHub Releases](https://github.com/Denxrc/termonet/releases):
+
+```bash
+# Example for x86_64 (check the latest tag on GitHub Releases)
+tar -xzf termonet-vX.Y.Z-linux-x86_64.tar.gz
+install -Dm755 termonet ~/.local/bin/termonet
+```
+
+### Prerequisites (Build from Source)
 
 - A Linux system (Wayland or X11)
 - Rust toolchain (1.85+ with edition 2024 support):
@@ -173,6 +184,56 @@ General Options:
   -V, --version            Print version information
   -h, --help               Print help information
 ```
+
+### Automation & Compositor Integration
+
+Because Termonet has no background daemon and uses `~/.local/state/termonet/state.toml` to skip redundant work, you can bind it directly to compositor hotkeys, wallpaper hooks, or a `systemd` user timer:
+
+- **Hyprland** (`~/.config/hypr/hyprland.conf` / `hyprland.lua`):
+  ```ini
+  # Apply theme at session startup
+  exec-once = termonet --apply
+
+  # Instant dark/light toggle on a hotkey (sub-5ms)
+  bind = $mainMod, T, exec, termonet --toggle-theme
+  ```
+- **Sway** (`~/.config/sway/config`):
+  ```ini
+  exec termonet --apply
+  bindsym $mod+t exec termonet --toggle-theme
+  ```
+- **Wallpaper switch script / `waypaper` hook** (`awww` / `swww`):
+  ```bash
+  # In a wallpaper switch script:
+  awww img "$1" && termonet --apply -w "$1"
+  ```
+  ```ini
+  # Or in ~/.config/waypaper/config.ini:
+  post_command = termonet --apply -w $wallpaper
+  ```
+- **`systemd` user service & timer** (`~/.config/systemd/user/termonet.service` & `termonet.timer`):
+  ```ini
+  # ~/.config/systemd/user/termonet.service
+  [Unit]
+  Description=Update Material You theme from active desktop wallpaper
+
+  [Service]
+  Type=oneshot
+  ExecStart=%h/.local/bin/termonet --apply
+  ```
+  ```ini
+  # ~/.config/systemd/user/termonet.timer
+  [Unit]
+  Description=Periodically check active wallpaper for Termonet
+
+  [Timer]
+  OnBootSec=10s
+  OnUnitActiveSec=30s
+
+  [Install]
+  WantedBy=timers.target
+  ```
+  Enable with `systemctl --user enable --now termonet.timer`. When the wallpaper hasn't changed, `termonet --apply` exits immediately via `state.toml`.
 
 ---
 
@@ -365,25 +426,9 @@ Termonet guarantees configuration safety:
 
 ## 🗺️ Roadmap
 
-- [x] **v0.0 (Prototype & Core Base)**:
-  - [x] Responsive TUI on `ratatui` with 5px pixel font logo
-  - [x] Material You generation via `material-colors` (`Variant::Content`)
-  - [x] First-run setup wizard and human-readable TOML persistence
-  - [x] Bilingual interface (Russian & English)
-  - [x] In-app manual wallpaper path input and auto-loading
-- [x] **v1.0 (Full Wayland & X11 Release)**:
-  - [x] MiniJinja template engine with custom filters and TrueColor / ANSI roles
-  - [x] Built-in out-of-the-box rules and templates (Kitty, Waybar, Rofi, Hyprland Lua)
-  - [x] Safe marker injection, legacy theme (Pywal) replacement, and `.original` master backups
-  - [x] Two-tier asset versioning and automatic migration (`--update-rules`, `--reset-rules`)
-  - [x] Automatic Wayland wallpaper extraction (`awww`, `swww`, `hyprpaper`, `wpaperd`, `swaybg`) and DE (`GNOME`, `KDE`)
-  - [x] Automatic X11 wallpaper extraction (`feh`, `nitrogen`)
-  - [x] Multi-monitor duplicate filter with primary monitor selection (`primary_monitor`)
-  - [x] Headless CLI auto-apply mode (`--apply`, `--force`) with idle state caching
-- [ ] **v1.5 (CLI Theme Control, Expanded Templates & Stabilization)**:
-  - [x] Instant theme toggling without wallpaper re-processing: `termonet --toggle-theme`, `termonet --theme <dark|light>`
-  - [x] Custom seed generation via CLI: `termonet --color "#HEX"`
-  - [x] Dynamic wallpaper backend list in setup wizard (Wayland and X11 separation)
+> Released versions (`v0.1.0` – `v1.5.2`) and detailed changelogs are available on [GitHub Releases](https://github.com/Denxrc/termonet/releases).
+
+- [ ] **v1.6 (Expanded Templates & Stabilization)**:
   - [ ] Expansion of built-in templates: System GTK 3/4 (`gtk.css`), terminals (`foot`, `alacritty`, `ghostty`), notifications (`mako`, `dunst`), launcher `fuzzel`
   - [ ] Real-world testing and stabilization of desktop environments (GNOME, KDE Plasma) and X11 (`feh`, `nitrogen`)
 - [ ] **v2.0 (Advanced Color Science, Presets & Visual UX)**:
@@ -392,11 +437,22 @@ Termonet guarantees configuration safety:
   - [ ] Interactive candidate seed color selector in TUI
   - [ ] Built-in reference static presets (Catppuccin Mocha/Latte, Nord, Gruvbox, Tokyo Night) via `termonet --preset <name>`
   - [ ] Interactive code syntax & contrast mockup preview in TUI
-- [ ] **v3.0+ (Desktop Ecosystem & System Integration)**:
+- [ ] **v3.0+ (Desktop Ecosystem & Bold Ideas)**:
   - [ ] XDG Desktop Portal synchronization (`org.freedesktop.appearance.color-scheme`) via DBus for system-wide browser/app dark mode
   - [ ] Independent multi-monitor theme profiles for distinct wallpapers
   - [ ] Palette export into standardized specifications (`base16`, `json`, `css`)
   - [ ] *[Experimental / Planned]* Cross-platform Windows port (Win32 wallpaper query, Windows Terminal `settings.json`, PowerShell `$PROFILE`, GlazeWM/Zebar)
+
+---
+
+## 🏗️ Architecture & Developer Documentation
+
+For contributors and anyone interested in Termonet's internals, a complete architectural specification is available in two languages:
+
+- **English**: [ARCHITECTURE.md](ARCHITECTURE.md)
+- **Русский**: [ARCHITECTURE.ru.md](ARCHITECTURE.ru.md)
+
+It covers the 7 core Rust subsystems, headless CLI and interactive TUI lifecycles, Wayland/DE/X11 wallpaper detection pipelines, Material Design 3 quantization, atomic file writes and backup invariants, extension playbooks, and testing standards.
 
 ---
 
