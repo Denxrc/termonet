@@ -6,163 +6,130 @@
  █  █▄▄▄ █  █ █   █ █▄▄█ █  █ █▄▄▄  █ 
 ```
 
-# Termonet
-
 **Быстрый и динамический генератор системных тем и палитр Material You для Linux**
 
-[![CI](https://github.com/Denxrc/termonet/actions/workflows/ci.yml/badge.svg)](https://github.com/Denxrc/termonet/actions/workflows/ci.yml)
-[![Rust Edition 2024](https://img.shields.io/badge/rust-edition_2024-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/версия-1.5.2-blue.svg)](Cargo.toml)
-[![License: MIT](https://img.shields.io/badge/лицензия-MIT-green.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/платформа-Linux%20(Wayland%20%2F%20X11)-lightgrey.svg)]()
+[![CI](https://img.shields.io/github/actions/workflow/status/Denxrc/termonet/ci.yml?branch=master&label=CI&logo=githubactions&logoColor=white)](https://github.com/Denxrc/termonet/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/badge/release-v1.5.2-blue?logo=github&logoColor=white)](https://github.com/Denxrc/termonet/releases)
+[![Rust](https://img.shields.io/badge/rust-edition_2024-orange?logo=rust&logoColor=white)](Cargo.toml)
+[![Platform](https://img.shields.io/badge/linux-wayland_%7C_x11-blueviolet?logo=linux&logoColor=white)]()
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![XERJ Corpus Hub автор](https://hub.xerj.org/contributors/Denxrc/badge.svg)](https://hub.xerj.org/contributors/Denxrc)
 
-[English](README.md) | [Русский](README.ru.md)
+[English](README.md) · [Русский](README.ru.md) · [Архитектура](ARCHITECTURE.ru.md) · [Релизы](https://github.com/Denxrc/termonet/releases) · [Баг-репорт](.github/ISSUE_TEMPLATE/bug_report.md)
 
 </div>
 
 ---
 
-## 🌟 О проекте
+## ▸ Обзор
 
-> [!NOTE]
-> **XERJ Corpus Hub**: Termonet включен в базу [XERJ Corpus Hub](https://hub.xerj.org/contributors/Denxrc) как практический пример реализации TUI, работы с путями и темами на Rust.
+**Termonet** извлекает доминантные цвета из активных обоев рабочего стола (или заданного HEX-цвета), рассчитывает гармонизированные светлую и тёмную схемы **Material You (Material 3)** вместе с 16-цветной ANSI-палитрой терминала и аккуратно внедряет их в конфиги приложений без повреждения пользовательских настроек. Утилита работает без root-прав и интерпретаторов вроде Python или Node.js, объединяя интерактивный TUI на `ratatui` и автономный CLI со скоростью отклика < 5 мс.
 
-**Termonet** — легковесный, безопасный генератор динамических тем оформления и цветовых палитр для графических окружений Linux (Wayland и X11), написанный на **Rust** (edition 2024).
-
-Программа извлекает ключевые цвета из обоев рабочего стола и математически гармонизирует их по алгоритму **Google Material You (Material 3)**, создавая роли цветов и 16-цветную ANSI-палитру терминала. Termonet оснащен удобным терминальным интерфейсом (TUI) на базе `ratatui` с интерактивным мастером настройки, вводом путей к обоям прямо в интерфейсе и безопасным управлением конфигурацией.
+> **Статус (`v1.5.2`)**: Интерактивный 4-шаговый TUI и мастер настройки, мультимониторное определение обоев (`awww`, `swww`, `hyprpaper`, `wpaperd`, `swaybg`, GNOME, KDE Plasma, `feh`, `nitrogen`), шаблонизатор MiniJinja (Kitty, Waybar, Rofi, Hyprland Lua + свои правила) и headless CLI (`--apply`, `--toggle-theme`, `--theme`, `-c/--color`) готовы к работе. Готовые статические сборки для Linux (`x86_64` и `aarch64`) публикуются в [GitHub Releases](https://github.com/Denxrc/termonet/releases).
 
 ---
 
-## ✨ Возможности
+## ▸ Быстрый старт
 
-- 🎨 **Настоящий Material You (Material 3)**: На базе крейта `material-colors` с использованием алгоритма `Variant::Content`, который сохраняет естественные цвета и приглушенные атмосферные полутона без искусственного завышения насыщенности.
-- ⚡ **Мгновенная обработка изображений**: Предварительное масштабирование до 128×128 в памяти через крейт `image`, обеспечивающее расчет палитры всего за ~40 мс для изображений любого разрешения, включая 8K и анимированные GIF-файлы (извлечение первого кадра).
-- 🖥️ **Адаптивный TUI с фирменным 5px пиксельным шрифтом**:
-  - Пиксельный логотип высотой 5 строк через полублоки Unicode (`█`, `▀`, `▄`) с поддержкой кириллицы и латиницы.
-  - Автоматическое переключение на компактный заголовок при малом размере терминала.
-- 🧙 **Интерактивный мастер первого запуска**:
-  - Полная локализация на **русский** и **английский** языки.
-  - Выбор темы оформления TUI (Темная / Светлая / Системная), графического сервера (Wayland / X11) и бэкенда обоев.
-  - Вызов в любой момент по клавише `s` или `F2`.
-- 🖼️ **Смена обоев и цвета «на лету» в интерфейсе**:
-  - Нажатие `w` или `o` на шаге палитры открывает модальное окно для ввода как пути к изображению, так и HEX-цвета (`#385e72`, `0x385e72`, `abc`).
-  - Автоматическое раскрытие тильды `~` в домашнюю директорию (`~/Pictures/wall.png` ➔ `/home/user/Pictures/wall.png`).
-  - Мгновенный пересчет цветов и сохранение пути к обоям в конфиг.
-- 📝 **Понятный и комментированный конфиг**:
-  - Файл `~/.config/termonet/config.toml` снабжен подробными пояснениями к каждой опции и списком поддерживаемых значений.
-- 🛡️ **Безопасность и работа без root-прав**:
-  - Работает строго с правами обычного пользователя.
-  - Все операции до подтверждения выполняются в оперативной памяти.
-
----
-
-## 🧭 Навигация и горячие клавиши
-
-Интерфейс разделен на 4 логических шага:
-
-| Шаг | Экран | Описание |
-| :---: | :--- | :--- |
-| **1** | **Палитра** | Просмотр ролей Material You и 16 цветов ANSI; нажатие `w` / `o` открывает ввод пути к обоям или HEX-цвета |
-| **2** | **Программы** | Выбор поддерживаемых приложений (Kitty, Waybar, Rofi, Hyprland) и кастомных целей |
-| **3** | **Хуки** | Просмотр и переключение команд перезапуска сервисов (напр. `hyprctl reload`, `killall -SIGUSR2 waybar`) |
-| **4** | **Применение** | Сводка обновляемых файлов и запускаемых хуков перед записью |
-
-### Управление
-
-| Клавиша | Действие |
-| :--- | :--- |
-| `←` / `→` (`h` / `l`) | Переход между окнами (шагами 1..4) |
-| `1`, `2`, `3`, `4` | Прямой переход к соответствующему шагу |
-| `↑` / `↓` (`k` / `j`) | Навигация по спискам программ и хуков |
-| `Пробел` | Включение / отключение выбранной программы или хука |
-| `Enter` | Применить тему (на шаге 4) / Переключить опцию или сохранить (в мастере) |
-| `Tab` / `m` | Переключение между экранами (на шаге 1, мультимонитор) |
-| `w` / `o` | Открыть ввод пути к обоям или HEX-цвета (на шаге 1) |
-| `r` | Автоопределить обои из запущенного демона обоев (на шаге 1) |
-| `s` / `F2` | Открыть мастер настроек |
-| `Esc` | Закрыть модальное окно / отменить мастер настроек / выйти с главного экрана |
-| `q` | Выход из Termonet |
-
----
-
-## 🚀 Установка и сборка
-
-### Готовые бинарники (Linux `x86_64` и `aarch64`)
-
-Статически собранные бинарники (на `musl`, не зависят от версии `glibc` в дистрибутиве) автоматически публикуются в [GitHub Releases](https://github.com/Denxrc/termonet/releases):
+Скачайте готовый статический бинарник (`x86_64` или `aarch64`, без привязки к версии `glibc`), проверьте контрольную сумму и запустите Termonet:
 
 ```bash
-# Пример для x86_64 (актуальную версию смотрите в GitHub Releases)
-tar -xzf termonet-vX.Y.Z-linux-x86_64.tar.gz
-install -Dm755 termonet ~/.local/bin/termonet
-```
+# 1. Скачивание и проверка v1.5.2 (поддерживает x86_64 и aarch64 через uname -m)
+VERSION="v1.5.2" ARCH="$(uname -m)"
+curl -LO "https://github.com/Denxrc/termonet/releases/download/${VERSION}/termonet-${VERSION}-linux-${ARCH}.tar.gz"
+curl -LO "https://github.com/Denxrc/termonet/releases/download/${VERSION}/SHA256SUMS.txt"
+sha256sum --ignore-missing -c SHA256SUMS.txt
+mkdir -p termonet-pkg && tar -xzf "termonet-${VERSION}-linux-${ARCH}.tar.gz" -C termonet-pkg
+install -Dm755 termonet-pkg/termonet ~/.local/bin/termonet
 
-### Требования (сборка из исходников)
-
-- Linux (Wayland или X11)
-- Компилятор Rust (1.85+ с поддержкой редакции 2024):
-  ```bash
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-  ```
-
-### Сборка из исходников
-
-```bash
-git clone https://github.com/Denxrc/termonet.git
-cd termonet
-cargo build --release
-```
-
-Готовый бинарный файл находится в `target/release/termonet`. Для установки в систему:
-
-```bash
-install -Dm755 target/release/termonet ~/.local/bin/termonet
-```
-
----
-
-## 💻 Использование
-
-```bash
-# Запуск интерактивного TUI (автоматически определит активные обои из демона или конфига)
+# 2. Запуск интерактивного TUI (при первом запуске откроется мастер настройки)
 termonet
 
-# Автономный режим без TUI: применить палитру к конфигам программ из активных обоев и выйти
+# 3. Автономное применение и мгновенное переключение тёмной/светлой темы
 termonet --apply
-
-# Мгновенное переключение темной/светлой темы без повторного анализа обоев
 termonet --toggle-theme
-
-# Явное переключение темы на темную или светлую
-termonet --theme dark # или termonet --theme light
-
-# Генерация палитры от конкретного цвета в автономном режиме
-termonet -c "#385e72" -a
-
-# Принудительное применение без TUI (игнорируя кэш последних обоев)
-termonet --apply --force
-
-# Применение конкретного файла обоев в автономном режиме
-termonet --apply -w ~/Pictures/Wallpapers/forest.png
-
-# Запуск TUI с палитрой от конкретного цвета
-termonet -c "#385e72"
-
-# Запуск TUI с указанием конкретного изображения обоев
-termonet -w ~/Pictures/Wallpapers/forest.png
-
-# Запуск мастера начальной настройки
-termonet --init
-
-# Принудительная синхронизация и обновление шаблонов/правил до актуальных
-termonet --reset-rules # или termonet --update-rules
-
-# Диагностика: проверка и вывод данных всех поддерживаемых менеджеров обоев
-termonet --debug-wallpaper
 ```
 
-### Параметры командной строки
+---
+
+## ▸ Принципы и возможности
+
+| Принцип | Реализация в `v1.5.2` |
+| :--- | :--- |
+| **Ядро Material You** | `material-colors` (`Variant::Content`) сохраняет естественные оттенки в 19 семантических ролях MD3 и светлой/тёмной ANSI 16 палитрах через HCT. |
+| **Быстрая обработка** | Сжатие в памяти до 128×128 (`image`), извлечение первого кадра GIF/WebP, квантование Celebi и zero-alloc сериализация HEX/RGB. |
+| **Адаптивный TUI и мастер** | 4-шаговый интерфейс на `ratatui` с 5px логотипом из полублоков Unicode, локализацией `RU`/`EN`, переключением мониторов (`Tab`/`m`) и вводом пути/HEX. |
+| **Поиск обоев везде** | Параллельный опрос (`std::thread::scope`) для Wayland (`awww`, `swww`, `hyprpaper` сокет/конфиг, `wpaperd`, `swaybg` `/proc`), GNOME, KDE Plasma и X11 (`feh`, `nitrogen`). |
+| **Безопасные шаблоны** | Встроенный MiniJinja с изолированными маркерами (`>>> termonet colors >>>`), заменой старых импортов Pywal и вечным бэкапом `.original` при включении. |
+| **Симлинки и кэш состояния** | `safe_write()` сохраняет симлинки и права доступа, пропускает лишние перезаписи, а `state.toml` исключает холостые срабатывания. |
+
+---
+
+## ▸ Архитектура
+
+```text
+Демон обоев / -w ПУТЬ / -c #HEX
+        │
+        ▼
+┌─────────────────────────────────────────────┐
+│  Ядро Termonet (src/core · src/wallpaper)   │  Чистый Rust · Без root · ~3.5 МБ
+│  · Параллельные провайдеры и санитайзер     │
+│  · 128x128 -> Celebi -> CAM16 + HCT         │
+│  · Защита от холостых запусков (state.toml) │
+└─────────────────────────────────────────────┘
+        │
+        ├──► Интерактивный TUI (src/tui: Палитра -> Программы -> Хуки -> Применение)
+        └──► Автономный CLI (src/cli: --apply / --toggle-theme / --theme / -c)
+                │
+                ▼
+     MiniJinja -> safe_write() + маркеры -> Отвязанные хуки перезапуска
+```
+
+> [!TIP]
+> Подробный разбор всех подсистем, Mermaid-диаграммы пайплайнов, таймауты IPC, 6 инвариантов безопасности и руководства по расширению: **[ARCHITECTURE.ru.md](ARCHITECTURE.ru.md)** ([English](ARCHITECTURE.md)).
+
+<details>
+<summary>Структура репозитория и модулей (36 файлов Rust, 7 подсистем)</summary>
+
+```text
+termonet/
+├── Cargo.toml                  # Манифест (Edition 2024, Thin LTO, strip = true, panic = "abort")
+├── assets/
+│   ├── rules/                  # Встроенные правила (kitty, waybar, rofi, hyprland)
+│   └── templates/              # Встроенные шаблоны MiniJinja (*.tmpl, termonet-version: 4)
+└── src/
+    ├── main.rs                 # Точка входа, строгий парсер CLI-аргументов и диспетчер
+    ├── lib.rs & error.rs       # Корень крейта и типизированная ошибка TermonetError (thiserror)
+    ├── cli/                    # Автономный исполнитель (--apply, --toggle-theme, --theme, -c/--color)
+    ├── config/                 # Пути XDG, config.toml (Schema v2), детектор темы, state.toml
+    ├── core/                   # Обработка картинок, HEX-парсер RgbColor, 19 ролей MD3 + ANSI 16
+    ├── wallpaper/              # Трейт WallpaperProvider, бэкенды Wayland/DE/X11, выбор монитора
+    ├── template/               # Движок MiniJinja, атомарный safe_write(), бэкапы, инъекция маркеров
+    ├── tui/                    # Цикл событий Ratatui, TerminalGuard RAII, 5px PixelFont, 6 экранов
+    └── i18n/                   # Словари локализации (русский и английский языки)
+```
+
+</details>
+
+---
+
+## ▸ CLI, TUI и интеграция с композиторами
+
+### Основные команды
+
+```bash
+termonet                                # Запуск интерактивного TUI (автоопределение обоев)
+termonet --apply                        # Автономно применить палитру из активных обоев и выйти
+termonet --toggle-theme                 # Мгновенно переключить тёмную/светлую тему (< 5 мс из кэша)
+termonet --theme dark                   # Явно установить и применить тему ('dark' или 'light')
+termonet -c "#385e72" -a                # Сгенерировать и применить палитру от HEX-цвета
+termonet --apply -w ~/Pictures/wall.png # Применить конкретный файл обоев в автономном режиме
+termonet --debug-wallpaper              # Вывести диагностический отчёт всех менеджеров обоев
+termonet --update-rules                 # Синхронизировать встроенные правила и шаблоны до актуальных
+```
+
+<details>
+<summary>Полная справка параметров командной строки (--help)</summary>
 
 ```text
 Использование: termonet [ОПЦИИ] [ПУТЬ_К_ОБОЯМ]
@@ -180,66 +147,119 @@ termonet --debug-wallpaper
   -w, --wallpaper <ПУТЬ>   Путь к изображению обоев (PNG, JPG, GIF, WebP)
   -i, --wizard, --init     Запустить мастер начальной настройки
       --reset-rules, --update-rules  Синхронизировать/сбросить правила и шаблоны по умолчанию
-      --debug-wallpaper    Вывести диагностический отчет менеджеров обоев
+      --debug-wallpaper    Вывести диагностический отчёт менеджеров обоев
   -V, --version            Показать версию программы
   -h, --help               Показать справочную информацию
 ```
 
-### Автоматизация и интеграция с композиторами
+</details>
 
-Поскольку Termonet не висит в памяти фоновым демоном и использует `~/.local/state/termonet/state.toml` для пропуска холостых запусков, его удобно привязать к горячим клавишам композитора, хуку смены обоев или пользовательскому таймеру `systemd`:
+<details>
+<summary>Экраны TUI и горячие клавиши</summary>
 
-- **Hyprland** (`~/.config/hypr/hyprland.conf` / `hyprland.lua`):
-  ```ini
-  # Применить тему при старте сессии
-  exec-once = termonet --apply
+| Шаг | Экран | Назначение |
+| :---: | :--- | :--- |
+| **1** | **Палитра** | Просмотр seed-цвета, 19 ролей MD3 и 16 цветов ANSI; переключение экранов или ввод пути/HEX |
+| **2** | **Программы** | Выбор встроенных приложений (Kitty, Waybar, Rofi, Hyprland) и кастомных правил |
+| **3** | **Хуки** | Включение и отключение команд перезапуска (`hyprctl reload`, `killall -SIGUSR2 waybar`) |
+| **4** | **Применение** | Сводка планируемых записей и отвязанных хуков перед сохранением на диск |
 
-  # Мгновенное переключение тёмной/светлой темы по клавише (< 5 мс)
-  bind = $mainMod, T, exec, termonet --toggle-theme
-  ```
-- **Sway** (`~/.config/sway/config`):
-  ```ini
-  exec termonet --apply
-  bindsym $mod+t exec termonet --toggle-theme
-  ```
-- **Скрипт смены обоев / хук `waypaper`** (`awww` / `swww`):
-  ```bash
-  # В собственном скрипте смены обоев:
-  awww img "$1" && termonet --apply -w "$1"
-  ```
-  ```ini
-  # Или в ~/.config/waypaper/config.ini:
-  post_command = termonet --apply -w $wallpaper
-  ```
-- **Пользовательский сервис и таймер `systemd`** (`~/.config/systemd/user/termonet.service` и `termonet.timer`):
-  ```ini
-  # ~/.config/systemd/user/termonet.service
-  [Unit]
-  Description=Update Material You theme from active desktop wallpaper
+| Клавиша | Действие |
+| :--- | :--- |
+| `←` / `→` (`h` / `l`) | Переход между шагами (1..4) |
+| `1`, `2`, `3`, `4` | Прямой переход к шагу 1..4 |
+| `↑` / `↓` (`k` / `j`) | Навигация по спискам и пунктам мастера |
+| `Пробел` | Включить / отключить программу, хук или опцию мастера |
+| `Enter` | Применить тему (шаг 4) / Подтвердить или сохранить (мастер / ввод) |
+| `Tab` / `m` | Переключение между мониторами (шаг 1, при разных обоях) |
+| `w` / `o` | Открыть ввод пути к обоям или HEX-цвета (`#385e72`, `0x...`) |
+| `r` | Повторно автоопределить обои из активного демона (шаг 1) |
+| `s` / `F2` | Открыть мастер настроек |
+| `Esc` | Закрыть окно ввода / откатить настройки мастера / выйти с главного экрана |
+| `q` / `Ctrl+C` | Выход из Termonet |
 
-  [Service]
-  Type=oneshot
-  ExecStart=%h/.local/bin/termonet --apply
-  ```
-  ```ini
-  # ~/.config/systemd/user/termonet.timer
-  [Unit]
-  Description=Periodically check active wallpaper for Termonet
+</details>
 
-  [Timer]
-  OnBootSec=10s
-  OnUnitActiveSec=30s
+<details>
+<summary>Рецепты для композиторов, хуков обоев и systemd (Hyprland, Sway, waypaper, systemd)</summary>
 
-  [Install]
-  WantedBy=timers.target
-  ```
-  Включение: `systemctl --user enable --now termonet.timer`. Если обои не менялись, `termonet --apply` мгновенно завершает работу благодаря кэшу `state.toml`.
+Поскольку Termonet не висит в памяти фоновым демоном и использует `~/.local/state/termonet/state.toml` для пропуска холостых запусков, его удобно привязать к горячим клавишам, хукам или таймеру:
+
+#### Hyprland (`~/.config/hypr/hyprland.conf` / `hyprland.lua`)
+
+```ini
+exec-once = termonet --apply
+bind = $mainMod, T, exec, termonet --toggle-theme
+```
+
+#### Sway (`~/.config/sway/config`)
+
+```ini
+exec termonet --apply
+bindsym $mod+t exec termonet --toggle-theme
+```
+
+#### Скрипт смены обоев / хук `waypaper`
+
+```bash
+# В скрипте смены обоев для awww / swww
+awww img "$1" && termonet --apply -w "$1"
+```
+
+```ini
+# ~/.config/waypaper/config.ini
+post_command = termonet --apply -w $wallpaper
+```
+
+#### Пользовательский сервис и таймер `systemd`
+
+```ini
+# ~/.config/systemd/user/termonet.service
+[Unit]
+Description=Update Material You theme from active desktop wallpaper
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/termonet --apply
+```
+
+```ini
+# ~/.config/systemd/user/termonet.timer
+[Unit]
+Description=Periodically check active wallpaper for Termonet
+
+[Timer]
+OnBootSec=10s
+OnUnitActiveSec=30s
+
+[Install]
+WantedBy=timers.target
+```
+
+```bash
+systemctl --user enable --now termonet.timer
+```
+
+</details>
 
 ---
 
-## ⚙️ Конфигурация
+## ▸ Конфигурация и свои шаблоны
 
-Файл настроек располагается по пути `~/.config/termonet/config.toml` и содержит подробные комментарии:
+Конфигурация с подробными комментариями хранится в `~/.config/termonet/config.toml` (схема v2; пропущенные ключи подставляются по умолчанию, а минимальные конфиги без автозаголовка не перезаписываются):
+
+```toml
+language = "ru"              # "ru" | "en"
+tui_theme = "dark"           # "dark" | "light" | "system"
+font_mode = "pixel"          # "pixel" | "standard"
+display_server = "wayland"   # "wayland" | "x11"
+wallpaper_backend = "auto"   # "auto", "awww", "swww", "hyprpaper", "wpaperd", "swaybg", "gnome", "kde", "feh", "nitrogen", "manual"
+enabled_programs = ["kitty", "waybar", "rofi", "hyprland"]
+create_backups = false
+```
+
+<details>
+<summary>Полная комментированная схема config.toml (Schema v2)</summary>
 
 ```toml
 # ==============================================================================
@@ -248,29 +268,18 @@ termonet --debug-wallpaper
 # Schema Version: 2
 # ==============================================================================
 
-# Язык интерфейса ("ru" | "en")
 language = "ru"
-
-# Цветовая тема TUI ("dark" | "light" | "system" по системной схеме рабочего стола)
 tui_theme = "dark"
-
-# Режим шрифта заголовка ("pixel" | "standard")
 font_mode = "pixel"
-
-# Графический сервер ("wayland" | "x11")
 display_server = "wayland"
-
-# Утилита обоев
-# Варианты: "auto", "swww", "hyprpaper", "awww", "wpaperd", "swaybg", "gnome", "kde", "feh", "nitrogen", "manual"
 wallpaper_backend = "auto"
 
 # Главный монитор (раскомментируйте для указания)
 # primary_monitor = "eDP-1"
 
-# Ручной путь к обоям (раскомментируйте для указания)
-# manual_wallpaper_path = "~/Pictures/wallpapers/forest.png"
+# Ручной путь к обоям (используется при wallpaper_backend = "manual" или как fallback)
+# manual_wallpaper_path = "/path/to/wallpaper.png"
 
-# Программы для генерации цветовых схем
 enabled_programs = [
     "kitty",
     "waybar",
@@ -278,95 +287,17 @@ enabled_programs = [
     "hyprland"
 ]
 
-# Создание резервных копий (false — чистое обновление без мусора .bak)
 create_backups = false
 ```
 
----
+</details>
 
-## 🎨 Создание собственных правил и шаблонов тем
+<details>
+<summary>Создание своих правил, шаблонов, переменные и безопасные бэкапы</summary>
 
-Termonet спроектирован полностью модульным: вы можете добавить динамическую поддержку **любой** программы (терминала, бара, лаунчера, редактора кода), просто создав два файла в каталоге `~/.config/termonet/`.
+Поддержка любой программы задаётся двумя файлами — правилом (`~/.config/termonet/rules/<app>.toml`) и шаблоном MiniJinja (`~/.config/termonet/templates/<app>.tmpl`):
 
-### 1. Архитектура темы
-
-Интеграция каждой программы описывается двумя компонентами:
-1. **Файл правил** (`~/.config/termonet/rules/<программа>.toml`) — метаданные, пути к файлам и команда перезапуска.
-2. **Файл шаблона** (`~/.config/termonet/templates/<программа>.tmpl`) — разметка конфига с синтаксисом MiniJinja.
-
-### 2. Спецификация файла правил (`rules/<name>.toml`)
-
-```toml
-# Версия схемы правила (для автоматической миграции дефолтов)
-version = 2
-
-# Имя программы (отображается в TUI и мастере)
-name = "Foot"
-
-# Имя файла шаблона в ~/.config/termonet/templates/
-template = "foot.tmpl"
-
-# Куда сохранять сгенерированный файл цветов
-output_path = "~/.config/foot/colors-termonet.ini"
-
-# (Опционально) Главный конфигурационный файл программы для вставки импорта
-target_config = "~/.config/foot/foot.ini"
-
-# (Опционально) Строка импорта, которая автоматически вставится в target_config
-import_line = "include = ~/.config/foot/colors-termonet.ini"
-
-# Позиция вставки ("top" - в начало, "bottom" - в конец)
-import_position = "bottom"
-
-# (Опционально) Стиль комментариев маркера ("hash" | "blockcss" | "slash" | "doubledash")
-# Если не указан, определяется автоматически по расширению файла target_config
-comment_style = "hash"
-
-# (Опционально) Команда для мгновенного применения темы без перезапуска программы
-reload_cmd = ""
-```
-
-### 3. Переменные и фильтры в шаблонах (`templates/<name>.tmpl`)
-
-В шаблонах доступны все роли **Google Material You** (для светлой и темной тем), а также гармонизированная 16-цветная ANSI-палитра терминала.
-
-#### Доступные переменные
-
-- **Динамическая активная тема (`active.*` или `theme.*`)**:
-  - Автоматически выбирает свойства светлой или темной темы в зависимости от текущего режима:
-  - `active.primary`, `active.on_primary`, `active.primary_container`, `active.on_primary_container`
-  - `active.secondary`, `active.on_secondary`, `active.secondary_container`, `active.on_secondary_container`
-  - `active.tertiary`, `active.on_tertiary`
-  - `active.surface`, `active.on_surface`, `active.surface_variant`, `active.on_surface_variant`
-  - `active.background`, `active.on_background`, `active.outline`
-  - `active.error`, `active.on_error`
-- **Явные варианты схем (`dark.*` и `light.*`)**:
-  - Все перечисленные выше роли с префиксами `dark.` или `light.` (включая `error` и `on_error`)
-- **Терминальные ANSI-палитры (`terminal.*`, `terminal_dark.*`, `terminal_light.*`)**:
-  - `terminal.color0` ... `terminal.color15` (динамически адаптируется под активную тему)
-  - `terminal.background`, `terminal.foreground`, `terminal.cursor`
-  - `terminal_dark.*` и `terminal_light.*` для явной адресации
-- **Ключевой цвет обоев**: `seed_color`
-
-#### Форматы вывода цветов
-
-Каждый цвет предоставляет готовые поля:
-- `.hex` — цвет с решеткой: `#adc6ff`
-- `.strip` — цвет без решетки: `adc6ff`
-- `.rgb` — каналы через запятую: `173, 198, 255`
-- `.r`, `.g`, `.b` — отдельные 8-битные каналы (0..255)
-
-#### Встроенные фильтры MiniJinja
-
-- `{{ dark.primary | hex }}` ➔ гарантированный `#adc6ff`
-- `{{ dark.primary | strip }}` (или `stripped`) ➔ `adc6ff`
-- `{{ dark.primary | rgb }}` ➔ `173, 198, 255`
-- `{{ dark.primary | hypr_rgb }}` ➔ `rgb(adc6ff)`
-- `{{ dark.primary | hypr_rgba("ee") }}` ➔ `rgba(adc6ffee)`
-
-### 4. Практический пример: Добавление терминала Foot
-
-1. Создайте `~/.config/termonet/rules/foot.toml`:
+1. **Файл правила (`~/.config/termonet/rules/foot.toml`)**:
    ```toml
    version = 2
    name = "Foot"
@@ -374,88 +305,81 @@ reload_cmd = ""
    output_path = "~/.config/foot/colors-termonet.ini"
    target_config = "~/.config/foot/foot.ini"
    import_line = "include = ~/.config/foot/colors-termonet.ini"
-   import_position = "bottom"
+   import_position = "bottom"   # "top" | "bottom"
+   comment_style = "hash"       # опционально: "hash" | "blockcss" | "slash" | "doubledash"
+   reload_cmd = ""
    ```
 
-2. Создайте `~/.config/termonet/templates/foot.tmpl`:
+2. **Файл шаблона (`~/.config/termonet/templates/foot.tmpl`)**:
    ```ini
-   # Termonet Foot Terminal Theme
    # termonet-version: 4
-
    [colors]
    background = {{ terminal.background.strip }}
    foreground = {{ terminal.foreground.strip }}
    regular0 = {{ terminal.color0.strip }}
    regular1 = {{ terminal.color1.strip }}
-   regular2 = {{ terminal.color2.strip }}
-   regular3 = {{ terminal.color3.strip }}
-   regular4 = {{ terminal.color4.strip }}
-   regular5 = {{ terminal.color5.strip }}
-   regular6 = {{ terminal.color6.strip }}
-   regular7 = {{ terminal.color7.strip }}
-   bright0 = {{ terminal.color8.strip }}
-   bright1 = {{ terminal.color9.strip }}
-   bright2 = {{ terminal.color10.strip }}
-   bright3 = {{ terminal.color11.strip }}
-   bright4 = {{ terminal.color12.strip }}
-   bright5 = {{ terminal.color13.strip }}
-   bright6 = {{ terminal.color14.strip }}
+   ...
    bright7 = {{ terminal.color15.strip }}
    ```
 
-3. Запустите `termonet` — программа автоматически появится в списке на шаге 2!
+3. **Доступные переменные и фильтры**:
+   - **Активная тема (`active.*` / `theme.*`)** и явные **`dark.*`** / **`light.*`**: `primary`, `on_primary`, `primary_container`, `on_primary_container`, `secondary`, `on_secondary`, `secondary_container`, `on_secondary_container`, `tertiary`, `on_tertiary`, `error`, `on_error`, `surface`, `on_surface`, `surface_variant`, `on_surface_variant`, `background`, `on_background`, `outline`.
+   - **Терминальные ANSI (`terminal.*`, `terminal_dark.*`, `terminal_light.*`)**: `color0`..`color15`, `background`, `foreground`, `cursor`, а также **`seed_color`**.
+   - **Свойства цвета и фильтры**: `.hex` (`#adc6ff`), `.strip` (`adc6ff`), `.rgb` (`173, 198, 255`), `.r`/`.g`/`.b`, а также фильтры `| hex`, `| strip` (`stripped`), `| rgb`, `| hypr_rgb` (`rgb(adc6ff)`), `| hypr_rgba("ee")` (`rgba(adc6ffee)`).
 
-### 5. Безопасность и автоматические бэкапы
+4. **Неразрушающая безопасность**:
+   - При `create_backups = true` перед первым изменением `target_config` один раз создаётся эталон `<file>.original`, а перед обновлениями — `<file>.bak`; сгенерированные палитры (`output_path`) пишутся атомарно через `safe_write()` без `.bak`-копий.
+   - Импорты изолируются блоком маркеров (`# >>> termonet colors >>> ... # <<< termonet colors <<<`), а старые импорты Pywal аккуратно заменяются на месте.
 
-Termonet заботится о сохранности ваших исходных конфигураций:
-- **Эталонный бэкап (`.original`)**: при `create_backups = true` создается строго один раз при первом внедрении в `target_config` и **никогда** не перезаписывается последующими темами.
-- **Страховочный бэкап (`.bak`)**: при `create_backups = true` (по умолчанию выключен для чистого обновления) создается перед каждым изменением `target_config`. Сгенерированные файлы палитры (`output_path`) обновляются атомарно без лишних `.bak`-копий.
-- **Умные маркеры**: инъекция оформляется блоком комментариев:
-  ```ini
-  # >>> termonet colors >>>
-  include colors-termonet.conf
-  # <<< termonet colors <<<
-  ```
-  Если в конфиге присутствовал старый импорт Pywal, Termonet аккуратно заменяет его на месте, не плодя дубликатов.
-- **Принудительное обновление дефолтов**: при обновлении Termonet встроенные шаблоны можно обновить командой:
-  ```bash
-  termonet --update-rules
-  ```
+</details>
 
 ---
 
-## 🗺️ План разработки (Roadmap)
+## ▸ Сборка из исходников и проверки
 
-> История уже вышедших релизов (`v0.1.0` – `v1.5.2`) и подробные списки изменений доступны в [GitHub Releases](https://github.com/Denxrc/termonet/releases).
+Требуется Linux (Wayland или X11) и Rust (`edition = "2024"`, `1.85+`):
 
-- [ ] **v1.6 (Расширение шаблонов и стабилизация)**:
-  - [ ] Расширение встроенных правил: системный GTK 3/4 (`gtk.css`), терминалы (`foot`, `alacritty`, `ghostty`), уведомления (`mako`, `dunst`), лаунчер `fuzzel`
-  - [ ] Практическое тестирование и стабилизация бэкендов окружений (GNOME, KDE Plasma) и X11 (`feh`, `nitrogen`)
-- [ ] **v2.0 (Продвинутая колористика, пресеты и визуальный контроль)**:
-  - [ ] Поддержка стилей генерации Material 3 (`vibrant`, `expressive`, `tonal-spot`, `content`, `fidelity`, `monochrome`) через конфиг и флаг `--variant`
-  - [ ] Настройка контрастности Material 3 (от `-1.0` до `1.0`) для солнечного и ночного режимов (`--contrast`)
-  - [ ] Интерактивный выбор акцентного seed-цвета из топ-кандидатов в TUI
-  - [ ] Встроенные эталонные статические пресеты (Catppuccin Mocha/Latte, Nord, Gruvbox, Tokyo Night) через `termonet --preset <name>`
-  - [ ] TUI-симулятор синтаксиса и контрастности (Mockup Preview) для оценки читаемости кода до сохранения темы
-- [ ] **v3.0+ (Системная экосистема и смелые идеи)**:
-  - [ ] Синхронизация с XDG Desktop Portal (`org.freedesktop.appearance.color-scheme`) через DBus (автоматический dark/light mode в браузерах и приложениях)
-  - [ ] Независимые профили тем для разных мониторов при различных обоях
-  - [ ] Экспорт палитр в стандартные форматы (`base16`, `json`, `css`)
-  - [ ] *[Экспериментально / В планах]* Кроссплатформенный порт на Windows (Win32 API обоев, Windows Terminal `settings.json`, PowerShell `$PROFILE`, GlazeWM/Zebar)
+```bash
+git clone https://github.com/Denxrc/termonet.git && cd termonet
+cargo build --release
+install -Dm755 target/release/termonet ~/.local/bin/termonet
+```
 
----
+<details>
+<summary>Проверки качества для контрибьюторов</summary>
 
-## 🏗️ Архитектура и документация для разработчиков
+```bash
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
+cargo test --locked
+```
 
-Для контрибьюторов и всех, кому интересно внутреннее устройство Termonet, подготовлена подробная архитектурная спецификация на двух языках:
-
-- **Русский**: [ARCHITECTURE.ru.md](ARCHITECTURE.ru.md)
-- **English**: [ARCHITECTURE.md](ARCHITECTURE.md)
-
-В ней разобраны все 7 подсистем на Rust, конвейеры автономного CLI и TUI, парсеры обоев для Wayland/DE/X11, квантование Material Design 3, инварианты атомарной записи и бэкапов, инструкции по расширению и стандарты тестирования.
+</details>
 
 ---
 
-## 📄 Лицензия
+## ▸ Дорожная карта (Roadmap)
 
-Проект распространяется под открытой лицензией [MIT License](LICENSE).
+История вышедших релизов (`v0.1.0` – `v1.5.2`) и подробные списки изменений доступны в [GitHub Releases](https://github.com/Denxrc/termonet/releases).
+
+- [ ] **v1.6 — Расширение шаблонов и стабилизация**
+  - [ ] Встроенные шаблоны для GTK 3/4 (`gtk.css`), терминалов (`foot`, `alacritty`, `ghostty`), уведомлений (`mako`, `dunst`) и лаунчера `fuzzel`
+  - [ ] Живое тестирование и стабилизация бэкендов GNOME, KDE Plasma и X11 (`feh`, `nitrogen`)
+- [ ] **v2.0 — Продвинутая колористика, пресеты и визуальный контроль**
+  - [ ] Выбор варианта генерации Material 3 (`vibrant`, `expressive`, `tonal-spot`, `content`, `fidelity`, `monochrome`) через конфиг и `--variant`
+  - [ ] Настройка контрастности Material 3 (`-1.0`..`1.0`) через `--contrast`
+  - [ ] Интерактивный выбор seed-цвета из кандидатов и симулятор синтаксиса/контраста в TUI
+  - [ ] Встроенные статические пресеты (Catppuccin Mocha/Latte, Nord, Gruvbox, Tokyo Night) через `--preset <name>`
+- [ ] **v3.0+ — Системная экосистема и смелые идеи**
+  - [ ] Синхронизация с XDG Desktop Portal (`org.freedesktop.appearance.color-scheme`) через D-Bus
+  - [ ] Независимые профили тем для разных мониторов при разных обоях
+  - [ ] Экспорт палитр в `base16`, `json` и `css`
+  - [ ] *[Экспериментально / В планах]* Порт на Windows (Win32 API обоев, Windows Terminal `settings.json`, PowerShell `$PROFILE`, GlazeWM/Zebar)
+
+---
+
+<div align="center">
+
+<sub>Лицензия MIT · Написано на Rust для Linux · <a href="ARCHITECTURE.ru.md">Архитектура</a> · <a href="README.md">English version</a></sub>
+
+</div>

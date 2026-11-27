@@ -6,7 +6,10 @@ labels: bug
 ---
 
 ## Describe the bug
-A clear description of what happened and what you expected.
+A clear description of what happened.
+
+## Expected behavior
+A clear description of what you expected to happen.
 
 ## Steps to reproduce
 1. Run `...`

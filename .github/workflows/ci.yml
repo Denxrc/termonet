@@ -12,8 +12,16 @@ env:
 
 jobs:
   check:
-    name: Format, Clippy & Tests
-    runs-on: ubuntu-24.04
+    name: Format, Clippy & Tests (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x86_64
+          - os: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -25,8 +33,11 @@ jobs:
 
       - name: Cache Cargo dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          key: ci-${{ matrix.arch }}
 
       - name: Check formatting
+        if: matrix.arch == 'x86_64'
         run: cargo fmt --all -- --check
 
       - name: Run Clippy

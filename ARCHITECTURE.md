@@ -1,6 +1,6 @@
-# Termonet: Architecture Specification & System Blueprint
+# Termonet — Architecture, Security Invariants & Development Guide
 
-[English](ARCHITECTURE.md) | [Русский](ARCHITECTURE.ru.md)
+[English](ARCHITECTURE.md) | [Русский](ARCHITECTURE.ru.md) · [README](README.md)
 
 > **Notice for AI Agents and Developers**: This document is the canonical, single-source-of-truth architectural specification and operational guide for the **Termonet** codebase (~13k lines of modern Rust across 36 source files). It details the complete subsystem layout, execution lifecycles, IPC mechanisms, security and data safety contracts, and extension playbooks. Consult this document before planning or applying code modifications.
 
