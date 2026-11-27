@@ -182,9 +182,12 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, state: &AppState) {
         chunks[2],
     );
 
-    // 4. Render wallpaper input modal over wizard if active
+    // 4. Render wallpaper input modal or install confirm modal over wizard if active
     if state.wallpaper_input.is_some() {
         crate::tui::views::palette::render_wallpaper_input_modal(frame, area, state);
+    }
+    if state.confirm_modal.is_some() {
+        crate::tui::views::programs::render_confirm_modal(frame, area, state);
     }
 }
 
@@ -906,7 +909,7 @@ fn render_step_programs(
     }
 
     let inner_height = area.height.saturating_sub(2);
-    let cursor_row = (4 + wizard.selected_idx) as u16;
+    let cursor_row = 4u16.saturating_add(wizard.selected_idx as u16);
     let scroll_y = if inner_height > 0 && cursor_row >= inner_height {
         cursor_row + 1 - inner_height
     } else {

@@ -226,6 +226,10 @@ pub enum ConfirmAction {
         id: String,
         prepared: Vec<PreparedInstall>,
     },
+    WizardInstall {
+        saved_config: Box<AppConfig>,
+        prepared: Vec<PreparedInstall>,
+    },
     ForceUpdatePrograms {
         ids: Vec<String>,
     },
@@ -461,7 +465,32 @@ impl AppState {
                 let mut items = Vec::with_capacity(catalog.len());
                 for entry in &catalog {
                     match &entry.status {
-                        CatalogStatus::Installed { .. } | CatalogStatus::LocalCustom => {
+                        CatalogStatus::Installed { repo, .. } => {
+                            if let Some(rule) = rules_by_id.remove(&entry.id) {
+                                items.push(Self::build_program_item_from_rule(
+                                    rule,
+                                    &self.config.enabled_programs,
+                                    Some(entry.status.clone()),
+                                ));
+                            } else {
+                                let enabled = self.config.enabled_programs.iter().any(|p| {
+                                    p.eq_ignore_ascii_case(&entry.id)
+                                        || p.eq_ignore_ascii_case(&entry.name)
+                                });
+                                items.push(ProgramItem {
+                                    id: entry.id.clone(),
+                                    name: entry.name.clone(),
+                                    output_path: format!("[{repo}] (missing local rule)"),
+                                    enabled,
+                                    reload_cmd: None,
+                                    reload_desc: None,
+                                    hook_enabled: false,
+                                    rule: None,
+                                    catalog_status: Some(entry.status.clone()),
+                                });
+                            }
+                        }
+                        CatalogStatus::LocalCustom => {
                             if let Some(rule) = rules_by_id.remove(&entry.id) {
                                 items.push(Self::build_program_item_from_rule(
                                     rule,
@@ -562,7 +591,49 @@ impl AppState {
             .collect()
     }
 
-    /// Finalizes the wizard, downloads pending apps if any, saves `config.toml`, and transitions to main TUI.
+    fn build_install_warning_lines(prepared: &[PreparedInstall]) -> Vec<String> {
+        let mut warning_lines = Vec::new();
+        for p in prepared {
+            let pv = &p.preview;
+            warning_lines.push(format!(
+                "{} ({}) [{}] v{}/t{}",
+                pv.id, pv.name, pv.repo, pv.rule_version, pv.template_version
+            ));
+            warning_lines.push(format!("output_path: {}", pv.output_path));
+            if let Some(ref target) = pv.target_config {
+                warning_lines.push(format!("target_config: {target}"));
+            }
+            if let Some(ref cmd) = pv.reload_cmd {
+                warning_lines.push(format!("WARNING reload_cmd: {cmd}"));
+            }
+        }
+        warning_lines
+    }
+
+    fn complete_wizard_save(&mut self, saved_config: AppConfig) -> Result<()> {
+        let t = get_translations(saved_config.language);
+        if let Err(e) = self.save_config_target(&saved_config) {
+            self.set_status(format!("{} {}", t.status_config_save_error, e), true);
+            return Err(e);
+        }
+
+        self.config = saved_config;
+        self.refresh_theme_mode();
+
+        self.is_wizard = false;
+        self.wizard_state = None;
+        self.refresh_catalog();
+
+        // Automatically attempt wallpaper detection and palette generation with new settings
+        if let Err(e) = self.reload_wallpaper() {
+            self.set_status(format!("{} {})", t.status_config_saved_wall_err, e), false);
+        } else {
+            self.set_status(t.wizard_saved_success.to_string(), false);
+        }
+        Ok(())
+    }
+
+    /// Finalizes the wizard; when new downloads are pending, opens the confirmation modal before committing.
     pub fn finish_wizard(&mut self) -> Result<()> {
         let Some(ref wizard) = self.wizard_state else {
             return Ok(());
@@ -585,31 +656,19 @@ impl AppState {
                     return Err(e);
                 }
             };
-            if let Err(e) = reg.commit_install(&prepared, false, saved_config.create_backups) {
-                self.set_status(format!("{} {}", t.status_error_prefix, e), true);
-                return Err(e);
-            }
+            let warning_lines = Self::build_install_warning_lines(&prepared);
+            self.confirm_modal = Some(ConfirmModalState {
+                title: t.registry_confirm_install_title.to_string(),
+                warning_lines,
+                action: ConfirmAction::WizardInstall {
+                    saved_config: Box::new(saved_config),
+                    prepared,
+                },
+            });
+            return Ok(());
         }
 
-        if let Err(e) = self.save_config_target(&saved_config) {
-            self.set_status(format!("{} {}", t.status_config_save_error, e), true);
-            return Err(e);
-        }
-
-        self.config = saved_config;
-        self.refresh_theme_mode();
-
-        self.is_wizard = false;
-        self.wizard_state = None;
-        self.refresh_catalog();
-
-        // Automatically attempt wallpaper detection and palette generation with new settings
-        if let Err(e) = self.reload_wallpaper() {
-            self.set_status(format!("{} {})", t.status_config_saved_wall_err, e), false);
-        } else {
-            self.set_status(t.wizard_saved_success.to_string(), false);
-        }
-        Ok(())
+        self.complete_wizard_save(saved_config)
     }
 
     /// Opens the settings wizard on demand from the active main TUI screen.
@@ -617,6 +676,7 @@ impl AppState {
         let wizard = WizardState::new_from_main(self.config.clone());
         self.wizard_state = Some(wizard);
         self.is_wizard = true;
+        self.refresh_catalog();
     }
 
     /// Opens the manual wallpaper path input dialog.
@@ -865,21 +925,7 @@ impl AppState {
             };
             match reg.prepare_install(std::slice::from_ref(&item.id), false) {
                 Ok(prepared) => {
-                    let mut warning_lines = Vec::new();
-                    for p in &prepared {
-                        let pv = &p.preview;
-                        warning_lines.push(format!(
-                            "{} ({}) [{}] v{}/t{}",
-                            pv.id, pv.name, pv.repo, pv.rule_version, pv.template_version
-                        ));
-                        warning_lines.push(format!("output_path: {}", pv.output_path));
-                        if let Some(ref target) = pv.target_config {
-                            warning_lines.push(format!("target_config: {target}"));
-                        }
-                        if let Some(ref cmd) = pv.reload_cmd {
-                            warning_lines.push(format!("WARNING reload_cmd: {cmd}"));
-                        }
-                    }
+                    let warning_lines = Self::build_install_warning_lines(&prepared);
                     self.confirm_modal = Some(ConfirmModalState {
                         title: t.registry_confirm_install_title.to_string(),
                         warning_lines,
@@ -1003,31 +1049,67 @@ impl AppState {
                                 {
                                     self.config.enabled_programs.push(id.clone());
                                 }
-                                let _ = self.save_config_target(&self.config);
+                                let save_res = self.save_config_target(&self.config);
                                 self.refresh_catalog();
-                                self.set_status(
-                                    format!("{} {}", t.registry_installed_success, id),
-                                    false,
-                                );
+                                match save_res {
+                                    Ok(()) => self.set_status(
+                                        format!("{} {}", t.registry_installed_success, id),
+                                        false,
+                                    ),
+                                    Err(e) => self.set_status(
+                                        format!("{} {}", t.status_config_save_error, e),
+                                        true,
+                                    ),
+                                }
                             }
                             Err(err) => {
                                 self.set_status(format!("{} {}", t.status_error_prefix, err), true);
                             }
                         }
                     }
+                    ConfirmAction::WizardInstall {
+                        saved_config,
+                        prepared,
+                    } => match reg.commit_install(&prepared, false, saved_config.create_backups) {
+                        Ok(_) => {
+                            let _ = self.complete_wizard_save(*saved_config);
+                        }
+                        Err(err) => {
+                            self.set_status(format!("{} {}", t.status_error_prefix, err), true);
+                        }
+                    },
                     ConfirmAction::ForceUpdatePrograms { ids } => {
-                        match reg.update_installed(true, true) {
+                        match reg.update_specific_ids(&ids, true, true) {
                             Ok(report) => {
                                 self.refresh_catalog();
-                                let msg = if report.updated.is_empty() {
-                                    ids.join(", ")
+                                if !report.errors.is_empty() {
+                                    self.set_status(
+                                        format!(
+                                            "{} {}",
+                                            t.status_error_prefix,
+                                            report.errors.join("; ")
+                                        ),
+                                        true,
+                                    );
+                                } else if report.updated.is_empty() {
+                                    self.set_status(
+                                        format!(
+                                            "{} No programs updated ({})",
+                                            t.status_error_prefix,
+                                            ids.join(", ")
+                                        ),
+                                        true,
+                                    );
                                 } else {
-                                    report.updated.join(", ")
-                                };
-                                self.set_status(
-                                    format!("{} {}", t.registry_updated_success, msg),
-                                    false,
-                                );
+                                    self.set_status(
+                                        format!(
+                                            "{} {}",
+                                            t.registry_updated_success,
+                                            report.updated.join(", ")
+                                        ),
+                                        false,
+                                    );
+                                }
                             }
                             Err(err) => {
                                 self.set_status(format!("{} {}", t.status_error_prefix, err), true);
@@ -1039,12 +1121,18 @@ impl AppState {
                             self.config
                                 .enabled_programs
                                 .retain(|p| !p.eq_ignore_ascii_case(&id));
-                            let _ = self.save_config_target(&self.config);
+                            let save_res = self.save_config_target(&self.config);
                             self.refresh_catalog();
-                            self.set_status(
-                                format!("{} {}", t.registry_removed_success, id),
-                                false,
-                            );
+                            match save_res {
+                                Ok(()) => self.set_status(
+                                    format!("{} {}", t.registry_removed_success, id),
+                                    false,
+                                ),
+                                Err(e) => self.set_status(
+                                    format!("{} {}", t.status_config_save_error, e),
+                                    true,
+                                ),
+                            }
                         }
                         Err(err) => {
                             self.set_status(format!("{} {}", t.status_error_prefix, err), true);
@@ -1153,11 +1241,12 @@ impl AppState {
                             self.set_status(t.registry_incompatible_err.to_string(), true);
                             return;
                         }
-                        if let Some(pos) = wizard.config.enabled_programs.iter().position(|p| {
-                            p.eq_ignore_ascii_case(&entry.id) || p.eq_ignore_ascii_case(&entry.name)
-                        }) {
-                            wizard.config.enabled_programs.remove(pos);
-                        } else {
+                        let before_len = wizard.config.enabled_programs.len();
+                        wizard.config.enabled_programs.retain(|p| {
+                            !p.eq_ignore_ascii_case(&entry.id)
+                                && !p.eq_ignore_ascii_case(&entry.name)
+                        });
+                        if wizard.config.enabled_programs.len() == before_len {
                             wizard.config.enabled_programs.push(entry.id.clone());
                         }
                     }

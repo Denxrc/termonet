@@ -58,12 +58,21 @@ fn is_allowed_local_http(url: &str) -> bool {
     let Some(rest) = url.strip_prefix("http://") else {
         return false;
     };
-    let authority = rest.split('/').next().unwrap_or("");
+    let authority = rest.split(&['/', '?', '#'][..]).next().unwrap_or("");
+    if authority.is_empty() || authority.contains('@') {
+        return false;
+    }
     if let Some(bracketed) = authority.strip_prefix("[::1]") {
-        bracketed.is_empty() || bracketed.starts_with(':')
+        bracketed.is_empty()
+            || bracketed
+                .strip_prefix(':')
+                .is_some_and(|port| !port.is_empty() && port.parse::<u16>().is_ok())
+    } else if let Some((host, port)) = authority.split_once(':') {
+        (host.eq_ignore_ascii_case("localhost") || host == "127.0.0.1")
+            && !port.is_empty()
+            && port.parse::<u16>().is_ok()
     } else {
-        let h = authority.split(':').next().unwrap_or("");
-        h.eq_ignore_ascii_case("localhost") || h == "127.0.0.1"
+        authority.eq_ignore_ascii_case("localhost") || authority == "127.0.0.1"
     }
 }
 

@@ -1610,4 +1610,93 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&base);
     }
+
+    #[test]
+    fn test_wizard_finish_opens_install_warning_modal_and_commits_on_confirm() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("termonet_tui_wiz_modal_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let cfg_path = temp_dir.join("config.toml");
+
+        let rule_txt = "version = 1\nname = \"Foot\"\ntemplate = \"foot.tmpl\"\noutput_path = \"~/.config/foot/colors.ini\"\nreload_cmd = \"killall -SIGUSR1 foot\"\n";
+        let tmpl_txt = "# termonet-version: 1\nfg = {{ active.primary.hex }}\n";
+        let manifest = format!(
+            "schema_version = 1\n\n[[programs]]\nid = \"foot\"\nname = \"Foot\"\ncategory = \"terminal\"\ndescription = \"Foot\"\nrule = \"rules/foot.toml\"\ntemplate = \"templates/foot.tmpl\"\nrule_version = 1\ntemplate_version = 1\nmin_termonet_version = \"1.6.0\"\nrule_sha256 = \"{}\"\ntemplate_sha256 = \"{}\"\n",
+            crate::registry::sha256_hex(rule_txt.as_bytes()),
+            crate::registry::sha256_hex(tmpl_txt.as_bytes()),
+        );
+        let (svc, base) = make_mock_registry_service(
+            "wiz_modal",
+            [
+                (
+                    format!("{}/registry.toml", crate::registry::OFFICIAL_REPO_URL),
+                    Ok(manifest),
+                ),
+                (
+                    format!("{}/rules/foot.toml", crate::registry::OFFICIAL_REPO_URL),
+                    Ok(rule_txt.to_string()),
+                ),
+                (
+                    format!("{}/templates/foot.tmpl", crate::registry::OFFICIAL_REPO_URL),
+                    Ok(tmpl_txt.to_string()),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        svc.sync_indexes().unwrap();
+
+        let mut state = AppState::new_wizard(AppConfig {
+            language: crate::config::Language::En,
+            ..Default::default()
+        });
+        state.custom_config_path = Some(cfg_path.clone());
+        state.set_registry(svc);
+        state.enter_wizard_programs_step();
+        if let Some(ref mut w) = state.wizard_state {
+            w.step = WizardStep::Programs;
+            w.selected_idx = 0;
+        }
+        state.toggle_wizard_option();
+
+        // Finish opens modal first, writing nothing until confirmed
+        state.finish_wizard().unwrap();
+        assert!(state.confirm_modal.is_some());
+        assert!(state.is_wizard);
+        assert!(!base.join("rules").join("foot.toml").exists());
+        assert!(!cfg_path.exists());
+
+        // Wizard renderer draws the install modal warning
+        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        terminal
+            .draw(|f| views::render_wizard(f, f.area(), &state))
+            .unwrap();
+        let buf = terminal.backend().buffer();
+        let rendered: String = (0..30)
+            .flat_map(|y| (0..100).map(move |x| buf[(x, y)].symbol()))
+            .collect();
+        assert!(rendered.contains("killall -SIGUSR1 foot"));
+
+        // Esc aborts back to wizard without writing
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Esc,
+        ));
+        assert!(state.confirm_modal.is_none());
+        assert!(state.is_wizard);
+        assert!(!base.join("rules").join("foot.toml").exists());
+
+        // Re-open and confirm with 'y' -> commits install, saves config, and exits wizard
+        state.finish_wizard().unwrap();
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Char('y'),
+        ));
+        assert!(state.confirm_modal.is_none());
+        assert!(!state.is_wizard);
+        assert!(base.join("rules").join("foot.toml").exists());
+        assert!(cfg_path.exists());
+
+        let _ = std::fs::remove_dir_all(&base);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 }

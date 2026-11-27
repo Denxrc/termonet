@@ -268,6 +268,8 @@ fn execute_remove_rule_with_io<T: RegistryTransport, R: BufRead, W: Write>(
     reader: &mut R,
     writer: &mut W,
 ) -> Result<bool> {
+    termonet::registry::validate_program_id(id)?;
+
     if !yes {
         write!(
             writer,
@@ -411,11 +413,18 @@ fn parse_cli_args(args: &[String]) -> Result<CliAction> {
             }
             "--install" => {
                 if i + 1 < args.len() && !args[i + 1].starts_with('-') {
+                    let mut parsed_any = false;
                     for part in args[i + 1].split(',') {
                         let trimmed = part.trim();
                         if !trimmed.is_empty() {
                             install_specs.push(trimmed.to_string());
+                            parsed_any = true;
                         }
+                    }
+                    if !parsed_any {
+                        return Err(TermonetError::Config(
+                            "Option '--install' requires at least one non-empty program ID".into(),
+                        ));
                     }
                     i += 1;
                 } else {
@@ -507,7 +516,7 @@ fn parse_cli_args(args: &[String]) -> Result<CliAction> {
         return Ok(CliAction::UpdateRules {
             force: cli_args.force || reset_rules_alias,
             no_backup: cli_args.no_backup,
-            backup: cli_args.backup,
+            backup: cli_args.backup || (reset_rules_alias && !cli_args.no_backup),
         });
     }
     if debug_wallpaper {
@@ -853,7 +862,7 @@ mod tests {
             CliAction::UpdateRules {
                 force: true,
                 no_backup: false,
-                backup: false,
+                backup: true,
             }
         );
     }

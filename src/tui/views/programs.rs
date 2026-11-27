@@ -163,7 +163,7 @@ pub fn render_programs(frame: &mut Frame, area: Rect, state: &AppState) {
     }
 
     let inner_height = chunks[1].height.saturating_sub(2);
-    let cursor_row = (state.selected_program_idx.saturating_mul(2)) as u16;
+    let cursor_row = (state.selected_program_idx as u16).saturating_mul(2);
     let scroll_y = if inner_height > 0 && cursor_row + 1 >= inner_height {
         cursor_row + 2 - inner_height
     } else {
@@ -196,9 +196,12 @@ pub fn render_confirm_modal(frame: &mut Frame, area: Rect, state: &AppState) {
     let (primary_color, secondary_color) = state.ui_colors();
     let text_color = state.text_color();
 
-    let modal_width = area.width.saturating_sub(8).clamp(44, 78);
-    let modal_height =
-        (modal.warning_lines.len() as u16 + 6).clamp(8, area.height.saturating_sub(2).max(8));
+    let modal_width = area.width.saturating_sub(8).clamp(44, 78).min(area.width);
+    let max_h = area.height.saturating_sub(2).max(1);
+    let modal_height = (modal.warning_lines.len() as u16)
+        .saturating_add(6)
+        .min(max_h)
+        .max(8.min(area.height));
     let x = area.x + (area.width.saturating_sub(modal_width)) / 2;
     let y = area.y + (area.height.saturating_sub(modal_height)) / 2;
     let popup_area = Rect::new(x, y, modal_width, modal_height);

@@ -26,7 +26,6 @@ pub struct RepoConfig {
 /// Remote `registry.toml` catalog manifest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegistryManifest {
-    #[serde(default = "default_schema_version")]
     pub schema_version: u32,
     #[serde(default)]
     pub programs: Vec<RegistryProgram>,
@@ -147,6 +146,22 @@ pub fn validate_program_id(id: &str) -> Result<()> {
         )));
     }
     Ok(())
+}
+
+/// Validates a single local filename (no `/`, `\`, `.` or `..` segments).
+pub fn sanitize_single_filename(name: &str) -> Result<&str> {
+    if name.is_empty()
+        || name == "."
+        || name == ".."
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains('\0')
+    {
+        return Err(TermonetError::Registry(format!(
+            "Unsafe local filename '{name}'"
+        )));
+    }
+    Ok(name)
 }
 
 /// Validates a relative path inside a remote repository (rejects `..`, `\`, leading `/`).

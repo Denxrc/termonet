@@ -205,6 +205,13 @@ pub fn run_cli_mode_with_context(
         }
     }
 
+    if applied_count == 0 && !config.enabled_programs.is_empty() {
+        eprintln!(
+            "Warning: none of the enabled programs ({}) have installed rules in rules/. Run 'termonet --list-rules' and 'termonet --install <id>' to install them.",
+            config.enabled_programs.join(", ")
+        );
+    }
+
     // 4. Persist config changes (if --theme / --toggle-theme) and update cache only after apply succeeds
     if theme_modified {
         if let Some(cfg_path) = custom_config_file {

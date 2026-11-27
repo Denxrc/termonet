@@ -7,7 +7,7 @@ pub use client::{HttpTransport, MAX_ASSET_BYTES, MAX_MANIFEST_BYTES, RegistryTra
 pub use types::{
     CatalogEntry, CatalogStatus, InstallPreview, InstalledEntry, InstalledManifest,
     RegistryManifest, RegistryProgram, RepoConfig, UpdateReport, is_version_compatible,
-    sanitize_relative_repo_path, sha256_hex, validate_program_id,
+    sanitize_relative_repo_path, sanitize_single_filename, sha256_hex, validate_program_id,
 };
 
 use crate::config::{AppConfig, AppPaths, AppStateCache};
@@ -114,6 +114,12 @@ pub trait RegistryOps: Send + Sync {
         create_backups: bool,
     ) -> Result<Vec<String>>;
     fn update_installed(&self, force: bool, create_backups: bool) -> Result<UpdateReport>;
+    fn update_specific_ids(
+        &self,
+        ids: &[String],
+        force: bool,
+        create_backups: bool,
+    ) -> Result<UpdateReport>;
     fn remove_program(&self, id: &str) -> Result<()>;
     fn maybe_auto_update(&self, config: &AppConfig, now_epoch_secs: u64) -> AutoUpdateOutcome;
     fn rules_dir(&self) -> &Path;
@@ -147,6 +153,15 @@ impl<T: RegistryTransport> RegistryOps for RegistryService<T> {
 
     fn update_installed(&self, force: bool, create_backups: bool) -> Result<UpdateReport> {
         Self::update_installed(self, force, create_backups)
+    }
+
+    fn update_specific_ids(
+        &self,
+        ids: &[String],
+        force: bool,
+        create_backups: bool,
+    ) -> Result<UpdateReport> {
+        Self::update_specific_ids(self, ids, force, create_backups)
     }
 
     fn remove_program(&self, id: &str) -> Result<()> {
@@ -211,6 +226,11 @@ fn normalize_rule_template_field(rule_text: &str, expected_template: &str) -> Re
 }
 
 fn is_entry_locally_modified(paths: &RegistryPaths, entry: &InstalledEntry) -> bool {
+    if sanitize_single_filename(&entry.rule_file).is_err()
+        || sanitize_single_filename(&entry.template_file).is_err()
+    {
+        return true;
+    }
     let rule_path = paths.rules_dir.join(&entry.rule_file);
     let tmpl_path = paths.templates_dir.join(&entry.template_file);
 
@@ -222,6 +242,35 @@ fn is_entry_locally_modified(paths: &RegistryPaths, entry: &InstalledEntry) -> b
     };
 
     sha256_hex(&rule_bytes) != entry.rule_sha256 || sha256_hex(&tmpl_bytes) != entry.template_sha256
+}
+
+fn acquire_lock_file(lock_path: &Path) -> Result<fs::File> {
+    if let Some(parent) = lock_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(lock_path)?;
+    file.lock()?;
+    Ok(file)
+}
+
+fn restore_or_remove_file(path: &Path, prev_bytes: Option<&[u8]>) {
+    match prev_bytes {
+        Some(old) => {
+            if let Ok(text) = std::str::from_utf8(old) {
+                let _ = safe_write(path, text, false);
+            } else {
+                let _ = fs::write(path, old);
+            }
+        }
+        None => {
+            let _ = fs::remove_file(path);
+        }
+    }
 }
 
 fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
@@ -356,7 +405,20 @@ impl<T: RegistryTransport> RegistryService<T> {
         }
         let content = fs::read_to_string(&self.paths.installed_file)?;
         let manifest: InstalledManifest = toml::from_str(&content)?;
+        for entry in &manifest.installed {
+            validate_program_id(&entry.id)?;
+            sanitize_single_filename(&entry.rule_file)?;
+            sanitize_single_filename(&entry.template_file)?;
+        }
         Ok(manifest)
+    }
+
+    fn installed_lock_path(&self) -> PathBuf {
+        self.paths.installed_file.with_extension("toml.lock")
+    }
+
+    fn state_lock_path(&self) -> PathBuf {
+        self.paths.state_file.with_extension("toml.lock")
     }
 
     fn save_installed_manifest(&self, manifest: &InstalledManifest) -> Result<()> {
@@ -484,6 +546,7 @@ impl<T: RegistryTransport> RegistryService<T> {
 
         warnings.extend(errors);
 
+        let _state_lock = acquire_lock_file(&self.state_lock_path()).ok();
         let mut state = AppStateCache::load_from_path(&self.paths.state_file).unwrap_or_default();
         state.last_registry_sync_at = Some(current_epoch_secs());
         let _ = state.save_to_path(&self.paths.state_file);
@@ -841,7 +904,7 @@ impl<T: RegistryTransport> RegistryService<T> {
         Ok(prepared)
     }
 
-    /// Atomically commits pre-validated packages to disk with rollback if a pair write fails.
+    /// Atomically commits pre-validated packages to disk with rollback if a pair write or manifest save fails.
     pub fn commit_install(
         &self,
         prepared: &[PreparedInstall],
@@ -852,6 +915,7 @@ impl<T: RegistryTransport> RegistryService<T> {
             return Ok(Vec::new());
         }
 
+        let _lock = acquire_lock_file(&self.installed_lock_path())?;
         let mut manifest = self.load_installed_manifest().unwrap_or_default();
         let mut installed_ids = Vec::with_capacity(prepared.len());
 
@@ -863,6 +927,7 @@ impl<T: RegistryTransport> RegistryService<T> {
             let tmpl_path = self.paths.templates_dir.join(&tmpl_file);
 
             let prev_rule_bytes = fs::read(&rule_path).ok();
+            let prev_tmpl_bytes = fs::read(&tmpl_path).ok();
 
             if force && create_backups {
                 if rule_path.exists() {
@@ -876,15 +941,7 @@ impl<T: RegistryTransport> RegistryService<T> {
             write_bytes_atomic(&rule_path, &item.rule_bytes)?;
 
             if let Err(err) = write_bytes_atomic(&tmpl_path, &item.template_bytes) {
-                // Roll back the rule file so no half-installed pair remains on disk
-                match prev_rule_bytes {
-                    Some(old) => {
-                        let _ = write_bytes_atomic(&rule_path, &old);
-                    }
-                    None => {
-                        let _ = fs::remove_file(&rule_path);
-                    }
-                }
+                restore_or_remove_file(&rule_path, prev_rule_bytes.as_deref());
                 return Err(err);
             }
 
@@ -905,7 +962,11 @@ impl<T: RegistryTransport> RegistryService<T> {
                 manifest.installed.push(new_entry);
             }
 
-            self.save_installed_manifest(&manifest)?;
+            if let Err(err) = self.save_installed_manifest(&manifest) {
+                restore_or_remove_file(&rule_path, prev_rule_bytes.as_deref());
+                restore_or_remove_file(&tmpl_path, prev_tmpl_bytes.as_deref());
+                return Err(err);
+            }
             installed_ids.push(id.clone());
         }
 
@@ -925,13 +986,36 @@ impl<T: RegistryTransport> RegistryService<T> {
 
     /// Updates all tracked installed programs from their pinned repositories.
     pub fn update_installed(&self, force: bool, create_backups: bool) -> Result<UpdateReport> {
-        let sync_warnings = self.sync_indexes()?;
+        self.update_selected(None, force, create_backups)
+    }
+
+    /// Updates only the specified tracked program IDs without touching other installed apps.
+    pub fn update_specific_ids(
+        &self,
+        ids: &[String],
+        force: bool,
+        create_backups: bool,
+    ) -> Result<UpdateReport> {
+        self.update_selected(Some(ids), force, create_backups)
+    }
+
+    fn update_selected(
+        &self,
+        filter_ids: Option<&[String]>,
+        force: bool,
+        create_backups: bool,
+    ) -> Result<UpdateReport> {
+        let sync_warnings = if filter_ids.is_none() {
+            self.sync_indexes()?
+        } else {
+            Vec::new()
+        };
         let mut report = UpdateReport {
             errors: sync_warnings,
             ..Default::default()
         };
 
-        let installed = self.load_installed_manifest().unwrap_or_default();
+        let installed = self.load_installed_manifest()?;
         if installed.installed.is_empty() {
             return Ok(report);
         }
@@ -940,6 +1024,11 @@ impl<T: RegistryTransport> RegistryService<T> {
         let (manifests, _) = self.load_cached_manifests(&repos);
 
         for entry in &installed.installed {
+            if let Some(allowed) = filter_ids
+                && !allowed.iter().any(|id| id == &entry.id)
+            {
+                continue;
+            }
             let Some(repo) = repos.iter().find(|r| r.enabled && r.name == entry.repo) else {
                 report.errors.push(format!(
                     "Pinned repository '{}' for '{}' is disabled or missing",
@@ -970,16 +1059,16 @@ impl<T: RegistryTransport> RegistryService<T> {
                 }
             }
 
+            if !force && is_entry_locally_modified(&self.paths, entry) {
+                report.skipped_modified.push(entry.id.clone());
+                continue;
+            }
+
             let needs_upgrade = upstream.rule_version > entry.rule_version
                 || upstream.template_version > entry.template_version;
 
             if !needs_upgrade && !force {
                 report.up_to_date.push(entry.id.clone());
-                continue;
-            }
-
-            if !force && is_entry_locally_modified(&self.paths, entry) {
-                report.skipped_modified.push(entry.id.clone());
                 continue;
             }
 
@@ -998,6 +1087,7 @@ impl<T: RegistryTransport> RegistryService<T> {
     /// Removes registry-tracked rule/template files and unregisters the entry from `installed.toml`.
     pub fn remove_program(&self, id: &str) -> Result<()> {
         validate_program_id(id)?;
+        let _lock = acquire_lock_file(&self.installed_lock_path())?;
         let mut manifest = self.load_installed_manifest()?;
         let pos = manifest
             .installed
@@ -1010,17 +1100,29 @@ impl<T: RegistryTransport> RegistryService<T> {
             })?;
 
         let entry = manifest.installed.remove(pos);
+        sanitize_single_filename(&entry.rule_file)?;
+        sanitize_single_filename(&entry.template_file)?;
+
         let rule_path = self.paths.rules_dir.join(&entry.rule_file);
         let tmpl_path = self.paths.templates_dir.join(&entry.template_file);
+        let prev_rule_bytes = fs::read(&rule_path).ok();
+        let prev_tmpl_bytes = fs::read(&tmpl_path).ok();
 
         if rule_path.exists() {
             fs::remove_file(&rule_path)?;
         }
-        if tmpl_path.exists() {
-            fs::remove_file(&tmpl_path)?;
+        if tmpl_path.exists()
+            && let Err(err) = fs::remove_file(&tmpl_path)
+        {
+            restore_or_remove_file(&rule_path, prev_rule_bytes.as_deref());
+            return Err(err.into());
         }
 
-        self.save_installed_manifest(&manifest)?;
+        if let Err(err) = self.save_installed_manifest(&manifest) {
+            restore_or_remove_file(&rule_path, prev_rule_bytes.as_deref());
+            restore_or_remove_file(&tmpl_path, prev_tmpl_bytes.as_deref());
+            return Err(err);
+        }
         Ok(())
     }
 
@@ -1030,12 +1132,11 @@ impl<T: RegistryTransport> RegistryService<T> {
             return AutoUpdateOutcome::SkippedDisabled;
         }
 
-        let installed = match self.load_installed_manifest() {
-            Ok(m) if !m.installed.is_empty() => m,
+        match self.load_installed_manifest() {
+            Ok(m) if !m.installed.is_empty() => {}
             Ok(_) => return AutoUpdateOutcome::SkippedNothingInstalled,
             Err(err) => return AutoUpdateOutcome::FailedNonFatal(err.to_string()),
-        };
-        let _ = installed;
+        }
 
         let state = AppStateCache::load_from_path(&self.paths.state_file).unwrap_or_default();
         if let Some(last_sync) = state.last_registry_sync_at
