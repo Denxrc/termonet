@@ -1895,4 +1895,296 @@ mod tests {
 
         let _ = fs::remove_dir_all(paths.repos_dir.parent().unwrap());
     }
+
+    #[test]
+    fn test_stress_empty_corrupted_and_oversized_registry_and_repos() {
+        let paths = temp_registry_paths("stress_corrupt_repos");
+        fs::create_dir_all(&paths.repos_dir).unwrap();
+
+        fs::write(paths.repos_dir.join("empty.toml"), "").unwrap();
+        fs::write(paths.repos_dir.join("nullbytes.toml"), "\0\0\0\0").unwrap();
+        fs::write(
+            paths.repos_dir.join("invalid_utf8.toml"),
+            [0xff, 0xfe, 0xfd],
+        )
+        .unwrap();
+        fs::write(
+            paths.repos_dir.join("traversal_name.toml"),
+            "name = \"../evil\"\nurl = \"https://example.com\"\n",
+        )
+        .unwrap();
+        fs::write(
+            paths.repos_dir.join("empty_url.toml"),
+            "name = \"emptyurl\"\nurl = \"   \"\n",
+        )
+        .unwrap();
+        fs::write(
+            paths.repos_dir.join("huge_garbage.toml"),
+            "a = 1\n".repeat(100_000),
+        )
+        .unwrap();
+        fs::create_dir_all(paths.repos_dir.join("dir_as_file.toml")).unwrap();
+        fs::write(
+            paths.repos_dir.join("official.toml"),
+            format!(
+                "name = \"official\"\nurl = \"{OFFICIAL_REPO_URL}\"\npriority = 0\nenabled = true\n"
+            ),
+        )
+        .unwrap();
+
+        let mut responses = HashMap::new();
+        let bad_manifests = [
+            "not toml ][",
+            "schema_version = 999\n",
+            "schema_version = 0\n",
+            "unrelated_key = \"hello\"\n",
+            "schema_version = 1\n[[programs]]\nid = \"../escape\"\nname = \"Bad\"\nrule = \"rules/a.toml\"\ntemplate = \"templates/a.tmpl\"\nrule_version = 1\ntemplate_version = 1\nmin_termonet_version = \"1.6.0\"\nrule_sha256 = \"aa\"\ntemplate_sha256 = \"bb\"\n",
+            "schema_version = 1\n[[programs]]\nid = \"good\"\nname = \"Good\"\nrule = \"../secret.toml\"\ntemplate = \"templates/a.tmpl\"\nrule_version = 1\ntemplate_version = 1\nmin_termonet_version = \"1.6.0\"\nrule_sha256 = \"aa\"\ntemplate_sha256 = \"bb\"\n",
+            "schema_version = 1\n[[programs]]\nid = \"good\"\nname = \"Good\"\nrule = \"rules/a.toml\"\ntemplate = \"templates/../../etc/passwd\"\nrule_version = 1\ntemplate_version = 1\nmin_termonet_version = \"1.6.0\"\nrule_sha256 = \"aa\"\ntemplate_sha256 = \"bb\"\n",
+            "schema_version = 1\n[[programs]]\nid = \"dup\"\nname = \"A\"\nrule = \"rules/a.toml\"\ntemplate = \"templates/a.tmpl\"\nrule_version = 1\ntemplate_version = 1\nmin_termonet_version = \"1.6.0\"\nrule_sha256 = \"aa\"\ntemplate_sha256 = \"bb\"\n[[programs]]\nid = \"dup\"\nname = \"B\"\nrule = \"rules/b.toml\"\ntemplate = \"templates/b.tmpl\"\nrule_version = 1\ntemplate_version = 1\nmin_termonet_version = \"1.6.0\"\nrule_sha256 = \"aa\"\ntemplate_sha256 = \"bb\"\n",
+        ];
+
+        for bad in bad_manifests {
+            responses.insert(
+                format!("{OFFICIAL_REPO_URL}/registry.toml"),
+                Ok(bad.to_string()),
+            );
+            let svc = RegistryService::with_paths_and_transport(
+                paths.clone(),
+                MockTransport::new(responses.clone()),
+                "1.6.0".into(),
+            );
+            let (repos, warnings) = svc.load_repos().unwrap();
+            assert_eq!(repos.len(), 1);
+            assert!(!warnings.is_empty());
+            assert!(
+                svc.sync_indexes().is_err(),
+                "Bad manifest must be rejected:\n{bad}"
+            );
+        }
+
+        // Giant manifest (~4500 entries, under MAX_MANIFEST_BYTES) must parse and catalog cleanly
+        let mut big_manifest = String::from("schema_version = 1\n\n");
+        for i in 0..4500 {
+            big_manifest.push_str(&format!(
+                "[[programs]]\nid = \"app-{i:04}\"\nname = \"App {i}\"\ncategory = \"terminal\"\ndescription = \"App\"\ndescription_ru = \"App\"\nrule = \"rules/app-{i:04}.toml\"\ntemplate = \"templates/app-{i:04}.tmpl\"\nrule_version = 1\ntemplate_version = 1\nmin_termonet_version = \"1.6.0\"\nrule_sha256 = \"0000\"\ntemplate_sha256 = \"0000\"\n\n"
+            ));
+        }
+        assert!(big_manifest.len() < crate::registry::MAX_MANIFEST_BYTES);
+        responses.insert(
+            format!("{OFFICIAL_REPO_URL}/registry.toml"),
+            Ok(big_manifest),
+        );
+        let svc_big = RegistryService::with_paths_and_transport(
+            paths.clone(),
+            MockTransport::new(responses),
+            "1.6.0".into(),
+        );
+        let t0 = std::time::Instant::now();
+        svc_big.sync_indexes().unwrap();
+        let (catalog, _) = svc_big.catalog().unwrap();
+        assert_eq!(catalog.len(), 4500);
+        assert!(t0.elapsed() < std::time::Duration::from_secs(5));
+
+        let _ = fs::remove_dir_all(paths.repos_dir.parent().unwrap());
+    }
+
+    #[test]
+    fn test_stress_tampered_installed_toml_path_traversal() {
+        let paths = temp_registry_paths("tampered_installed");
+        let root = paths.repos_dir.parent().unwrap().to_path_buf();
+        fs::create_dir_all(&paths.rules_dir).unwrap();
+        fs::create_dir_all(&paths.templates_dir).unwrap();
+
+        let victim_rule = root.join("victim.toml");
+        let victim_tmpl = root.join("victim.tmpl");
+        fs::write(&victim_rule, "important user file").unwrap();
+        fs::write(&victim_tmpl, "important template").unwrap();
+
+        let installed_toml = r#"
+schema_version = 1
+
+[[installed]]
+id = "kitty"
+repo = "official"
+rule_file = "../victim.toml"
+template_file = "../victim.tmpl"
+rule_version = 1
+template_version = 1
+rule_sha256 = "00"
+template_sha256 = "00"
+"#;
+        fs::write(&paths.installed_file, installed_toml).unwrap();
+
+        let svc = RegistryService::with_paths_and_transport(
+            paths.clone(),
+            MockTransport::new(HashMap::new()),
+            "1.6.0".into(),
+        );
+        assert!(svc.remove_program("kitty").is_err());
+        assert!(victim_rule.exists());
+        assert!(victim_tmpl.exists());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn test_stress_update_rules_modified_same_version_and_reset_backups() {
+        let paths = temp_registry_paths("update_vs_reset");
+        let r1 = sample_rule("Foot", 1, "foot.tmpl");
+        let t1 = sample_tmpl(1);
+        let m1 = build_manifest(&[(
+            "foot",
+            "Foot",
+            1,
+            1,
+            "1.6.0",
+            &sha256_hex(r1.as_bytes()),
+            &sha256_hex(t1.as_bytes()),
+        )]);
+        let mut map = HashMap::new();
+        map.insert(format!("{OFFICIAL_REPO_URL}/registry.toml"), Ok(m1));
+        map.insert(format!("{OFFICIAL_REPO_URL}/rules/foot.toml"), Ok(r1));
+        map.insert(
+            format!("{OFFICIAL_REPO_URL}/templates/foot.tmpl"),
+            Ok(t1.clone()),
+        );
+
+        let svc = RegistryService::with_paths_and_transport(
+            paths.clone(),
+            MockTransport::new(map),
+            "1.6.0".into(),
+        );
+        svc.ensure_default_repo_config().unwrap();
+        svc.sync_indexes().unwrap();
+        svc.install_programs(&["foot".into()], false, false)
+            .unwrap();
+
+        fs::write(paths.templates_dir.join("foot.tmpl"), "USER EDITED\n").unwrap();
+
+        let rep_no_force = svc.update_installed(false, false).unwrap();
+        assert_eq!(rep_no_force.skipped_modified, vec!["foot".to_string()]);
+        assert!(rep_no_force.updated.is_empty());
+
+        let rep_force_bak = svc.update_installed(true, true).unwrap();
+        assert_eq!(rep_force_bak.updated, vec!["foot".to_string()]);
+        assert!(paths.templates_dir.join("foot.tmpl.bak").exists());
+        assert_eq!(
+            fs::read_to_string(paths.templates_dir.join("foot.tmpl")).unwrap(),
+            t1
+        );
+
+        let _ = fs::remove_dir_all(paths.repos_dir.parent().unwrap());
+    }
+
+    #[test]
+    fn test_stress_commit_install_partial_failure_on_manifest_save() {
+        let paths = temp_registry_paths("commit_manifest_fail");
+        let r1 = sample_rule("Foot", 1, "foot.tmpl");
+        let t1 = sample_tmpl(1);
+        let m1 = build_manifest(&[(
+            "foot",
+            "Foot",
+            1,
+            1,
+            "1.6.0",
+            &sha256_hex(r1.as_bytes()),
+            &sha256_hex(t1.as_bytes()),
+        )]);
+        let mut map = HashMap::new();
+        map.insert(format!("{OFFICIAL_REPO_URL}/registry.toml"), Ok(m1));
+        map.insert(format!("{OFFICIAL_REPO_URL}/rules/foot.toml"), Ok(r1));
+        map.insert(format!("{OFFICIAL_REPO_URL}/templates/foot.tmpl"), Ok(t1));
+
+        // Directory blocks save_installed_manifest so rollback must remove written rule and template
+        fs::create_dir_all(&paths.installed_file).unwrap();
+
+        let svc = RegistryService::with_paths_and_transport(
+            paths.clone(),
+            MockTransport::new(map),
+            "1.6.0".into(),
+        );
+        svc.ensure_default_repo_config().unwrap();
+        svc.sync_indexes().unwrap();
+
+        assert!(
+            svc.install_programs(&["foot".into()], false, false)
+                .is_err()
+        );
+        assert!(!paths.rules_dir.join("foot.toml").exists());
+        assert!(!paths.templates_dir.join("foot.tmpl").exists());
+
+        let _ = fs::remove_dir_all(paths.repos_dir.parent().unwrap());
+    }
+
+    #[test]
+    fn test_stress_concurrent_sync_catalog_and_install() {
+        let paths = temp_registry_paths("concurrency_24");
+        let mut map = HashMap::new();
+        let mut manifest = String::from("schema_version = 1\n\n");
+        for i in 0..24 {
+            let id = format!("app{i:02}");
+            let r = sample_rule(&format!("App{i:02}"), 1, &format!("{id}.tmpl"));
+            let t = sample_tmpl(1);
+            manifest.push_str(&format!(
+                "[[programs]]\nid = \"{id}\"\nname = \"App{i:02}\"\ncategory = \"terminal\"\ndescription = \"App\"\ndescription_ru = \"App\"\nrule = \"rules/{id}.toml\"\ntemplate = \"templates/{id}.tmpl\"\nrule_version = 1\ntemplate_version = 1\nmin_termonet_version = \"1.6.0\"\nrule_sha256 = \"{}\"\ntemplate_sha256 = \"{}\"\n\n",
+                sha256_hex(r.as_bytes()),
+                sha256_hex(t.as_bytes()),
+            ));
+            map.insert(format!("{OFFICIAL_REPO_URL}/rules/{id}.toml"), Ok(r));
+            map.insert(format!("{OFFICIAL_REPO_URL}/templates/{id}.tmpl"), Ok(t));
+        }
+        map.insert(format!("{OFFICIAL_REPO_URL}/registry.toml"), Ok(manifest));
+
+        let svc = Arc::new(RegistryService::with_paths_and_transport(
+            paths.clone(),
+            MockTransport::new(map),
+            "1.6.0".into(),
+        ));
+        svc.ensure_default_repo_config().unwrap();
+        svc.sync_indexes().unwrap();
+
+        let mut handles = Vec::new();
+        for i in 0..24 {
+            let svc_c = Arc::clone(&svc);
+            handles.push(std::thread::spawn(move || {
+                let id = format!("app{i:02}");
+                let _ = svc_c.sync_indexes();
+                let _ = svc_c.catalog();
+                svc_c.install_programs(&[id], false, false)
+            }));
+        }
+
+        for h in handles {
+            h.join().expect("worker thread must not panic").unwrap();
+        }
+
+        let installed_text = fs::read_to_string(&paths.installed_file).unwrap();
+        let installed_manifest: InstalledManifest = toml::from_str(&installed_text).unwrap();
+        assert_eq!(installed_manifest.installed.len(), 24);
+
+        let _ = fs::remove_dir_all(paths.repos_dir.parent().unwrap());
+    }
+
+    #[test]
+    fn test_stress_auto_update_skips_when_disabled_or_nothing_installed() {
+        let paths = temp_registry_paths("auto_update_skips");
+        let svc = RegistryService::with_paths_and_transport(
+            paths.clone(),
+            MockTransport::new(HashMap::new()),
+            "1.6.0".into(),
+        );
+        let mut cfg = AppConfig::default();
+        assert_eq!(
+            svc.maybe_auto_update(&cfg, 1_000_000),
+            AutoUpdateOutcome::SkippedNothingInstalled
+        );
+        cfg.auto_update_rules = false;
+        assert_eq!(
+            svc.maybe_auto_update(&cfg, 1_000_000),
+            AutoUpdateOutcome::SkippedDisabled
+        );
+
+        let _ = fs::remove_dir_all(paths.repos_dir.parent().unwrap());
+    }
 }

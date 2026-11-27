@@ -1726,4 +1726,259 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
+
+    #[test]
+    fn test_stress_tui_narrow_terminal_and_modals_no_panic() {
+        let mut state = AppState::new(AppConfig::default());
+        state.current_step = Step::Programs;
+        state.confirm_modal = Some(crate::tui::app::ConfirmModalState {
+            title: "Confirm Install".into(),
+            warning_lines: vec![
+                "Line 1: VERY LONG WARNING LINE THAT EXCEEDS TERMINAL WIDTH SIGNIFICANTLY 1234567890"
+                    .into(),
+                "WARNING reload_cmd: killall -SIGUSR1 foot".into(),
+            ],
+            action: crate::tui::app::ConfirmAction::RemoveProgram { id: "foot".into() },
+            scroll: 0,
+        });
+
+        let mut term_ok = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        term_ok
+            .draw(|f| views::render_programs(f, f.area(), &state))
+            .unwrap();
+
+        for (w, h) in [(0, 0), (1, 1), (10, 5), (30, 10)] {
+            let mut term_narrow = Terminal::new(TestBackend::new(w, h)).unwrap();
+            let narrow_res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = term_narrow.draw(|f| views::render_programs(f, f.area(), &state));
+            }));
+            assert!(
+                narrow_res.is_ok(),
+                "render_confirm_modal on {w}x{h} terminal must not panic"
+            );
+        }
+
+        let mut empty_state = AppState::new(AppConfig::default());
+        empty_state.programs.clear();
+        empty_state.current_step = Step::Programs;
+        for code in [
+            crossterm::event::KeyCode::Up,
+            crossterm::event::KeyCode::Down,
+            crossterm::event::KeyCode::Char(' '),
+            crossterm::event::KeyCode::Char('u'),
+            crossterm::event::KeyCode::Char('d'),
+            crossterm::event::KeyCode::Delete,
+            crossterm::event::KeyCode::Enter,
+        ] {
+            empty_state.handle_key(crossterm::event::KeyEvent::from(code));
+        }
+
+        let wiz_state = AppState::new_wizard(AppConfig::default());
+        for (w, h) in [(0, 0), (1, 1), (10, 5), (20, 6)] {
+            let mut t = Terminal::new(TestBackend::new(w, h)).unwrap();
+            t.draw(|f| views::render_wizard(f, f.area(), &wiz_state))
+                .unwrap();
+            t.draw(|f| views::render_palette(f, f.area(), &state))
+                .unwrap();
+            t.draw(|f| views::render_hooks(f, f.area(), &state))
+                .unwrap();
+            t.draw(|f| views::render_apply(f, f.area(), &state))
+                .unwrap();
+            t.draw(|f| views::render_header(f, f.area(), &state))
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn test_stress_tui_wizard_finish_partial_write_failure_and_deleted_rule_visibility() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("termonet_tui_partial_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let r1 = "version = 1\nname = \"Foot\"\ntemplate = \"foot.tmpl\"\noutput_path = \"~/.config/app/colors.conf\"\n";
+        let t1 = "# termonet-version: 1\nfg = {{ active.primary.hex }}\n";
+        let manifest = format!(
+            "schema_version = 1\n\n[[programs]]\nid = \"foot\"\nname = \"Foot\"\ncategory = \"terminal\"\ndescription = \"Foot\"\ndescription_ru = \"Foot\"\nrule = \"rules/foot.toml\"\ntemplate = \"templates/foot.tmpl\"\nrule_version = 1\ntemplate_version = 1\nmin_termonet_version = \"1.6.0\"\nrule_sha256 = \"{}\"\ntemplate_sha256 = \"{}\"\n",
+            crate::registry::sha256_hex(r1.as_bytes()),
+            crate::registry::sha256_hex(t1.as_bytes()),
+        );
+        let (svc, base) = make_mock_registry_service(
+            "tui_partial",
+            [
+                (
+                    format!("{}/registry.toml", crate::registry::OFFICIAL_REPO_URL),
+                    Ok(manifest),
+                ),
+                (
+                    format!("{}/rules/foot.toml", crate::registry::OFFICIAL_REPO_URL),
+                    Ok(r1.to_string()),
+                ),
+                (
+                    format!("{}/templates/foot.tmpl", crate::registry::OFFICIAL_REPO_URL),
+                    Ok(t1.to_string()),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        svc.sync_indexes().unwrap();
+
+        let cfg_dir_blocker = temp_dir.join("config_is_dir.toml");
+        std::fs::create_dir_all(&cfg_dir_blocker).unwrap();
+
+        let mut state = AppState::new_wizard(AppConfig {
+            language: crate::config::Language::En,
+            ..Default::default()
+        });
+        state.custom_config_path = Some(cfg_dir_blocker);
+        state.set_registry(svc);
+        state.enter_wizard_programs_step();
+
+        if let Some(ref mut w) = state.wizard_state {
+            w.step = WizardStep::Programs;
+            w.selected_idx = 0;
+        }
+        state.toggle_wizard_option();
+
+        state.finish_wizard().unwrap();
+        assert!(state.confirm_modal.is_some());
+        assert!(state.is_wizard);
+        assert!(!base.join("rules").join("foot.toml").exists());
+
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Char('y'),
+        ));
+        assert!(state.confirm_modal.is_none());
+        assert!(state.is_wizard);
+        assert!(state.status_is_error);
+        assert!(base.join("installed.toml").exists());
+        assert!(base.join("rules").join("foot.toml").exists());
+
+        // Manual deletion of rules/foot.toml reconciles installed.toml cleanly back to Available
+        std::fs::remove_file(base.join("rules").join("foot.toml")).unwrap();
+        state.refresh_catalog();
+        assert!(state.programs.iter().any(|p| {
+            p.id == "foot"
+                && matches!(
+                    p.catalog_status,
+                    Some(crate::registry::CatalogStatus::Available { .. })
+                )
+        }));
+        assert!(state.wizard_state.as_ref().is_some_and(|w| {
+            w.catalog.iter().any(|c| {
+                c.id == "foot"
+                    && matches!(c.status, crate::registry::CatalogStatus::Available { .. })
+            })
+        }));
+
+        let _ = std::fs::remove_dir_all(&base);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_stress_tui_force_update_modal_with_errors_status_flag() {
+        let base =
+            std::env::temp_dir().join(format!("termonet_tui_force_err_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let paths = crate::registry::RegistryPaths {
+            repos_dir: base.join("repos"),
+            rules_dir: base.join("rules"),
+            templates_dir: base.join("templates"),
+            cache_dir: base.join("cache"),
+            installed_file: base.join("installed.toml"),
+            state_file: base.join("state.toml"),
+        };
+
+        let r1 = "version = 1\nname = \"Foot\"\ntemplate = \"foot.tmpl\"\noutput_path = \"~/.config/app/colors.conf\"\n";
+        let t1 = "# termonet-version: 1\nfg = {{ active.primary.hex }}\n";
+        let m1 = format!(
+            "schema_version = 1\n\n[[programs]]\nid = \"foot\"\nname = \"Foot\"\ncategory = \"terminal\"\ndescription = \"Foot\"\ndescription_ru = \"Foot\"\nrule = \"rules/foot.toml\"\ntemplate = \"templates/foot.tmpl\"\nrule_version = 1\ntemplate_version = 1\nmin_termonet_version = \"1.6.0\"\nrule_sha256 = \"{}\"\ntemplate_sha256 = \"{}\"\n",
+            crate::registry::sha256_hex(r1.as_bytes()),
+            crate::registry::sha256_hex(t1.as_bytes()),
+        );
+
+        #[derive(Clone)]
+        struct SharedMock(
+            std::sync::Arc<
+                std::sync::Mutex<
+                    std::collections::HashMap<String, std::result::Result<String, String>>,
+                >,
+            >,
+        );
+        impl crate::registry::RegistryTransport for SharedMock {
+            fn fetch_text(&self, url: &str, _max_bytes: usize) -> Result<String> {
+                let g = self.0.lock().unwrap();
+                match g.get(url) {
+                    Some(Ok(body)) => Ok(body.clone()),
+                    Some(Err(msg)) => Err(crate::error::TermonetError::Registry(msg.clone())),
+                    None => Err(crate::error::TermonetError::Registry(format!("404: {url}"))),
+                }
+            }
+        }
+
+        let mut map = std::collections::HashMap::new();
+        map.insert(
+            format!("{}/registry.toml", crate::registry::OFFICIAL_REPO_URL),
+            Ok(m1),
+        );
+        map.insert(
+            format!("{}/rules/foot.toml", crate::registry::OFFICIAL_REPO_URL),
+            Ok(r1.to_string()),
+        );
+        map.insert(
+            format!("{}/templates/foot.tmpl", crate::registry::OFFICIAL_REPO_URL),
+            Ok(t1.to_string()),
+        );
+        let shared = std::sync::Arc::new(std::sync::Mutex::new(map));
+        let svc = std::sync::Arc::new(crate::registry::RegistryService::with_paths_and_transport(
+            paths.clone(),
+            SharedMock(std::sync::Arc::clone(&shared)),
+            "1.6.0".into(),
+        ));
+        svc.ensure_default_repo_config().unwrap();
+        svc.sync_indexes().unwrap();
+        svc.install_programs(&["foot".into()], false, false)
+            .unwrap();
+
+        let r2 = "version = 2\nname = \"Foot\"\ntemplate = \"foot.tmpl\"\noutput_path = \"~/.config/app/colors.conf\"\n";
+        let m2 = format!(
+            "schema_version = 1\n\n[[programs]]\nid = \"foot\"\nname = \"Foot\"\ncategory = \"terminal\"\ndescription = \"Foot\"\ndescription_ru = \"Foot\"\nrule = \"rules/foot.toml\"\ntemplate = \"templates/foot.tmpl\"\nrule_version = 2\ntemplate_version = 1\nmin_termonet_version = \"1.6.0\"\nrule_sha256 = \"{}\"\ntemplate_sha256 = \"{}\"\n",
+            crate::registry::sha256_hex(r2.as_bytes()),
+            crate::registry::sha256_hex(t1.as_bytes()),
+        );
+        {
+            let mut g = shared.lock().unwrap();
+            g.insert(
+                format!("{}/registry.toml", crate::registry::OFFICIAL_REPO_URL),
+                Ok(m2),
+            );
+            g.insert(
+                format!("{}/rules/foot.toml", crate::registry::OFFICIAL_REPO_URL),
+                Err("500 internal server error".into()),
+            );
+        }
+        std::fs::write(paths.templates_dir.join("foot.tmpl"), "modified\n").unwrap();
+
+        let mut state = AppState::new(AppConfig {
+            language: crate::config::Language::En,
+            ..Default::default()
+        });
+        state.set_registry(svc);
+        state.refresh_catalog();
+        state.current_step = Step::Programs;
+
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Char('u'),
+        ));
+        assert!(state.confirm_modal.is_some());
+
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Char('y'),
+        ));
+        assert!(state.confirm_modal.is_none());
+        assert!(state.status_is_error);
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }

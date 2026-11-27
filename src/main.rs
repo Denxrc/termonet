@@ -1087,4 +1087,93 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
+
+    #[test]
+    fn test_stress_cli_invalid_flags_and_empty_install() {
+        for bad in [
+            vec!["termonet", "--install", "", "--apply"],
+            vec!["termonet", "--install", ",,,", "--apply"],
+            vec!["termonet", "--install", ",,,"],
+            vec!["termonet", "--list-rules", "--sync-repos"],
+            vec!["termonet", "--install", "kitty", "--update-rules"],
+            vec!["termonet", "--reset-rules", "--remove-rule", "kitty"],
+            vec!["termonet", "--install", "kitty", "--theme", "dark"],
+        ] {
+            let owned: Vec<String> = bad.iter().map(|s| s.to_string()).collect();
+            assert!(
+                parse_cli_args(&owned).is_err(),
+                "Expected error for args {bad:?}"
+            );
+        }
+
+        // Invalid --theme / --color values parsed cleanly must fail in run_cli_mode_with_context
+        for runtime_bad in [
+            vec!["termonet", "--theme", "neon"],
+            vec!["termonet", "--color", "nothex", "--apply"],
+        ] {
+            let owned: Vec<String> = runtime_bad.iter().map(|s| s.to_string()).collect();
+            let CliAction::Run { cli_args, .. } = parse_cli_args(&owned).unwrap() else {
+                panic!("Expected CliAction::Run for {runtime_bad:?}");
+            };
+            assert!(
+                termonet::cli::run_cli_mode_with_context(
+                    &cli_args,
+                    AppConfig::default(),
+                    Some(Vec::new()),
+                    None,
+                    None,
+                )
+                .is_err(),
+                "Expected runtime error for {runtime_bad:?}"
+            );
+        }
+
+        // Invalid program ID in --remove-rule must fail before modifying config or filesystem
+        let temp_dir =
+            std::env::temp_dir().join(format!("termonet_cli_stress_rm_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        let paths = termonet::registry::RegistryPaths {
+            repos_dir: temp_dir.join("repos"),
+            rules_dir: temp_dir.join("rules"),
+            templates_dir: temp_dir.join("templates"),
+            cache_dir: temp_dir.join("cache"),
+            installed_file: temp_dir.join("installed.toml"),
+            state_file: temp_dir.join("state.toml"),
+        };
+        struct EmptyMock;
+        impl termonet::registry::RegistryTransport for EmptyMock {
+            fn fetch_text(&self, url: &str, _max_bytes: usize) -> Result<String> {
+                Err(termonet::TermonetError::Registry(format!(
+                    "offline mock: {url}"
+                )))
+            }
+        }
+        let svc = RegistryService::with_paths_and_transport(paths, EmptyMock, "1.6.0".into());
+        let mut cfg = AppConfig::default();
+        let cfg_file = temp_dir.join("config.toml");
+        let mut input = std::io::Cursor::new(b"");
+        let mut output = Vec::new();
+        assert!(
+            execute_remove_rule_with_io(
+                &svc,
+                "../etc/passwd",
+                true,
+                &mut cfg,
+                &cfg_file,
+                &mut input,
+                &mut output,
+            )
+            .is_err()
+        );
+        let _ = std::fs::remove_dir_all(&temp_dir);
+
+        assert_eq!(
+            parse_cli_args(&["termonet".into(), "--help".into()]).unwrap(),
+            CliAction::Exit
+        );
+        assert_eq!(
+            parse_cli_args(&["termonet".into(), "--version".into()]).unwrap(),
+            CliAction::Exit
+        );
+    }
 }

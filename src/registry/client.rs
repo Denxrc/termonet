@@ -196,4 +196,51 @@ mod tests {
         let _ = handle.join();
         assert_eq!(body, "schema_version = 1\n");
     }
+
+    #[test]
+    fn test_stress_http_transport_userinfo_bypass_and_non_utf8() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = std::thread::spawn(move || {
+            for idx in 0..2 {
+                if let Ok((mut stream, _)) = listener.accept() {
+                    let mut buf = [0u8; 512];
+                    let _ = stream.read(&mut buf);
+                    if idx == 0 {
+                        let _ = stream.write_all(
+                            b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nhello",
+                        );
+                    } else {
+                        let mut resp =
+                            b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\n"
+                                .to_vec();
+                        resp.extend_from_slice(&[0xff, 0xfe, 0xfd, 0xfc]);
+                        let _ = stream.write_all(&resp);
+                    }
+                }
+            }
+        });
+
+        let transport = HttpTransport::new();
+
+        // Userinfo trick http://localhost:@127.0.0.1:<port> must be rejected as non-localhost authority
+        let userinfo_url = format!("http://localhost:@127.0.0.1:{}/registry.toml", addr.port());
+        let bypass_res = transport.fetch_text(&userinfo_url, MAX_MANIFEST_BYTES);
+        assert!(
+            bypass_res.is_err(),
+            "HttpTransport must reject userinfo SSRF bypass URL: {bypass_res:?}"
+        );
+
+        // Non-UTF-8 payload from localhost must error cleanly
+        let bad_utf8_url = format!("http://{addr}/bad_utf8");
+        assert!(
+            transport
+                .fetch_text(&bad_utf8_url, MAX_ASSET_BYTES)
+                .is_err()
+        );
+
+        let _ = std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(50));
+        let _ = server.join();
+    }
 }

@@ -281,4 +281,80 @@ mod tests {
             "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
         );
     }
+
+    #[test]
+    fn test_stress_path_traversal_and_semver_boundaries() {
+        let long_64 = "a".repeat(64);
+        let long_65 = "a".repeat(65);
+        assert!(validate_program_id(&long_64).is_ok());
+        assert!(validate_program_id(&long_65).is_err());
+
+        for bad_id in [
+            "",
+            " ",
+            "../kitty",
+            "..\\kitty",
+            "a/b",
+            "a\\b",
+            "a..b",
+            "kitty\0",
+            "kitty\n",
+            "-kitty",
+            "_kitty",
+            "Kitty",
+            "китти",
+            "kitty.toml",
+        ] {
+            assert!(
+                validate_program_id(bad_id).is_err(),
+                "ID '{bad_id:?}' must be rejected"
+            );
+        }
+
+        for bad_rel in [
+            "",
+            "/",
+            "/etc/passwd",
+            "..",
+            ".",
+            "../rules/kitty.toml",
+            "rules/./kitty.toml",
+            "rules/../kitty.toml",
+            "rules//kitty.toml",
+            "rules/kitty.toml/",
+            "rules\\kitty.toml",
+            "rules/..\\kitty.toml",
+        ] {
+            assert!(
+                sanitize_relative_repo_path(bad_rel).is_err(),
+                "Path '{bad_rel:?}' must be rejected"
+            );
+        }
+
+        assert!(is_version_compatible("0.0.0", "0.0.0").unwrap());
+        assert!(is_version_compatible("1.6.0", "v1.6.0").unwrap());
+        assert!(is_version_compatible("v1.6.0", "1.6.1").unwrap());
+        assert!(!is_version_compatible("1.6.1", "1.6.0").unwrap());
+        assert!(!is_version_compatible("2.0.0", "1.999.999").unwrap());
+        assert!(
+            is_version_compatible(&format!("{}.0.0", u64::MAX), &format!("{}.0.0", u64::MAX))
+                .unwrap()
+        );
+
+        for bad_ver in [
+            "",
+            "1.6",
+            "1.6.0.0",
+            "1.6.0-alpha",
+            "1.6.0+build",
+            "-1.0.0",
+            "1.a.0",
+            "999999999999999999999999.0.0",
+        ] {
+            assert!(
+                is_version_compatible(bad_ver, "1.6.0").is_err(),
+                "Invalid semver '{bad_ver}' must error"
+            );
+        }
+    }
 }

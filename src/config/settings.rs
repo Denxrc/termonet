@@ -637,5 +637,14 @@ create_backups = true
         assert!(upgraded.contains("Schema Version: 3"));
         assert!(upgraded.contains("auto_update_rules = true"));
         assert!(!AppConfig::needs_migration(&upgraded));
+
+        let temp_path = std::env::temp_dir().join(format!(
+            "termonet_cfg_v2_migrated_{}.toml",
+            std::process::id()
+        ));
+        parsed.save_to_path(&temp_path).unwrap();
+        let saved_text = std::fs::read_to_string(&temp_path).unwrap();
+        assert!(!AppConfig::needs_migration(&saved_text));
+        let _ = std::fs::remove_file(&temp_path);
     }
 }
