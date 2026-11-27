@@ -1660,6 +1660,19 @@ mod tests {
         }
         state.toggle_wizard_option();
 
+        // Wizard Step::Programs renders clean [✔] checkbox and [↓ install · official] badge (never [↓✔])
+        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        terminal
+            .draw(|f| views::render_wizard(f, f.area(), &state))
+            .unwrap();
+        let wiz_buf = terminal.backend().buffer();
+        let wiz_text: String = (0..30)
+            .flat_map(|y| (0..100).map(move |x| wiz_buf[(x, y)].symbol()))
+            .collect();
+        assert!(wiz_text.contains("[✔]"));
+        assert!(wiz_text.contains("[↓ install · official]"));
+        assert!(!wiz_text.contains("[↓✔]"));
+
         // Finish opens modal first, writing nothing until confirmed
         state.finish_wizard().unwrap();
         assert!(state.confirm_modal.is_some());
@@ -1667,8 +1680,7 @@ mod tests {
         assert!(!base.join("rules").join("foot.toml").exists());
         assert!(!cfg_path.exists());
 
-        // Wizard renderer draws the install modal warning
-        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        // Wizard renderer draws structured confirm modal with localized labels and hook warning
         terminal
             .draw(|f| views::render_wizard(f, f.area(), &state))
             .unwrap();
@@ -1676,7 +1688,22 @@ mod tests {
         let rendered: String = (0..30)
             .flat_map(|y| (0..100).map(move |x| buf[(x, y)].symbol()))
             .collect();
+        assert!(rendered.contains("▸ Foot"));
+        assert!(rendered.contains("Output:"));
+        assert!(rendered.contains("Hook:"));
         assert!(rendered.contains("killall -SIGUSR1 foot"));
+        assert!(!rendered.contains("output_path:"));
+        assert!(!rendered.contains("WARNING reload_cmd:"));
+
+        // Scrolling inside confirm modal works without closing it
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Down,
+        ));
+        assert_eq!(state.confirm_modal.as_ref().map(|m| m.scroll), Some(1));
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Up,
+        ));
+        assert_eq!(state.confirm_modal.as_ref().map(|m| m.scroll), Some(0));
 
         // Esc aborts back to wizard without writing
         state.handle_key(crossterm::event::KeyEvent::from(

@@ -672,6 +672,7 @@ fn stress_tui_narrow_terminal_and_modals_no_panic() {
             "WARNING reload_cmd: killall -SIGUSR1 foot".into(),
         ],
         action: termonet::tui::app::ConfirmAction::RemoveProgram { id: "foot".into() },
+        scroll: 0,
     });
 
     // Normal 100x30 works

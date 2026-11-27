@@ -244,6 +244,7 @@ pub struct ConfirmModalState {
     pub title: String,
     pub warning_lines: Vec<String>,
     pub action: ConfirmAction,
+    pub scroll: u16,
 }
 
 /// Represents an application target in the TUI list, including its reload hook and registry status.
@@ -657,13 +658,23 @@ impl AppState {
                 }
             };
             let warning_lines = Self::build_install_warning_lines(&prepared);
+            let title = if prepared.len() > 1 {
+                format!(
+                    "{} ({}) ",
+                    t.registry_confirm_install_title.trim_end(),
+                    prepared.len()
+                )
+            } else {
+                t.registry_confirm_install_title.to_string()
+            };
             self.confirm_modal = Some(ConfirmModalState {
-                title: t.registry_confirm_install_title.to_string(),
+                title,
                 warning_lines,
                 action: ConfirmAction::WizardInstall {
                     saved_config: Box::new(saved_config),
                     prepared,
                 },
+                scroll: 0,
             });
             return Ok(());
         }
@@ -933,6 +944,7 @@ impl AppState {
                             id: item.id,
                             prepared,
                         },
+                        scroll: 0,
                     });
                 }
                 Err(err) => {
@@ -962,13 +974,14 @@ impl AppState {
                 if !report.skipped_modified.is_empty() {
                     let ids = report.skipped_modified.clone();
                     let warning_lines = vec![
-                        format!("Modified local files: {}", ids.join(", ")),
-                        "Confirm to create .bak backups and overwrite with upstream.".to_string(),
+                        format!("⚠ {} {}", t.registry_modal_update_intro, ids.join(", ")),
+                        t.registry_modal_update_desc.to_string(),
                     ];
                     self.confirm_modal = Some(ConfirmModalState {
                         title: t.registry_confirm_update_title.to_string(),
                         warning_lines,
                         action: ConfirmAction::ForceUpdatePrograms { ids },
+                        scroll: 0,
                     });
                 } else if !report.updated.is_empty() {
                     self.set_status(
@@ -1007,13 +1020,13 @@ impl AppState {
         self.confirm_modal = Some(ConfirmModalState {
             title: t.registry_confirm_remove_title.to_string(),
             warning_lines: vec![
-                format!(
-                    "Remove rules/{}.toml and templates/{}.tmpl?",
-                    item.id, item.id
-                ),
-                "Target application dotfiles will not be touched.".to_string(),
+                t.registry_modal_remove_desc.to_string(),
+                format!("• rules/{}.toml", item.id),
+                format!("• templates/{}.tmpl", item.id),
+                t.registry_modal_remove_safe.to_string(),
             ],
             action: ConfirmAction::RemoveProgram { id: item.id },
+            scroll: 0,
         });
     }
 
@@ -1025,6 +1038,26 @@ impl AppState {
         let t = get_translations(self.config.language);
 
         match key.code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                if let Some(ref mut m) = self.confirm_modal {
+                    m.scroll = m.scroll.saturating_sub(1);
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if let Some(ref mut m) = self.confirm_modal {
+                    m.scroll = m.scroll.saturating_add(1);
+                }
+            }
+            KeyCode::PageUp => {
+                if let Some(ref mut m) = self.confirm_modal {
+                    m.scroll = m.scroll.saturating_sub(5);
+                }
+            }
+            KeyCode::PageDown => {
+                if let Some(ref mut m) = self.confirm_modal {
+                    m.scroll = m.scroll.saturating_add(5);
+                }
+            }
             KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
                 self.confirm_modal = None;
             }

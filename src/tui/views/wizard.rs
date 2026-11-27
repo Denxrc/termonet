@@ -819,10 +819,6 @@ fn render_step_programs(
             Span::styled("      ", Style::default())
         };
 
-        let is_available = matches!(
-            entry.status,
-            crate::registry::CatalogStatus::Available { .. }
-        );
         let is_incompatible = matches!(
             entry.status,
             crate::registry::CatalogStatus::Available {
@@ -833,13 +829,6 @@ fn render_step_programs(
 
         let check_span = if is_incompatible {
             Span::styled("[✕] ", Style::default().fg(Color::LightRed))
-        } else if is_checked && is_available {
-            Span::styled(
-                "[↓✔]",
-                Style::default()
-                    .fg(Color::LightGreen)
-                    .add_modifier(Modifier::BOLD),
-            )
         } else if is_checked {
             Span::styled(
                 "[✔] ",
@@ -847,8 +836,6 @@ fn render_step_programs(
                     .fg(primary_color)
                     .add_modifier(Modifier::BOLD),
             )
-        } else if is_available {
-            Span::styled("[↓] ", Style::default().fg(secondary_color))
         } else {
             Span::styled("[ ] ", Style::default().fg(text_dim))
         };
@@ -866,46 +853,75 @@ fn render_step_programs(
         let pad_len = 14usize
             .saturating_sub(entry.name.chars().count())
             .min(SPACES.len());
-        let detail = match &entry.status {
-            crate::registry::CatalogStatus::Installed { repo, .. } => entry
-                .output_path
-                .as_deref()
-                .map(|p| format!("{p} [{repo}]"))
-                .unwrap_or_else(|| format!("[{repo}]")),
+        let mut detail_spans: Vec<Span<'_>> = Vec::new();
+        match &entry.status {
+            crate::registry::CatalogStatus::Installed { repo, .. } => {
+                detail_spans.push(Span::styled(
+                    format!("[{repo}] "),
+                    Style::default().fg(secondary_color),
+                ));
+                if let Some(ref p) = entry.output_path {
+                    detail_spans.push(Span::styled(p.as_str(), Style::default().fg(text_muted)));
+                }
+            }
             crate::registry::CatalogStatus::Available {
                 repo,
                 compatible: true,
             } => {
+                if is_checked {
+                    detail_spans.push(Span::styled(
+                        format!("[{} · {repo}]", t.wizard_prog_badge_download),
+                        Style::default()
+                            .fg(Color::LightGreen)
+                            .add_modifier(Modifier::BOLD),
+                    ));
+                } else {
+                    detail_spans.push(Span::styled(
+                        format!("[↓ {repo}]"),
+                        Style::default().fg(secondary_color),
+                    ));
+                }
                 let desc = match state.config.language {
                     Language::Ru if !entry.description_ru.is_empty() => &entry.description_ru,
                     _ => &entry.description,
                 };
-                if desc.is_empty() {
-                    format!("[{repo}]")
-                } else {
-                    format!("[{repo}] {desc}")
+                if !desc.is_empty() {
+                    detail_spans.push(Span::styled(
+                        format!(" {desc}"),
+                        Style::default().fg(text_muted),
+                    ));
                 }
             }
             crate::registry::CatalogStatus::Available {
                 repo,
                 compatible: false,
-            } => format!("[{repo}] {}", t.programs_badge_incompatible),
-            crate::registry::CatalogStatus::LocalCustom => entry
-                .output_path
-                .as_deref()
-                .map(|p| format!("{p} {}", t.programs_badge_local))
-                .unwrap_or_else(|| t.programs_badge_local.to_string()),
-        };
+            } => {
+                detail_spans.push(Span::styled(
+                    format!("[{repo}] {}", t.programs_badge_incompatible),
+                    Style::default().fg(Color::LightRed),
+                ));
+            }
+            crate::registry::CatalogStatus::LocalCustom => {
+                detail_spans.push(Span::styled(
+                    format!("{} ", t.programs_badge_local),
+                    Style::default().fg(secondary_color),
+                ));
+                if let Some(ref p) = entry.output_path {
+                    detail_spans.push(Span::styled(p.as_str(), Style::default().fg(text_muted)));
+                }
+            }
+        }
 
-        lines.push(Line::from(vec![
+        let mut row_spans = vec![
             cursor_span,
             check_span,
             Span::raw(" "),
             Span::styled(&entry.name, name_style),
             Span::raw(&SPACES[..pad_len]),
             Span::styled(" ➔  ", Style::default().fg(secondary_color)),
-            Span::styled(detail, Style::default().fg(text_muted)),
-        ]));
+        ];
+        row_spans.extend(detail_spans);
+        lines.push(Line::from(row_spans));
     }
 
     let inner_height = area.height.saturating_sub(2);

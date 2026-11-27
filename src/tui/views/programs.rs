@@ -195,53 +195,207 @@ pub fn render_confirm_modal(frame: &mut Frame, area: Rect, state: &AppState) {
     let t = get_translations(state.config.language);
     let (primary_color, secondary_color) = state.ui_colors();
     let text_color = state.text_color();
+    let text_muted = state.text_muted();
+    let text_dim = state.text_dim();
 
-    let modal_width = area.width.saturating_sub(8).clamp(44, 78).min(area.width);
+    let mut body_lines: Vec<Line<'_>> = vec![Line::raw("")];
+    match &modal.action {
+        crate::tui::app::ConfirmAction::InstallProgram { prepared, .. }
+        | crate::tui::app::ConfirmAction::WizardInstall { prepared, .. }
+            if !prepared.is_empty() =>
+        {
+            body_lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(
+                    t.registry_modal_install_intro,
+                    Style::default().fg(text_muted),
+                ),
+            ]));
+            body_lines.push(Line::raw(""));
+
+            for item in prepared {
+                let pv = &item.preview;
+                body_lines.push(Line::from(vec![
+                    Span::styled(
+                        "  ▸ ",
+                        Style::default()
+                            .fg(primary_color)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        pv.name.as_str(),
+                        Style::default().fg(text_color).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw("  "),
+                    Span::styled(
+                        format!("[{}]", pv.repo),
+                        Style::default().fg(secondary_color),
+                    ),
+                    Span::styled(
+                        format!(
+                            "  ({} v{} · {} v{})",
+                            t.registry_modal_rule_label,
+                            pv.rule_version,
+                            t.registry_modal_template_label,
+                            pv.template_version
+                        ),
+                        Style::default().fg(text_dim),
+                    ),
+                ]));
+                body_lines.push(Line::from(vec![
+                    Span::styled("    • ", Style::default().fg(text_dim)),
+                    Span::styled(
+                        t.registry_modal_field_output,
+                        Style::default().fg(secondary_color),
+                    ),
+                    Span::raw(" "),
+                    Span::styled(pv.output_path.as_str(), Style::default().fg(text_color)),
+                ]));
+                if let Some(ref target) = pv.target_config {
+                    body_lines.push(Line::from(vec![
+                        Span::styled("    • ", Style::default().fg(text_dim)),
+                        Span::styled(
+                            t.registry_modal_field_target,
+                            Style::default().fg(secondary_color),
+                        ),
+                        Span::raw(" "),
+                        Span::styled(target.as_str(), Style::default().fg(text_muted)),
+                    ]));
+                }
+                if let Some(ref cmd) = pv.reload_cmd {
+                    body_lines.push(Line::from(vec![
+                        Span::styled(
+                            "    ⚠ ",
+                            Style::default()
+                                .fg(Color::Yellow)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            t.registry_modal_field_hook,
+                            Style::default()
+                                .fg(Color::Yellow)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                        Span::raw(" "),
+                        Span::styled(
+                            cmd.as_str(),
+                            Style::default()
+                                .fg(Color::Yellow)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                    ]));
+                }
+                if pv.has_local_conflict {
+                    body_lines.push(Line::from(vec![
+                        Span::raw("    "),
+                        Span::styled(
+                            t.registry_modal_conflict_hint,
+                            Style::default()
+                                .fg(Color::Yellow)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                    ]));
+                }
+                body_lines.push(Line::raw(""));
+            }
+        }
+        _ => {
+            for line in &modal.warning_lines {
+                if line.starts_with("• ") {
+                    body_lines.push(Line::from(vec![
+                        Span::raw("    "),
+                        Span::styled("• ", Style::default().fg(secondary_color)),
+                        Span::styled(
+                            line.trim_start_matches("• "),
+                            Style::default().fg(text_color).add_modifier(Modifier::BOLD),
+                        ),
+                    ]));
+                } else {
+                    let is_warning = line.starts_with('⚠')
+                        || line.starts_with("WARNING")
+                        || line.contains("Modified");
+                    let style = if is_warning {
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(text_muted)
+                    };
+                    body_lines.push(Line::from(vec![
+                        Span::raw("  "),
+                        Span::styled(line.as_str(), style),
+                    ]));
+                }
+            }
+            body_lines.push(Line::raw(""));
+        }
+    }
+
+    let modal_width = area.width.saturating_sub(6).clamp(52, 86).min(area.width);
     let max_h = area.height.saturating_sub(2).max(1);
-    let modal_height = (modal.warning_lines.len() as u16)
-        .saturating_add(6)
+    let modal_height = (body_lines.len() as u16)
+        .saturating_add(4)
         .min(max_h)
-        .max(8.min(area.height));
+        .max(9.min(area.height));
     let x = area.x + (area.width.saturating_sub(modal_width)) / 2;
     let y = area.y + (area.height.saturating_sub(modal_height)) / 2;
     let popup_area = Rect::new(x, y, modal_width, modal_height);
 
     frame.render_widget(Clear, popup_area);
 
-    let mut lines = vec![Line::raw("")];
-    for line in &modal.warning_lines {
-        let style = if line.starts_with("WARNING") || line.contains("Modified") {
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(text_color)
-        };
-        lines.push(Line::from(vec![
-            Span::raw("  "),
-            Span::styled(line.as_str(), style),
-        ]));
-    }
-    lines.push(Line::raw(""));
-    lines.push(
-        Line::from(vec![Span::styled(
-            t.registry_confirm_hint,
-            Style::default()
-                .fg(secondary_color)
-                .add_modifier(Modifier::BOLD),
-        )])
-        .alignment(Alignment::Center),
-    );
-
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(primary_color))
         .title(modal.title.as_str());
+    let inner_area = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    if inner_area.height == 0 || inner_area.width == 0 {
+        return;
+    }
+
+    let footer_h = if inner_area.height >= 4 { 2 } else { 1 };
+    let modal_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(footer_h)])
+        .split(inner_area);
+
+    let max_scroll = (body_lines.len() as u16).saturating_sub(modal_chunks[0].height);
+    let effective_scroll = modal.scroll.min(max_scroll);
 
     frame.render_widget(
-        Paragraph::new(lines)
-            .block(block)
-            .wrap(Wrap { trim: false }),
-        popup_area,
+        Paragraph::new(body_lines)
+            .wrap(Wrap { trim: false })
+            .scroll((effective_scroll, 0)),
+        modal_chunks[0],
     );
+
+    let hint_line = if max_scroll > 0 {
+        format!("{}   [↑/↓] {}", t.registry_confirm_hint, "Scroll")
+    } else {
+        t.registry_confirm_hint.to_string()
+    };
+    let footer_lines = if footer_h >= 2 {
+        vec![
+            Line::raw(""),
+            Line::from(Span::styled(
+                hint_line,
+                Style::default()
+                    .fg(secondary_color)
+                    .add_modifier(Modifier::BOLD),
+            ))
+            .alignment(Alignment::Center),
+        ]
+    } else {
+        vec![
+            Line::from(Span::styled(
+                hint_line,
+                Style::default()
+                    .fg(secondary_color)
+                    .add_modifier(Modifier::BOLD),
+            ))
+            .alignment(Alignment::Center),
+        ]
+    };
+    frame.render_widget(Paragraph::new(footer_lines), modal_chunks[1]);
 }
