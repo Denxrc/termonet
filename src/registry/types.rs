@@ -139,7 +139,8 @@ pub fn validate_program_id(id: &str) -> Result<()> {
     let first_ok = chars
         .next()
         .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit());
-    let rest_ok = chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_');
+    let rest_ok =
+        chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_');
     if !first_ok || !rest_ok {
         return Err(TermonetError::Registry(format!(
             "Invalid program id '{id}': must match ^[a-z0-9][a-z0-9_-]*$"
@@ -217,7 +218,9 @@ mod tests {
         assert!(validate_program_id("gtk-4").is_ok());
         assert!(validate_program_id("my_app2").is_ok());
 
-        for bad in ["", "-bad", "_bad", "Kitty", "../kitty", "a/b", r"a\b", "a..b"] {
+        for bad in [
+            "", "-bad", "_bad", "Kitty", "../kitty", "a/b", r"a\b", "a..b",
+        ] {
             assert!(
                 validate_program_id(bad).is_err(),
                 "Expected invalid id '{bad}' to be rejected"
@@ -231,7 +234,13 @@ mod tests {
             sanitize_relative_repo_path("rules/kitty.toml").unwrap(),
             "rules/kitty.toml"
         );
-        for bad in ["", "/etc/passwd", "../secret", "rules/../kitty.toml", r"rules\kitty.toml"] {
+        for bad in [
+            "",
+            "/etc/passwd",
+            "../secret",
+            "rules/../kitty.toml",
+            r"rules\kitty.toml",
+        ] {
             assert!(
                 sanitize_relative_repo_path(bad).is_err(),
                 "Expected unsafe path '{bad}' to be rejected"

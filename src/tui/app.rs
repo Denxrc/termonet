@@ -4,9 +4,13 @@ use crate::config::{AppConfig, DisplayServer, FontMode, Language, TuiTheme, Wall
 use crate::core::GeneratedPalette;
 use crate::error::Result;
 use crate::i18n::get_translations;
+use crate::registry::{
+    AutoUpdateOutcome, CatalogEntry, CatalogStatus, PreparedInstall, RegistryOps,
+};
 use crate::template::{ProgramRule, TemplateEngine};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /// Active navigation step in the top panel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -107,9 +111,31 @@ pub struct WizardState {
     pub config: AppConfig,
     pub original_config: Option<AppConfig>,
     pub available_rules: Vec<ProgramRule>,
+    pub catalog: Vec<CatalogEntry>,
     pub opened_from_main: bool,
     pub env_substep: EnvSubStep,
     pub discovered_monitors: Option<Vec<(String, PathBuf)>>,
+}
+
+fn rules_to_local_catalog(rules: &[ProgramRule]) -> Vec<CatalogEntry> {
+    rules
+        .iter()
+        .map(|r| CatalogEntry {
+            id: r.effective_id(),
+            name: r.name.clone(),
+            category: "local".to_string(),
+            description: String::new(),
+            description_ru: String::new(),
+            status: CatalogStatus::LocalCustom,
+            output_path: Some(r.output_path.to_string_lossy().to_string()),
+            target_config: r
+                .target_config
+                .as_ref()
+                .map(|p| p.to_string_lossy().to_string()),
+            reload_cmd: r.reload_cmd.clone(),
+            min_termonet_version: None,
+        })
+        .collect()
 }
 
 impl WizardState {
@@ -117,12 +143,14 @@ impl WizardState {
     #[must_use]
     pub fn new(config: AppConfig) -> Self {
         let available_rules = ProgramRule::load_all().unwrap_or_default();
+        let catalog = rules_to_local_catalog(&available_rules);
         Self {
             step: WizardStep::Language,
             selected_idx: 0,
             config,
             original_config: None,
             available_rules,
+            catalog,
             opened_from_main: false,
             env_substep: EnvSubStep::ServerAndBackend,
             discovered_monitors: None,
@@ -133,12 +161,14 @@ impl WizardState {
     #[must_use]
     pub fn new_from_main(config: AppConfig) -> Self {
         let available_rules = ProgramRule::load_all().unwrap_or_default();
+        let catalog = rules_to_local_catalog(&available_rules);
         Self {
             step: WizardStep::Language,
             selected_idx: 0,
             original_config: Some(config.clone()),
             config,
             available_rules,
+            catalog,
             opened_from_main: true,
             env_substep: EnvSubStep::ServerAndBackend,
             discovered_monitors: None,
@@ -161,7 +191,7 @@ impl WizardState {
                     .map(|m| m.len())
                     .unwrap_or(0),
             },
-            WizardStep::Programs => self.available_rules.len(),
+            WizardStep::Programs => self.catalog.len(),
             WizardStep::Finish => 3,
         }
     }
@@ -189,9 +219,33 @@ impl WallpaperInputState {
     }
 }
 
-/// Represents an application target in the TUI list, including its reload hook.
+/// Pending registry confirmation action requiring explicit user acknowledgment.
+#[derive(Debug, Clone)]
+pub enum ConfirmAction {
+    InstallProgram {
+        id: String,
+        prepared: Vec<PreparedInstall>,
+    },
+    ForceUpdatePrograms {
+        ids: Vec<String>,
+    },
+    RemoveProgram {
+        id: String,
+    },
+}
+
+/// Interactive confirmation modal with security/conflict warnings.
+#[derive(Debug, Clone)]
+pub struct ConfirmModalState {
+    pub title: String,
+    pub warning_lines: Vec<String>,
+    pub action: ConfirmAction,
+}
+
+/// Represents an application target in the TUI list, including its reload hook and registry status.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProgramItem {
+    pub id: String,
     pub name: String,
     pub output_path: String,
     pub enabled: bool,
@@ -199,6 +253,7 @@ pub struct ProgramItem {
     pub reload_desc: Option<String>,
     pub hook_enabled: bool,
     pub rule: Option<ProgramRule>,
+    pub catalog_status: Option<CatalogStatus>,
 }
 
 /// TUI application state.
@@ -227,9 +282,16 @@ pub struct AppState {
     // Interactive wallpaper path input modal state
     pub wallpaper_input: Option<WallpaperInputState>,
 
+    // Registry confirmation / warning modal state
+    pub confirm_modal: Option<ConfirmModalState>,
+
     // Multi-monitor active displays and cycling
     pub active_monitors: Vec<(String, PathBuf)>,
     pub current_monitor_idx: usize,
+
+    // Registry service and non-fatal status notice
+    pub registry: Option<Arc<dyn RegistryOps>>,
+    pub registry_notice: Option<String>,
 
     // Optional isolated config path override (used in tests)
     pub custom_config_path: Option<PathBuf>,
@@ -238,42 +300,50 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// Creates program items dynamically from discovered rules or embedded defaults.
+    fn build_program_item_from_rule(
+        rule: ProgramRule,
+        enabled_list: &[String],
+        catalog_status: Option<CatalogStatus>,
+    ) -> ProgramItem {
+        let id = rule.effective_id();
+        let name_lower = rule.name.to_lowercase();
+        let is_enabled = rule.matches_enabled_list(enabled_list);
+
+        let eff_cmd = rule.effective_reload_cmd().map(str::to_string);
+        let reload_desc = if eff_cmd.is_some() {
+            match name_lower.as_str() {
+                "kitty" => Some("Live terminal color reload".to_string()),
+                "waybar" => Some("Instant CSS style reload".to_string()),
+                "hyprland" => Some("Window borders & active theme reload".to_string()),
+                "dunst" => Some("Notification daemon reload".to_string()),
+                "sway" => Some("Sway compositor config reload".to_string()),
+                _ => Some("Reload service".to_string()),
+            }
+        } else {
+            None
+        };
+
+        let hook_default = eff_cmd.is_some();
+
+        ProgramItem {
+            id,
+            name: rule.name.clone(),
+            output_path: rule.output_path.to_string_lossy().to_string(),
+            enabled: is_enabled,
+            reload_cmd: eff_cmd,
+            reload_desc,
+            hook_enabled: hook_default,
+            rule: Some(rule),
+            catalog_status,
+        }
+    }
+
+    /// Creates program items dynamically from discovered rules on disk.
     fn create_default_programs(enabled_list: &[String]) -> Vec<ProgramItem> {
         let rules = ProgramRule::load_all().unwrap_or_default();
-
         rules
             .into_iter()
-            .map(|rule| {
-                let name_lower = rule.name.to_lowercase();
-                let is_enabled = rule.matches_enabled_list(enabled_list);
-
-                let eff_cmd = rule.effective_reload_cmd().map(str::to_string);
-                let reload_desc = if eff_cmd.is_some() {
-                    match name_lower.as_str() {
-                        "kitty" => Some("Live terminal color reload".to_string()),
-                        "waybar" => Some("Instant CSS style reload".to_string()),
-                        "hyprland" => Some("Window borders & active theme reload".to_string()),
-                        "dunst" => Some("Notification daemon reload".to_string()),
-                        "sway" => Some("Sway compositor config reload".to_string()),
-                        _ => Some("Reload service".to_string()),
-                    }
-                } else {
-                    None
-                };
-
-                let hook_default = eff_cmd.is_some();
-
-                ProgramItem {
-                    name: rule.name.clone(),
-                    output_path: rule.output_path.to_string_lossy().to_string(),
-                    enabled: is_enabled,
-                    reload_cmd: eff_cmd,
-                    reload_desc,
-                    hook_enabled: hook_default,
-                    rule: Some(rule),
-                }
-            })
+            .map(|rule| Self::build_program_item_from_rule(rule, enabled_list, None))
             .collect()
     }
 
@@ -299,8 +369,11 @@ impl AppState {
             is_wizard: false,
             wizard_state: None,
             wallpaper_input: None,
+            confirm_modal: None,
             active_monitors: Vec::new(),
             current_monitor_idx: 0,
+            registry: None,
+            registry_notice: None,
             custom_config_path: None,
             custom_templates_dir: None,
         }
@@ -329,11 +402,126 @@ impl AppState {
             is_wizard: true,
             wizard_state: Some(wizard_state),
             wallpaper_input: None,
+            confirm_modal: None,
             active_monitors: Vec::new(),
             current_monitor_idx: 0,
+            registry: None,
+            registry_notice: None,
             custom_config_path: None,
             custom_templates_dir: None,
         }
+    }
+
+    /// Attaches a registry service (system or mock) to this `AppState`.
+    pub fn set_registry(&mut self, registry: Arc<dyn RegistryOps>) {
+        self.registry = Some(registry);
+    }
+
+    /// Runs weekly auto-update at TUI startup without blocking or failing offline.
+    pub fn run_startup_auto_update(&mut self, now_epoch_secs: u64) {
+        let Some(ref reg) = self.registry else {
+            return;
+        };
+        let t = get_translations(self.config.language);
+        match reg.maybe_auto_update(&self.config, now_epoch_secs) {
+            AutoUpdateOutcome::Completed(report) if !report.updated.is_empty() => {
+                self.set_status(
+                    format!(
+                        "{} {}",
+                        t.registry_updated_success,
+                        report.updated.join(", ")
+                    ),
+                    false,
+                );
+            }
+            AutoUpdateOutcome::FailedNonFatal(warn) => {
+                self.registry_notice = Some(format!("{} {}", t.registry_offline_notice, warn));
+            }
+            _ => {}
+        }
+    }
+
+    /// Refreshes `programs` and `wizard_state.catalog` from attached registry + local rules.
+    pub fn refresh_catalog(&mut self) {
+        let Some(ref reg) = self.registry else {
+            self.programs = Self::create_default_programs(&self.config.enabled_programs);
+            return;
+        };
+
+        let rules_dir = reg.rules_dir().to_path_buf();
+        let (local_rules, _) =
+            ProgramRule::load_all_with_warnings_from(Some(&rules_dir)).unwrap_or_default();
+        let mut rules_by_id: std::collections::HashMap<String, ProgramRule> = local_rules
+            .into_iter()
+            .map(|r| (r.effective_id(), r))
+            .collect();
+
+        match reg.catalog() {
+            Ok((catalog, _warnings)) => {
+                let mut items = Vec::with_capacity(catalog.len());
+                for entry in &catalog {
+                    match &entry.status {
+                        CatalogStatus::Installed { .. } | CatalogStatus::LocalCustom => {
+                            if let Some(rule) = rules_by_id.remove(&entry.id) {
+                                items.push(Self::build_program_item_from_rule(
+                                    rule,
+                                    &self.config.enabled_programs,
+                                    Some(entry.status.clone()),
+                                ));
+                            }
+                        }
+                        CatalogStatus::Available { repo, compatible } => {
+                            let display_path = if *compatible {
+                                format!("[{repo}]")
+                            } else {
+                                let t = get_translations(self.config.language);
+                                format!("[{repo}] {}", t.programs_badge_incompatible)
+                            };
+                            items.push(ProgramItem {
+                                id: entry.id.clone(),
+                                name: entry.name.clone(),
+                                output_path: display_path,
+                                enabled: false,
+                                reload_cmd: None,
+                                reload_desc: None,
+                                hook_enabled: false,
+                                rule: None,
+                                catalog_status: Some(entry.status.clone()),
+                            });
+                        }
+                    }
+                }
+                self.programs = items;
+                if self.selected_program_idx >= self.programs.len() {
+                    self.selected_program_idx = self.programs.len().saturating_sub(1);
+                }
+                if let Some(ref mut wizard) = self.wizard_state {
+                    wizard.catalog = catalog;
+                    if wizard.step == WizardStep::Programs
+                        && wizard.selected_idx >= wizard.catalog.len()
+                    {
+                        wizard.selected_idx = wizard.catalog.len().saturating_sub(1);
+                    }
+                }
+                self.ensure_hook_index_valid();
+            }
+            Err(err) => {
+                let t = get_translations(self.config.language);
+                self.registry_notice = Some(format!("{} {}", t.registry_offline_notice, err));
+            }
+        }
+    }
+
+    /// Fetches only `registry.toml` indexes (if cache is empty) upon entering `WizardStep::Programs`.
+    pub fn enter_wizard_programs_step(&mut self) {
+        let t = get_translations(self.config.language);
+        self.registry_notice = None;
+        if let Some(ref reg) = self.registry
+            && let Err(err) = reg.sync_indexes_if_empty()
+        {
+            self.registry_notice = Some(format!("{} {}", t.registry_offline_notice, err));
+        }
+        self.refresh_catalog();
     }
 
     /// Re-evaluates cached dark/light state from the current `tui_theme` setting.
@@ -346,42 +534,80 @@ impl AppState {
         self.status_is_error = is_error;
     }
 
-    /// Finalizes the wizard, saves `~/.config/termonet/config.toml`, and transitions to main TUI.
+    fn save_config_target(&self, cfg: &AppConfig) -> Result<()> {
+        if let Some(ref custom_path) = self.custom_config_path {
+            cfg.save_to_path(custom_path)
+        } else {
+            cfg.save().map(|_| ())
+        }
+    }
+
+    /// Returns IDs selected in the wizard that are not yet downloaded from any repository.
+    #[must_use]
+    pub fn pending_wizard_downloads(&self) -> Vec<String> {
+        let Some(ref wizard) = self.wizard_state else {
+            return Vec::new();
+        };
+        wizard
+            .config
+            .enabled_programs
+            .iter()
+            .filter(|id| {
+                wizard.catalog.iter().any(|entry| {
+                    entry.id.eq_ignore_ascii_case(id)
+                        && matches!(entry.status, CatalogStatus::Available { .. })
+                })
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// Finalizes the wizard, downloads pending apps if any, saves `config.toml`, and transitions to main TUI.
     pub fn finish_wizard(&mut self) -> Result<()> {
-        if let Some(ref wizard) = self.wizard_state {
-            let saved_config = wizard.config.clone();
-            let t = get_translations(saved_config.language);
-            let save_res = if let Some(ref custom_path) = self.custom_config_path {
-                saved_config.save_to_path(custom_path)
-            } else {
-                saved_config.save().map(|_| ())
+        let Some(ref wizard) = self.wizard_state else {
+            return Ok(());
+        };
+        let saved_config = wizard.config.clone();
+        let t = get_translations(saved_config.language);
+        let pending_ids = self.pending_wizard_downloads();
+
+        if !pending_ids.is_empty() {
+            let Some(ref reg) = self.registry else {
+                let err =
+                    crate::error::TermonetError::Registry(t.registry_unavailable_err.to_string());
+                self.set_status(format!("{} {}", t.status_error_prefix, err), true);
+                return Err(err);
             };
-            if let Err(e) = save_res {
-                self.set_status(format!("{} {}", t.status_config_save_error, e), true);
+            let prepared = match reg.prepare_install(&pending_ids, false) {
+                Ok(p) => p,
+                Err(e) => {
+                    self.set_status(format!("{} {}", t.status_error_prefix, e), true);
+                    return Err(e);
+                }
+            };
+            if let Err(e) = reg.commit_install(&prepared, false, saved_config.create_backups) {
+                self.set_status(format!("{} {}", t.status_error_prefix, e), true);
                 return Err(e);
             }
-            self.config = saved_config;
-            self.refresh_theme_mode();
+        }
 
-            // Synchronize program items with the finalized configuration
-            for prog in &mut self.programs {
-                prog.enabled = self
-                    .config
-                    .enabled_programs
-                    .iter()
-                    .any(|p| p.eq_ignore_ascii_case(&prog.name));
-            }
-            self.ensure_hook_index_valid();
+        if let Err(e) = self.save_config_target(&saved_config) {
+            self.set_status(format!("{} {}", t.status_config_save_error, e), true);
+            return Err(e);
+        }
 
-            self.is_wizard = false;
-            self.wizard_state = None;
+        self.config = saved_config;
+        self.refresh_theme_mode();
 
-            // Automatically attempt wallpaper detection and palette generation with new settings
-            if let Err(e) = self.reload_wallpaper() {
-                self.set_status(format!("{} {})", t.status_config_saved_wall_err, e), false);
-            } else {
-                self.set_status(t.wizard_saved_success.to_string(), false);
-            }
+        self.is_wizard = false;
+        self.wizard_state = None;
+        self.refresh_catalog();
+
+        // Automatically attempt wallpaper detection and palette generation with new settings
+        if let Err(e) = self.reload_wallpaper() {
+            self.set_status(format!("{} {})", t.status_config_saved_wall_err, e), false);
+        } else {
+            self.set_status(t.wizard_saved_success.to_string(), false);
         }
         Ok(())
     }
@@ -621,12 +847,214 @@ impl AppState {
         }
     }
 
-    /// Toggles the currently selected program item in Step 2.
+    /// Toggles the currently selected program item in Step 2, or opens install warning for `[↓]` items.
     pub fn toggle_current_program(&mut self) {
-        if let Some(item) = self.programs.get_mut(self.selected_program_idx) {
-            item.enabled = !item.enabled;
+        let t = get_translations(self.config.language);
+        let Some(item) = self.programs.get(self.selected_program_idx).cloned() else {
+            return;
+        };
+
+        if let Some(CatalogStatus::Available { compatible, .. }) = item.catalog_status {
+            if !compatible {
+                self.set_status(t.registry_incompatible_err.to_string(), true);
+                return;
+            }
+            let Some(ref reg) = self.registry else {
+                self.set_status(t.registry_unavailable_err.to_string(), true);
+                return;
+            };
+            match reg.prepare_install(std::slice::from_ref(&item.id), false) {
+                Ok(prepared) => {
+                    let mut warning_lines = Vec::new();
+                    for p in &prepared {
+                        let pv = &p.preview;
+                        warning_lines.push(format!(
+                            "{} ({}) [{}] v{}/t{}",
+                            pv.id, pv.name, pv.repo, pv.rule_version, pv.template_version
+                        ));
+                        warning_lines.push(format!("output_path: {}", pv.output_path));
+                        if let Some(ref target) = pv.target_config {
+                            warning_lines.push(format!("target_config: {target}"));
+                        }
+                        if let Some(ref cmd) = pv.reload_cmd {
+                            warning_lines.push(format!("WARNING reload_cmd: {cmd}"));
+                        }
+                    }
+                    self.confirm_modal = Some(ConfirmModalState {
+                        title: t.registry_confirm_install_title.to_string(),
+                        warning_lines,
+                        action: ConfirmAction::InstallProgram {
+                            id: item.id,
+                            prepared,
+                        },
+                    });
+                }
+                Err(err) => {
+                    self.set_status(format!("{} {}", t.status_error_prefix, err), true);
+                }
+            }
+            return;
+        }
+
+        if let Some(item_mut) = self.programs.get_mut(self.selected_program_idx) {
+            item_mut.enabled = !item_mut.enabled;
         }
         self.ensure_hook_index_valid();
+    }
+
+    /// Triggers manual repository index sync and updates installed programs.
+    pub fn trigger_registry_update(&mut self) {
+        let t = get_translations(self.config.language);
+        let Some(ref reg) = self.registry else {
+            self.set_status(t.registry_unavailable_err.to_string(), true);
+            return;
+        };
+
+        match reg.update_installed(false, self.config.create_backups) {
+            Ok(report) => {
+                self.refresh_catalog();
+                if !report.skipped_modified.is_empty() {
+                    let ids = report.skipped_modified.clone();
+                    let warning_lines = vec![
+                        format!("Modified local files: {}", ids.join(", ")),
+                        "Confirm to create .bak backups and overwrite with upstream.".to_string(),
+                    ];
+                    self.confirm_modal = Some(ConfirmModalState {
+                        title: t.registry_confirm_update_title.to_string(),
+                        warning_lines,
+                        action: ConfirmAction::ForceUpdatePrograms { ids },
+                    });
+                } else if !report.updated.is_empty() {
+                    self.set_status(
+                        format!(
+                            "{} {}",
+                            t.registry_updated_success,
+                            report.updated.join(", ")
+                        ),
+                        false,
+                    );
+                } else if !report.errors.is_empty() {
+                    self.set_status(
+                        format!("{} {}", t.status_error_prefix, report.errors.join("; ")),
+                        true,
+                    );
+                } else {
+                    self.set_status(t.registry_up_to_date.to_string(), false);
+                }
+            }
+            Err(err) => {
+                self.set_status(format!("{} {}", t.status_error_prefix, err), true);
+            }
+        }
+    }
+
+    /// Prompts to delete downloaded files for a registry-tracked program in Step 2.
+    pub fn trigger_remove_program(&mut self) {
+        let t = get_translations(self.config.language);
+        let Some(item) = self.programs.get(self.selected_program_idx).cloned() else {
+            return;
+        };
+        if !matches!(item.catalog_status, Some(CatalogStatus::Installed { .. })) {
+            self.set_status(t.registry_local_remove_blocked.to_string(), true);
+            return;
+        }
+        self.confirm_modal = Some(ConfirmModalState {
+            title: t.registry_confirm_remove_title.to_string(),
+            warning_lines: vec![
+                format!(
+                    "Remove rules/{}.toml and templates/{}.tmpl?",
+                    item.id, item.id
+                ),
+                "Target application dotfiles will not be touched.".to_string(),
+            ],
+            action: ConfirmAction::RemoveProgram { id: item.id },
+        });
+    }
+
+    /// Handles keyboard confirmation inside `ConfirmModalState`.
+    pub fn handle_confirm_modal_key(&mut self, key: KeyEvent) {
+        let Some(modal) = self.confirm_modal.clone() else {
+            return;
+        };
+        let t = get_translations(self.config.language);
+
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
+                self.confirm_modal = None;
+            }
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.confirm_modal = None;
+            }
+            KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
+                let Some(ref reg) = self.registry else {
+                    self.confirm_modal = None;
+                    self.set_status(t.registry_unavailable_err.to_string(), true);
+                    return;
+                };
+                match modal.action {
+                    ConfirmAction::InstallProgram { id, prepared } => {
+                        match reg.commit_install(&prepared, false, self.config.create_backups) {
+                            Ok(_) => {
+                                if !self
+                                    .config
+                                    .enabled_programs
+                                    .iter()
+                                    .any(|p| p.eq_ignore_ascii_case(&id))
+                                {
+                                    self.config.enabled_programs.push(id.clone());
+                                }
+                                let _ = self.save_config_target(&self.config);
+                                self.refresh_catalog();
+                                self.set_status(
+                                    format!("{} {}", t.registry_installed_success, id),
+                                    false,
+                                );
+                            }
+                            Err(err) => {
+                                self.set_status(format!("{} {}", t.status_error_prefix, err), true);
+                            }
+                        }
+                    }
+                    ConfirmAction::ForceUpdatePrograms { ids } => {
+                        match reg.update_installed(true, true) {
+                            Ok(report) => {
+                                self.refresh_catalog();
+                                let msg = if report.updated.is_empty() {
+                                    ids.join(", ")
+                                } else {
+                                    report.updated.join(", ")
+                                };
+                                self.set_status(
+                                    format!("{} {}", t.registry_updated_success, msg),
+                                    false,
+                                );
+                            }
+                            Err(err) => {
+                                self.set_status(format!("{} {}", t.status_error_prefix, err), true);
+                            }
+                        }
+                    }
+                    ConfirmAction::RemoveProgram { id } => match reg.remove_program(&id) {
+                        Ok(()) => {
+                            self.config
+                                .enabled_programs
+                                .retain(|p| !p.eq_ignore_ascii_case(&id));
+                            let _ = self.save_config_target(&self.config);
+                            self.refresh_catalog();
+                            self.set_status(
+                                format!("{} {}", t.registry_removed_success, id),
+                                false,
+                            );
+                        }
+                        Err(err) => {
+                            self.set_status(format!("{} {}", t.status_error_prefix, err), true);
+                        }
+                    },
+                }
+                self.confirm_modal = None;
+            }
+            _ => {}
+        }
     }
 
     /// Toggles the currently selected hook item in Step 3.
@@ -716,19 +1144,21 @@ impl AppState {
                     }
                 },
                 WizardStep::Programs => {
-                    if let Some(rule) = wizard.available_rules.get(wizard.selected_idx) {
-                        if let Some(pos) = wizard
-                            .config
-                            .enabled_programs
-                            .iter()
-                            .position(|p| p.eq_ignore_ascii_case(&rule.name))
+                    if let Some(entry) = wizard.catalog.get(wizard.selected_idx) {
+                        if let CatalogStatus::Available {
+                            compatible: false, ..
+                        } = entry.status
                         {
+                            let t = get_translations(self.config.language);
+                            self.set_status(t.registry_incompatible_err.to_string(), true);
+                            return;
+                        }
+                        if let Some(pos) = wizard.config.enabled_programs.iter().position(|p| {
+                            p.eq_ignore_ascii_case(&entry.id) || p.eq_ignore_ascii_case(&entry.name)
+                        }) {
                             wizard.config.enabled_programs.remove(pos);
                         } else {
-                            wizard
-                                .config
-                                .enabled_programs
-                                .push(rule.name.to_lowercase());
+                            wizard.config.enabled_programs.push(entry.id.clone());
                         }
                     }
                 }
@@ -797,6 +1227,7 @@ impl AppState {
                     wizard.step = WizardStep::Programs;
                     wizard.selected_idx = 0;
                 }
+                self.enter_wizard_programs_step();
             }
             KeyCode::Char('5') => {
                 if let Some(ref mut wizard) = self.wizard_state {
@@ -856,6 +1287,7 @@ impl AppState {
     }
 
     fn handle_wizard_next(&mut self) {
+        let mut entered_programs = false;
         if let Some(ref mut wizard) = self.wizard_state {
             if wizard.step == WizardStep::Environment {
                 match wizard.env_substep {
@@ -888,12 +1320,14 @@ impl AppState {
                                 wizard.env_substep = EnvSubStep::ServerAndBackend;
                                 wizard.step = WizardStep::Programs;
                                 wizard.selected_idx = 0;
+                                entered_programs = true;
                             }
                         }
                     }
                     EnvSubStep::Monitors => {
                         wizard.step = WizardStep::Programs;
                         wizard.selected_idx = 0;
+                        entered_programs = true;
                     }
                 }
             } else {
@@ -903,11 +1337,18 @@ impl AppState {
                 } else {
                     0
                 };
+                if wizard.step == WizardStep::Programs {
+                    entered_programs = true;
+                }
             }
+        }
+        if entered_programs {
+            self.enter_wizard_programs_step();
         }
     }
 
     fn handle_wizard_prev(&mut self) {
+        let mut entered_programs = false;
         if let Some(ref mut wizard) = self.wizard_state {
             if wizard.step == WizardStep::Programs {
                 if wizard.discovered_monitors.is_some() {
@@ -948,7 +1389,13 @@ impl AppState {
                 } else {
                     0
                 };
+                if wizard.step == WizardStep::Programs {
+                    entered_programs = true;
+                }
             }
+        }
+        if entered_programs {
+            self.enter_wizard_programs_step();
         }
     }
 
@@ -1110,7 +1557,13 @@ impl AppState {
             .programs
             .iter()
             .filter(|p| p.enabled)
-            .map(|p| p.name.to_lowercase())
+            .map(|p| {
+                if p.id.is_empty() {
+                    p.name.to_lowercase()
+                } else {
+                    p.id.clone()
+                }
+            })
             .collect();
 
         // 3. Save configuration (persisting any monitor switch made during palette preview)
@@ -1217,6 +1670,11 @@ impl AppState {
 
     /// Handles keyboard events.
     pub fn handle_key(&mut self, key: KeyEvent) {
+        if self.confirm_modal.is_some() {
+            self.handle_confirm_modal_key(key);
+            return;
+        }
+
         if self.wallpaper_input.is_some() {
             self.handle_wallpaper_input_key(key);
             return;
@@ -1230,6 +1688,12 @@ impl AppState {
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => self.quit(),
             KeyCode::Char('s') | KeyCode::F(2) => self.open_settings(),
+            KeyCode::Char('u') if self.current_step == Step::Programs => {
+                self.trigger_registry_update();
+            }
+            KeyCode::Char('d') | KeyCode::Delete if self.current_step == Step::Programs => {
+                self.trigger_remove_program();
+            }
             KeyCode::Char('w') | KeyCode::Char('o') if self.current_step == Step::Palette => {
                 self.open_wallpaper_input();
             }

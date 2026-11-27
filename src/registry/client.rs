@@ -59,13 +59,12 @@ fn is_allowed_local_http(url: &str) -> bool {
         return false;
     };
     let authority = rest.split('/').next().unwrap_or("");
-    let host = if let Some(bracketed) = authority.strip_prefix("[::1]") {
+    if let Some(bracketed) = authority.strip_prefix("[::1]") {
         bracketed.is_empty() || bracketed.starts_with(':')
     } else {
         let h = authority.split(':').next().unwrap_or("");
         h.eq_ignore_ascii_case("localhost") || h == "127.0.0.1"
-    };
-    host
+    }
 }
 
 impl RegistryTransport for HttpTransport {

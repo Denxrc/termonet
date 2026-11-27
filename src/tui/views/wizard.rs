@@ -766,7 +766,7 @@ fn render_step_programs(
         .border_style(Style::default().fg(primary_color))
         .title(t.wizard_programs_title);
 
-    let rules = &wizard.available_rules;
+    let catalog = &wizard.catalog;
 
     let mut lines = vec![
         Line::raw(""),
@@ -780,16 +780,30 @@ fn render_step_programs(
             ),
             Span::raw(" "),
         ]),
-        Line::raw(""),
     ];
 
-    for (idx, rule) in rules.iter().enumerate() {
+    if let Some(ref notice) = state.registry_notice {
+        lines.push(Line::from(vec![
+            Span::raw("   "),
+            Span::styled(notice.as_str(), Style::default().fg(Color::Yellow)),
+        ]));
+    }
+    lines.push(Line::raw(""));
+
+    if catalog.is_empty() {
+        lines.push(Line::from(vec![
+            Span::raw("   "),
+            Span::styled(t.programs_empty, Style::default().fg(text_muted)),
+        ]));
+    }
+
+    for (idx, entry) in catalog.iter().enumerate() {
         let is_current_cursor = wizard.selected_idx == idx;
         let is_checked = wizard
             .config
             .enabled_programs
             .iter()
-            .any(|p| p.eq_ignore_ascii_case(&rule.name));
+            .any(|p| p.eq_ignore_ascii_case(&entry.id) || p.eq_ignore_ascii_case(&entry.name));
 
         let cursor_span = if is_current_cursor {
             Span::styled(
@@ -802,13 +816,36 @@ fn render_step_programs(
             Span::styled("      ", Style::default())
         };
 
-        let check_span = if is_checked {
+        let is_available = matches!(
+            entry.status,
+            crate::registry::CatalogStatus::Available { .. }
+        );
+        let is_incompatible = matches!(
+            entry.status,
+            crate::registry::CatalogStatus::Available {
+                compatible: false,
+                ..
+            }
+        );
+
+        let check_span = if is_incompatible {
+            Span::styled("[✕] ", Style::default().fg(Color::LightRed))
+        } else if is_checked && is_available {
+            Span::styled(
+                "[↓✔]",
+                Style::default()
+                    .fg(Color::LightGreen)
+                    .add_modifier(Modifier::BOLD),
+            )
+        } else if is_checked {
             Span::styled(
                 "[✔] ",
                 Style::default()
                     .fg(primary_color)
                     .add_modifier(Modifier::BOLD),
             )
+        } else if is_available {
+            Span::styled("[↓] ", Style::default().fg(secondary_color))
         } else {
             Span::styled("[ ] ", Style::default().fg(text_dim))
         };
@@ -824,22 +861,52 @@ fn render_step_programs(
         };
 
         let pad_len = 14usize
-            .saturating_sub(rule.name.chars().count())
+            .saturating_sub(entry.name.chars().count())
             .min(SPACES.len());
-        let output_str = rule.output_path.to_string_lossy();
+        let detail = match &entry.status {
+            crate::registry::CatalogStatus::Installed { repo, .. } => entry
+                .output_path
+                .as_deref()
+                .map(|p| format!("{p} [{repo}]"))
+                .unwrap_or_else(|| format!("[{repo}]")),
+            crate::registry::CatalogStatus::Available {
+                repo,
+                compatible: true,
+            } => {
+                let desc = match state.config.language {
+                    Language::Ru if !entry.description_ru.is_empty() => &entry.description_ru,
+                    _ => &entry.description,
+                };
+                if desc.is_empty() {
+                    format!("[{repo}]")
+                } else {
+                    format!("[{repo}] {desc}")
+                }
+            }
+            crate::registry::CatalogStatus::Available {
+                repo,
+                compatible: false,
+            } => format!("[{repo}] {}", t.programs_badge_incompatible),
+            crate::registry::CatalogStatus::LocalCustom => entry
+                .output_path
+                .as_deref()
+                .map(|p| format!("{p} {}", t.programs_badge_local))
+                .unwrap_or_else(|| t.programs_badge_local.to_string()),
+        };
 
         lines.push(Line::from(vec![
             cursor_span,
             check_span,
-            Span::styled(&rule.name, name_style),
+            Span::raw(" "),
+            Span::styled(&entry.name, name_style),
             Span::raw(&SPACES[..pad_len]),
             Span::styled(" ➔  ", Style::default().fg(secondary_color)),
-            Span::styled(output_str, Style::default().fg(text_muted)),
+            Span::styled(detail, Style::default().fg(text_muted)),
         ]));
     }
 
     let inner_height = area.height.saturating_sub(2);
-    let cursor_row = (3 + wizard.selected_idx) as u16;
+    let cursor_row = (4 + wizard.selected_idx) as u16;
     let scroll_y = if inner_height > 0 && cursor_row >= inner_height {
         cursor_row + 1 - inner_height
     } else {
@@ -995,6 +1062,42 @@ fn render_step_finish(
     }
 
     lines.push(Line::raw(""));
+
+    let pending_downloads = state.pending_wizard_downloads();
+    if !pending_downloads.is_empty() {
+        lines.push(Line::from(vec![
+            Span::raw("      • "),
+            Span::styled(t.wizard_pending_downloads, Style::default().fg(text_muted)),
+            Span::raw(" "),
+            Span::styled(
+                pending_downloads.join(", "),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
+        lines.push(Line::from(vec![
+            Span::raw("        "),
+            Span::styled(t.wizard_pending_warning, Style::default().fg(text_dim)),
+        ]));
+        lines.push(Line::raw(""));
+    }
+
+    if let Some(ref msg) = state.status_message {
+        let color = if state.status_is_error {
+            Color::LightRed
+        } else {
+            Color::LightGreen
+        };
+        lines.push(Line::from(vec![
+            Span::raw("      "),
+            Span::styled(
+                msg.as_str(),
+                Style::default().fg(color).add_modifier(Modifier::BOLD),
+            ),
+        ]));
+        lines.push(Line::raw(""));
+    }
 
     let is_btn_cursor = wizard.selected_idx == 2;
     let btn_cursor = if is_btn_cursor { "   ➔  " } else { "      " };

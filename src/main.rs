@@ -8,9 +8,7 @@ use termonet::cli::{CliArgs, run_cli_mode_with_context};
 use termonet::config::AppConfig;
 use termonet::core::GeneratedPalette;
 use termonet::error::{Result, TermonetError};
-use termonet::registry::{
-    AutoUpdateOutcome, CatalogStatus, RegistryService, RegistryTransport,
-};
+use termonet::registry::{AutoUpdateOutcome, CatalogStatus, RegistryService, RegistryTransport};
 use termonet::tui::{AppState, run_tui};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -57,7 +55,9 @@ fn print_help() {
     println!("      --theme <MODE>       Set and apply theme mode ('dark' or 'light')");
     println!("\nRegistry & Template Management:");
     println!("      --list-rules         List installed, local custom, and repository programs");
-    println!("      --install <ID>       Install rule & template from repository (supports repo/id)");
+    println!(
+        "      --install <ID>       Install rule & template from repository (supports repo/id)"
+    );
     println!("      --remove-rule <ID>   Uninstall a registry-managed rule & template");
     println!("      --update-rules       Sync repositories and update unmodified installed rules");
     println!("      --reset-rules        Force-reset tracked rules to upstream (creates .bak)");
@@ -114,7 +114,9 @@ fn handle_list_rules() -> Result<()> {
     let _ = service.adopt_legacy_v1_5_assets();
 
     if let Err(err) = service.sync_indexes_if_empty() {
-        eprintln!("Warning: unable to fetch repository index ({err}); showing local/cached entries.");
+        eprintln!(
+            "Warning: unable to fetch repository index ({err}); showing local/cached entries."
+        );
     }
 
     let (catalog, warnings) = service.catalog()?;
@@ -201,7 +203,10 @@ fn execute_install_with_io<T: RegistryTransport, R: BufRead, W: Write>(
         return Ok(false);
     }
 
-    writeln!(writer, "The following template package(s) will be installed:")?;
+    writeln!(
+        writer,
+        "The following template package(s) will be installed:"
+    )?;
     for item in &prepared {
         let p = &item.preview;
         writeln!(
@@ -214,10 +219,7 @@ fn execute_install_with_io<T: RegistryTransport, R: BufRead, W: Write>(
             writeln!(writer, "      target_config: {target}")?;
         }
         if let Some(ref cmd) = p.reload_cmd {
-            writeln!(
-                writer,
-                "      WARNING reload_cmd (runs in shell): {cmd}"
-            )?;
+            writeln!(writer, "      WARNING reload_cmd (runs in shell): {cmd}")?;
         }
         if p.has_local_conflict {
             writeln!(
@@ -682,18 +684,20 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    // Ensure default repository config exists and adopt unmodified v1.5.2 rules for TUI
-    if let Ok(service) = RegistryService::from_system_paths() {
-        let _ = service.ensure_default_repo_config();
-        let _ = service.adopt_legacy_v1_5_assets();
-    }
-
     // 2. Interactive TUI mode
     let mut state = if force_wizard || is_first_run {
         AppState::new_wizard(config)
     } else {
         AppState::new(config)
     };
+
+    if let Ok(service) = RegistryService::from_system_paths() {
+        let _ = service.ensure_default_repo_config();
+        let _ = service.adopt_legacy_v1_5_assets();
+        state.set_registry(std::sync::Arc::new(service));
+        state.run_startup_auto_update(current_epoch_secs());
+        state.refresh_catalog();
+    }
 
     let resolved_wallpaper = if cli_args.color.is_none() {
         resolve_tui_wallpaper(&mut state, wallpaper_path.as_deref())
@@ -824,8 +828,13 @@ mod tests {
             }
         );
         assert_eq!(
-            parse_cli_args(&["termonet".into(), "--remove-rule".into(), "kitty".into(), "--yes".into()])
-                .unwrap(),
+            parse_cli_args(&[
+                "termonet".into(),
+                "--remove-rule".into(),
+                "kitty".into(),
+                "--yes".into()
+            ])
+            .unwrap(),
             CliAction::RemoveRule {
                 id: "kitty".into(),
                 yes: true,
@@ -887,10 +896,8 @@ mod tests {
 
     #[test]
     fn test_cli_install_aborts_without_modifying_config_on_decline_or_error() {
-        let temp_dir = std::env::temp_dir().join(format!(
-            "termonet_test_cli_install_{}",
-            std::process::id()
-        ));
+        let temp_dir =
+            std::env::temp_dir().join(format!("termonet_test_cli_install_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&temp_dir);
         let paths = termonet::registry::RegistryPaths {
             repos_dir: temp_dir.join("repos"),
@@ -1017,7 +1024,12 @@ mod tests {
         assert!(out_str.contains("WARNING reload_cmd"));
         assert!(out_str.contains("killall -SIGUSR1 foot"));
         assert!(!paths.rules_dir.join("foot.toml").exists());
-        assert!(AppConfig::load_from_path(&cfg_file).unwrap().enabled_programs.is_empty());
+        assert!(
+            AppConfig::load_from_path(&cfg_file)
+                .unwrap()
+                .enabled_programs
+                .is_empty()
+        );
 
         // 2. Accept prompt ('y') -> installs files and enables program
         let mut input_yes = std::io::Cursor::new(b"y\n");
@@ -1036,7 +1048,9 @@ mod tests {
         assert!(ok_yes);
         assert!(paths.rules_dir.join("foot.toml").exists());
         assert_eq!(
-            AppConfig::load_from_path(&cfg_file).unwrap().enabled_programs,
+            AppConfig::load_from_path(&cfg_file)
+                .unwrap()
+                .enabled_programs,
             vec!["foot".to_string()]
         );
 
@@ -1055,7 +1069,12 @@ mod tests {
         .unwrap();
         assert!(ok_rm);
         assert!(!paths.rules_dir.join("foot.toml").exists());
-        assert!(AppConfig::load_from_path(&cfg_file).unwrap().enabled_programs.is_empty());
+        assert!(
+            AppConfig::load_from_path(&cfg_file)
+                .unwrap()
+                .enabled_programs
+                .is_empty()
+        );
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

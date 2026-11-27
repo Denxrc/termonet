@@ -145,7 +145,49 @@ fn render_footer(frame: &mut Frame, area: Rect, state: &AppState) {
                 ));
             }
         }
-        Step::Programs | Step::Hooks => {
+        Step::Programs => {
+            footer_spans.push(Span::styled(
+                " [↑/↓] ",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            footer_spans.push(Span::styled(
+                format!("{}  ", t.hint_select),
+                Style::default().fg(text_muted),
+            ));
+            footer_spans.push(Span::styled(
+                " [Space] ",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            footer_spans.push(Span::styled(
+                format!("{}  ", t.hint_space),
+                Style::default().fg(text_muted),
+            ));
+            footer_spans.push(Span::styled(
+                " [u] ",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            footer_spans.push(Span::styled(
+                format!("{}  ", t.hint_update_rules),
+                Style::default().fg(text_muted),
+            ));
+            footer_spans.push(Span::styled(
+                " [d] ",
+                Style::default()
+                    .fg(primary_color)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            footer_spans.push(Span::styled(
+                format!("{}  ", t.hint_remove_rule),
+                Style::default().fg(text_muted),
+            ));
+        }
+        Step::Hooks => {
             footer_spans.push(Span::styled(
                 " [↑/↓] ",
                 Style::default()
@@ -834,6 +876,7 @@ mod tests {
         state.palette = Some(crate::core::GeneratedPalette::from_seed_color(seed));
 
         state.programs = vec![ProgramItem {
+            id: "testkitty".to_string(),
             name: "TestKitty".to_string(),
             output_path: temp_dir.join("colors-termonet.conf").display().to_string(),
             enabled: true,
@@ -841,6 +884,7 @@ mod tests {
             reload_desc: None,
             hook_enabled: false,
             rule: Some(custom_rule),
+            catalog_status: None,
         }];
 
         state.current_step = Step::Apply;
@@ -1229,5 +1273,341 @@ mod tests {
             full_text.contains("wallpaper_final_v2.png"),
             "Tail of long path around cursor must be visible"
         );
+    }
+
+    fn make_mock_registry_service(
+        suffix: &str,
+        responses: std::collections::HashMap<String, std::result::Result<String, String>>,
+    ) -> (
+        std::sync::Arc<dyn crate::registry::RegistryOps>,
+        std::path::PathBuf,
+    ) {
+        let base = std::env::temp_dir().join(format!(
+            "termonet_tui_reg_{}_{}",
+            suffix,
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+        let paths = crate::registry::RegistryPaths {
+            repos_dir: base.join("repos"),
+            rules_dir: base.join("rules"),
+            templates_dir: base.join("templates"),
+            cache_dir: base.join("cache"),
+            installed_file: base.join("installed.toml"),
+            state_file: base.join("state.toml"),
+        };
+
+        struct MapTransport(std::collections::HashMap<String, std::result::Result<String, String>>);
+        impl crate::registry::RegistryTransport for MapTransport {
+            fn fetch_text(&self, url: &str, _max_bytes: usize) -> Result<String> {
+                match self.0.get(url) {
+                    Some(Ok(body)) => Ok(body.clone()),
+                    Some(Err(msg)) => Err(crate::error::TermonetError::Registry(msg.clone())),
+                    None => Err(crate::error::TermonetError::Registry(format!(
+                        "mock 404: {url}"
+                    ))),
+                }
+            }
+        }
+
+        let svc = crate::registry::RegistryService::with_paths_and_transport(
+            paths,
+            MapTransport(responses),
+            "1.6.0".into(),
+        );
+        svc.ensure_default_repo_config().unwrap();
+        (std::sync::Arc::new(svc), base)
+    }
+
+    #[test]
+    fn test_wizard_programs_shows_catalog_and_offline_notice_when_empty() {
+        let (svc, base) = make_mock_registry_service(
+            "wiz_offline",
+            [(
+                format!("{}/registry.toml", crate::registry::OFFICIAL_REPO_URL),
+                Err("network unreachable".to_string()),
+            )]
+            .into_iter()
+            .collect(),
+        );
+
+        let config = AppConfig {
+            language: crate::config::Language::En,
+            ..Default::default()
+        };
+        let mut state = AppState::new_wizard(config);
+        state.set_registry(svc);
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Char('4'),
+        ));
+
+        assert!(state.registry_notice.is_some());
+
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| views::render_wizard(f, f.area(), &state))
+            .unwrap();
+
+        let buf = terminal.backend().buffer();
+        let text: String = (0..30)
+            .flat_map(|y| (0..100).map(move |x| buf[(x, y)].symbol()))
+            .collect();
+        assert!(
+            text.contains("network") || text.contains("offline") || text.contains("unavailable"),
+            "Expected offline notice on WizardStep::Programs, got:\n{text}"
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn test_wizard_finish_stays_open_and_preserves_config_on_download_failure() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("termonet_tui_wiz_fail_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let cfg_path = temp_dir.join("config.toml");
+
+        let rule_txt = "version = 1\nname = \"Foot\"\ntemplate = \"foot.tmpl\"\noutput_path = \"~/.config/foot/colors.ini\"\n";
+        let manifest = format!(
+            "schema_version = 1\n\n[[programs]]\nid = \"foot\"\nname = \"Foot\"\ncategory = \"terminal\"\ndescription = \"Foot\"\nrule = \"rules/foot.toml\"\ntemplate = \"templates/foot.tmpl\"\nrule_version = 1\ntemplate_version = 1\nmin_termonet_version = \"1.6.0\"\nrule_sha256 = \"{}\"\ntemplate_sha256 = \"{}\"\n",
+            crate::registry::sha256_hex(rule_txt.as_bytes()),
+            crate::registry::sha256_hex(b"# termonet-version: 1\n")
+        );
+        // Rule/template URLs intentionally missing -> simulated download failure
+        let (svc, base) = make_mock_registry_service(
+            "wiz_fail",
+            [(
+                format!("{}/registry.toml", crate::registry::OFFICIAL_REPO_URL),
+                Ok(manifest),
+            )]
+            .into_iter()
+            .collect(),
+        );
+
+        let config = AppConfig {
+            language: crate::config::Language::En,
+            ..Default::default()
+        };
+        let mut state = AppState::new_wizard(config);
+        state.custom_config_path = Some(cfg_path.clone());
+        state.set_registry(svc);
+        state.enter_wizard_programs_step();
+
+        // Toggle Foot in wizard
+        if let Some(ref mut w) = state.wizard_state {
+            w.step = WizardStep::Programs;
+            w.selected_idx = 0;
+        }
+        state.toggle_wizard_option();
+
+        // Attempt Finish -> download fails -> wizard MUST stay open and config MUST NOT be saved
+        let res = state.finish_wizard();
+        assert!(res.is_err());
+        assert!(state.is_wizard);
+        assert!(state.status_is_error);
+        assert!(!cfg_path.exists());
+
+        let _ = std::fs::remove_dir_all(&base);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_wizard_uncheck_installed_only_updates_enabled_programs() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("termonet_tui_wiz_uncheck_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let cfg_path = temp_dir.join("config.toml");
+
+        let rule_txt = "version = 1\nname = \"Foot\"\ntemplate = \"foot.tmpl\"\noutput_path = \"~/.config/foot/colors.ini\"\n";
+        let tmpl_txt = "# termonet-version: 1\nfg = {{ active.primary.hex }}\n";
+        let manifest = format!(
+            "schema_version = 1\n\n[[programs]]\nid = \"foot\"\nname = \"Foot\"\ncategory = \"terminal\"\ndescription = \"Foot\"\nrule = \"rules/foot.toml\"\ntemplate = \"templates/foot.tmpl\"\nrule_version = 1\ntemplate_version = 1\nmin_termonet_version = \"1.6.0\"\nrule_sha256 = \"{}\"\ntemplate_sha256 = \"{}\"\n",
+            crate::registry::sha256_hex(rule_txt.as_bytes()),
+            crate::registry::sha256_hex(tmpl_txt.as_bytes()),
+        );
+        let (svc, base) = make_mock_registry_service(
+            "wiz_uncheck",
+            [
+                (
+                    format!("{}/registry.toml", crate::registry::OFFICIAL_REPO_URL),
+                    Ok(manifest),
+                ),
+                (
+                    format!("{}/rules/foot.toml", crate::registry::OFFICIAL_REPO_URL),
+                    Ok(rule_txt.to_string()),
+                ),
+                (
+                    format!("{}/templates/foot.tmpl", crate::registry::OFFICIAL_REPO_URL),
+                    Ok(tmpl_txt.to_string()),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        svc.sync_indexes().unwrap();
+        let prep = svc.prepare_install(&["foot".into()], false).unwrap();
+        svc.commit_install(&prep, false, false).unwrap();
+
+        let config = AppConfig {
+            language: crate::config::Language::En,
+            enabled_programs: vec!["foot".into()],
+            ..Default::default()
+        };
+        let mut state = AppState::new(config);
+        state.custom_config_path = Some(cfg_path.clone());
+        state.set_registry(svc.clone());
+        state.open_settings();
+        state.enter_wizard_programs_step();
+
+        // Uncheck installed program in wizard
+        if let Some(ref mut w) = state.wizard_state {
+            w.step = WizardStep::Programs;
+            w.selected_idx = 0;
+        }
+        state.toggle_wizard_option();
+        state.finish_wizard().unwrap();
+
+        assert!(!state.is_wizard);
+        assert!(state.config.enabled_programs.is_empty());
+        assert!(
+            base.join("rules").join("foot.toml").exists(),
+            "Unchecking in wizard must NOT delete downloaded files"
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_step_programs_renders_installed_available_update_and_local_badges() {
+        let mut state = AppState::new(AppConfig {
+            language: crate::config::Language::En,
+            ..Default::default()
+        });
+        state.programs = vec![
+            ProgramItem {
+                id: "kitty".into(),
+                name: "Kitty".into(),
+                output_path: "~/.config/kitty/colors.conf".into(),
+                enabled: true,
+                reload_cmd: None,
+                reload_desc: None,
+                hook_enabled: false,
+                rule: None,
+                catalog_status: Some(crate::registry::CatalogStatus::Installed {
+                    repo: "official".into(),
+                    update_available: Some((3, 5)),
+                    locally_modified: false,
+                }),
+            },
+            ProgramItem {
+                id: "foot".into(),
+                name: "Foot".into(),
+                output_path: "[official]".into(),
+                enabled: false,
+                reload_cmd: None,
+                reload_desc: None,
+                hook_enabled: false,
+                rule: None,
+                catalog_status: Some(crate::registry::CatalogStatus::Available {
+                    repo: "official".into(),
+                    compatible: true,
+                }),
+            },
+            ProgramItem {
+                id: "mycustom".into(),
+                name: "MyCustom".into(),
+                output_path: "~/.config/custom.conf".into(),
+                enabled: false,
+                reload_cmd: None,
+                reload_desc: None,
+                hook_enabled: false,
+                rule: None,
+                catalog_status: Some(crate::registry::CatalogStatus::LocalCustom),
+            },
+        ];
+
+        let backend = TestBackend::new(110, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| views::render_programs(f, f.area(), &state))
+            .unwrap();
+
+        let buf = terminal.backend().buffer();
+        let text: String = (0..20)
+            .flat_map(|y| (0..110).map(move |x| buf[(x, y)].symbol()))
+            .collect();
+        assert!(text.contains("[✔]"));
+        assert!(text.contains("[↓]"));
+        assert!(text.contains("v3"));
+        assert!(text.contains("[local]"));
+    }
+
+    #[test]
+    fn test_step_programs_install_modal_shows_reload_cmd_warning_and_aborts_on_esc() {
+        let rule_txt = "version = 1\nname = \"Foot\"\ntemplate = \"foot.tmpl\"\noutput_path = \"~/.config/foot/colors.ini\"\ntarget_config = \"~/.config/foot/foot.ini\"\nreload_cmd = \"killall -SIGUSR1 foot\"\n";
+        let tmpl_txt = "# termonet-version: 1\nfg = {{ active.primary.hex }}\n";
+        let manifest = format!(
+            "schema_version = 1\n\n[[programs]]\nid = \"foot\"\nname = \"Foot\"\ncategory = \"terminal\"\ndescription = \"Foot\"\nrule = \"rules/foot.toml\"\ntemplate = \"templates/foot.tmpl\"\nrule_version = 1\ntemplate_version = 1\nmin_termonet_version = \"1.6.0\"\nrule_sha256 = \"{}\"\ntemplate_sha256 = \"{}\"\n",
+            crate::registry::sha256_hex(rule_txt.as_bytes()),
+            crate::registry::sha256_hex(tmpl_txt.as_bytes()),
+        );
+        let (svc, base) = make_mock_registry_service(
+            "step_modal",
+            [
+                (
+                    format!("{}/registry.toml", crate::registry::OFFICIAL_REPO_URL),
+                    Ok(manifest),
+                ),
+                (
+                    format!("{}/rules/foot.toml", crate::registry::OFFICIAL_REPO_URL),
+                    Ok(rule_txt.to_string()),
+                ),
+                (
+                    format!("{}/templates/foot.tmpl", crate::registry::OFFICIAL_REPO_URL),
+                    Ok(tmpl_txt.to_string()),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        svc.sync_indexes().unwrap();
+
+        let mut state = AppState::new(AppConfig {
+            language: crate::config::Language::En,
+            ..Default::default()
+        });
+        state.set_registry(svc);
+        state.refresh_catalog();
+        state.current_step = Step::Programs;
+        state.selected_program_idx = 0;
+
+        // Space on uninstalled [↓] opens confirmation warning modal
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Char(' '),
+        ));
+        assert!(state.confirm_modal.is_some());
+
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| views::render_programs(f, f.area(), &state))
+            .unwrap();
+        let buf = terminal.backend().buffer();
+        let text: String = (0..30)
+            .flat_map(|y| (0..100).map(move |x| buf[(x, y)].symbol()))
+            .collect();
+        assert!(text.contains("killall -SIGUSR1 foot"));
+
+        // Esc aborts install without writing files
+        state.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Esc,
+        ));
+        assert!(state.confirm_modal.is_none());
+        assert!(!base.join("rules").join("foot.toml").exists());
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

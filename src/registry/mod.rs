@@ -101,6 +101,67 @@ pub enum AutoUpdateOutcome {
     FailedNonFatal(String),
 }
 
+/// Trait object interface for registry operations used by the TUI and tests.
+pub trait RegistryOps: Send + Sync {
+    fn sync_indexes(&self) -> Result<Vec<String>>;
+    fn sync_indexes_if_empty(&self) -> Result<Vec<String>>;
+    fn catalog(&self) -> Result<(Vec<CatalogEntry>, Vec<String>)>;
+    fn prepare_install(&self, specs: &[String], force: bool) -> Result<Vec<PreparedInstall>>;
+    fn commit_install(
+        &self,
+        prepared: &[PreparedInstall],
+        force: bool,
+        create_backups: bool,
+    ) -> Result<Vec<String>>;
+    fn update_installed(&self, force: bool, create_backups: bool) -> Result<UpdateReport>;
+    fn remove_program(&self, id: &str) -> Result<()>;
+    fn maybe_auto_update(&self, config: &AppConfig, now_epoch_secs: u64) -> AutoUpdateOutcome;
+    fn rules_dir(&self) -> &Path;
+}
+
+impl<T: RegistryTransport> RegistryOps for RegistryService<T> {
+    fn sync_indexes(&self) -> Result<Vec<String>> {
+        Self::sync_indexes(self)
+    }
+
+    fn sync_indexes_if_empty(&self) -> Result<Vec<String>> {
+        Self::sync_indexes_if_empty(self)
+    }
+
+    fn catalog(&self) -> Result<(Vec<CatalogEntry>, Vec<String>)> {
+        Self::catalog(self)
+    }
+
+    fn prepare_install(&self, specs: &[String], force: bool) -> Result<Vec<PreparedInstall>> {
+        Self::prepare_install(self, specs, force)
+    }
+
+    fn commit_install(
+        &self,
+        prepared: &[PreparedInstall],
+        force: bool,
+        create_backups: bool,
+    ) -> Result<Vec<String>> {
+        Self::commit_install(self, prepared, force, create_backups)
+    }
+
+    fn update_installed(&self, force: bool, create_backups: bool) -> Result<UpdateReport> {
+        Self::update_installed(self, force, create_backups)
+    }
+
+    fn remove_program(&self, id: &str) -> Result<()> {
+        Self::remove_program(self, id)
+    }
+
+    fn maybe_auto_update(&self, config: &AppConfig, now_epoch_secs: u64) -> AutoUpdateOutcome {
+        Self::maybe_auto_update(self, config, now_epoch_secs)
+    }
+
+    fn rules_dir(&self) -> &Path {
+        &self.paths.rules_dir
+    }
+}
+
 /// High-level service managing template repositories, local tracking, and safe installation.
 pub struct RegistryService<T: RegistryTransport> {
     paths: RegistryPaths,
@@ -281,7 +342,11 @@ impl<T: RegistryTransport> RegistryService<T> {
             repos.push(repo);
         }
 
-        repos.sort_by(|a, b| b.priority.cmp(&a.priority).then_with(|| a.name.cmp(&b.name)));
+        repos.sort_by(|a, b| {
+            b.priority
+                .cmp(&a.priority)
+                .then_with(|| a.name.cmp(&b.name))
+        });
         Ok((repos, warnings))
     }
 
@@ -404,9 +469,10 @@ impl<T: RegistryTransport> RegistryService<T> {
                         }
                         Err(err) => errors.push(err.to_string()),
                     },
-                    Err(err) => {
-                        errors.push(format!("Invalid registry.toml from '{}': {}", repo.name, err))
-                    }
+                    Err(err) => errors.push(format!(
+                        "Invalid registry.toml from '{}': {}",
+                        repo.name, err
+                    )),
                 },
                 Err(err) => errors.push(format!("Failed to sync repo '{}': {}", repo.name, err)),
             }
@@ -535,8 +601,7 @@ impl<T: RegistryTransport> RegistryService<T> {
                         update_available,
                         locally_modified,
                     },
-                    output_path: local_rule
-                        .map(|r| r.output_path.to_string_lossy().to_string()),
+                    output_path: local_rule.map(|r| r.output_path.to_string_lossy().to_string()),
                     target_config: local_rule
                         .and_then(|r| r.target_config.as_ref())
                         .map(|p| p.to_string_lossy().to_string()),
@@ -1012,7 +1077,9 @@ mod tests {
                 Some(Ok(body)) if body.len() <= max_bytes => Ok(body.clone()),
                 Some(Ok(_)) => Err(TermonetError::Registry("exceeds max_bytes".into())),
                 Some(Err(msg)) => Err(TermonetError::Registry(msg.clone())),
-                None => Err(TermonetError::Registry(format!("404 mock not found: {url}"))),
+                None => Err(TermonetError::Registry(format!(
+                    "404 mock not found: {url}"
+                ))),
             }
         }
     }
@@ -1255,7 +1322,10 @@ mod tests {
             format!("{OFFICIAL_REPO_URL}/templates/badhash.tmpl"),
             Ok(tmpl_txt.clone()),
         );
-        map.insert(format!("{OFFICIAL_REPO_URL}/rules/future.toml"), Ok(rule_txt));
+        map.insert(
+            format!("{OFFICIAL_REPO_URL}/rules/future.toml"),
+            Ok(rule_txt),
+        );
         map.insert(
             format!("{OFFICIAL_REPO_URL}/templates/future.tmpl"),
             Ok(tmpl_txt),
@@ -1269,8 +1339,14 @@ mod tests {
         svc.ensure_default_repo_config().unwrap();
         svc.sync_indexes().unwrap();
 
-        assert!(svc.install_programs(&["badhash".into()], false, false).is_err());
-        assert!(svc.install_programs(&["future".into()], false, false).is_err());
+        assert!(
+            svc.install_programs(&["badhash".into()], false, false)
+                .is_err()
+        );
+        assert!(
+            svc.install_programs(&["future".into()], false, false)
+                .is_err()
+        );
         assert!(!paths.rules_dir.join("badhash.toml").exists());
         assert!(!paths.rules_dir.join("future.toml").exists());
 
@@ -1316,7 +1392,8 @@ mod tests {
         );
         svc1.ensure_default_repo_config().unwrap();
         svc1.sync_indexes().unwrap();
-        svc1.install_programs(&["foot".into()], false, false).unwrap();
+        svc1.install_programs(&["foot".into()], false, false)
+            .unwrap();
 
         // User edits local template manually
         fs::write(
@@ -1327,7 +1404,10 @@ mod tests {
 
         let mut map2 = HashMap::new();
         map2.insert(format!("{OFFICIAL_REPO_URL}/registry.toml"), Ok(m2));
-        map2.insert(format!("{OFFICIAL_REPO_URL}/rules/foot.toml"), Ok(r2.clone()));
+        map2.insert(
+            format!("{OFFICIAL_REPO_URL}/rules/foot.toml"),
+            Ok(r2.clone()),
+        );
         map2.insert(
             format!("{OFFICIAL_REPO_URL}/templates/foot.tmpl"),
             Ok(t2.clone()),
@@ -1417,7 +1497,10 @@ mod tests {
         map.insert(format!("{OFFICIAL_REPO_URL}/registry.toml"), Ok(m_official));
         map.insert(format!("{OFFICIAL_REPO_URL}/rules/kitty.toml"), Ok(r1));
         map.insert(format!("{OFFICIAL_REPO_URL}/templates/kitty.tmpl"), Ok(t1));
-        map.insert("https://example.com/custom/registry.toml".into(), Ok(m_custom));
+        map.insert(
+            "https://example.com/custom/registry.toml".into(),
+            Ok(m_custom),
+        );
 
         let svc = RegistryService::with_paths_and_transport(
             paths.clone(),
@@ -1517,7 +1600,8 @@ mod tests {
         );
         svc.ensure_default_repo_config().unwrap();
         svc.sync_indexes().unwrap();
-        svc.install_programs(&["kitty".into()], false, false).unwrap();
+        svc.install_programs(&["kitty".into()], false, false)
+            .unwrap();
 
         let state = AppStateCache::load_from_path(&paths.state_file).unwrap();
         let now = state.last_registry_sync_at.unwrap();
@@ -1585,7 +1669,8 @@ mod tests {
         );
         svc.ensure_default_repo_config().unwrap();
         svc.sync_indexes().unwrap();
-        svc.install_programs(&["kitty".into()], false, false).unwrap();
+        svc.install_programs(&["kitty".into()], false, false)
+            .unwrap();
 
         fs::write(
             paths.rules_dir.join("mycustom.toml"),

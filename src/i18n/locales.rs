@@ -50,6 +50,26 @@ pub struct Translations {
     pub programs_title: &'static str,
     pub programs_desc: &'static str,
     pub programs_output: &'static str,
+    pub programs_badge_local: &'static str,
+    pub programs_badge_edited: &'static str,
+    pub programs_badge_incompatible: &'static str,
+    pub programs_empty: &'static str,
+
+    // Registry & Confirmation Modals
+    pub registry_offline_notice: &'static str,
+    pub registry_confirm_install_title: &'static str,
+    pub registry_confirm_remove_title: &'static str,
+    pub registry_confirm_update_title: &'static str,
+    pub registry_confirm_hint: &'static str,
+    pub registry_installed_success: &'static str,
+    pub registry_removed_success: &'static str,
+    pub registry_updated_success: &'static str,
+    pub registry_up_to_date: &'static str,
+    pub registry_local_remove_blocked: &'static str,
+    pub registry_incompatible_err: &'static str,
+    pub registry_unavailable_err: &'static str,
+    pub wizard_pending_downloads: &'static str,
+    pub wizard_pending_warning: &'static str,
 
     // Step 3: Hooks
     pub hooks_title: &'static str,
@@ -153,6 +173,8 @@ pub struct Translations {
     pub hint_auto_detect: &'static str,
     pub hint_switch_monitor: &'static str,
     pub hint_choose: &'static str,
+    pub hint_update_rules: &'static str,
+    pub hint_remove_rule: &'static str,
 }
 
 pub const RU_TRANSLATIONS: Translations = Translations {
@@ -201,6 +223,25 @@ pub const RU_TRANSLATIONS: Translations = Translations {
     programs_title: " Поддерживаемые программы и пути конфигов ",
     programs_desc: "выбрано программ для генерации темы",
     programs_output: "Путь темы:",
+    programs_badge_local: "[local]",
+    programs_badge_edited: "[изменён]",
+    programs_badge_incompatible: "[нужен новый Termonet]",
+    programs_empty: "(Программы не установлены. Проверьте подключение к сети или ~/.config/termonet/rules/)",
+
+    registry_offline_notice: "Реестр недоступен (офлайн). Показаны локальные правила:",
+    registry_confirm_install_title: " Подтверждение установки программы ",
+    registry_confirm_remove_title: " Подтверждение удаления программы ",
+    registry_confirm_update_title: " Обнаружены локальные изменения ",
+    registry_confirm_hint: "[Enter / y] Подтвердить   [Esc / n] Отмена",
+    registry_installed_success: "Установлено и включено:",
+    registry_removed_success: "Файлы программы удалены:",
+    registry_updated_success: "Обновлено программ:",
+    registry_up_to_date: "Все установленные программы уже актуальны",
+    registry_local_remove_blocked: "Можно удалять только программы, установленные из реестра",
+    registry_incompatible_err: "Для этой программы требуется более новая версия Termonet",
+    registry_unavailable_err: "Сервис реестра недоступен",
+    wizard_pending_downloads: "Будут скачаны программы:",
+    wizard_pending_warning: "SHA-256, пути конфигов и reload-хуки проверяются перед сохранением",
 
     hooks_title: " Команды перезапуска приложений ",
     hooks_desc: "Все хуки выполняются в фоне без блокировки интерфейса",
@@ -299,6 +340,8 @@ pub const RU_TRANSLATIONS: Translations = Translations {
     hint_auto_detect: "Авто",
     hint_switch_monitor: "сменить экран",
     hint_choose: "Применить",
+    hint_update_rules: "Обновить",
+    hint_remove_rule: "Удалить",
 };
 
 pub const EN_TRANSLATIONS: Translations = Translations {
@@ -347,6 +390,25 @@ pub const EN_TRANSLATIONS: Translations = Translations {
     programs_title: " Supported Applications & Config Paths ",
     programs_desc: "programs selected for theme generation",
     programs_output: "Theme file:",
+    programs_badge_local: "[local]",
+    programs_badge_edited: "[edited]",
+    programs_badge_incompatible: "[requires newer Termonet]",
+    programs_empty: "(No applications installed. Check network connection or ~/.config/termonet/rules/)",
+
+    registry_offline_notice: "Registry unavailable (offline). Showing local rules only:",
+    registry_confirm_install_title: " Confirm Program Installation ",
+    registry_confirm_remove_title: " Confirm Program Removal ",
+    registry_confirm_update_title: " Local Modifications Detected ",
+    registry_confirm_hint: "[Enter / y] Confirm   [Esc / n] Cancel",
+    registry_installed_success: "Installed and enabled:",
+    registry_removed_success: "Removed program files:",
+    registry_updated_success: "Updated programs:",
+    registry_up_to_date: "All installed rules are already up to date",
+    registry_local_remove_blocked: "Only registry-installed programs can be removed here",
+    registry_incompatible_err: "This program requires a newer version of Termonet",
+    registry_unavailable_err: "Registry service is unavailable",
+    wizard_pending_downloads: "Pending downloads:",
+    wizard_pending_warning: "SHA-256 checksums, target paths, and reload hooks verified before saving",
 
     hooks_title: " Application Reload Hooks ",
     hooks_desc: "All hooks are executed decoupled in background",
@@ -445,4 +507,6 @@ pub const EN_TRANSLATIONS: Translations = Translations {
     hint_auto_detect: "Auto",
     hint_switch_monitor: "switch display",
     hint_choose: "Apply",
+    hint_update_rules: "Update",
+    hint_remove_rule: "Remove",
 };
