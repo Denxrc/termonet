@@ -5,6 +5,7 @@ pub mod config;
 pub mod core;
 pub mod error;
 pub mod i18n;
+pub mod registry;
 pub mod template;
 pub mod tui;
 pub mod wallpaper;
