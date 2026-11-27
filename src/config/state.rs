@@ -25,6 +25,8 @@ pub struct AppStateCache {
     pub last_is_dark: Option<bool>,
     #[serde(default)]
     pub last_config_fingerprint: Option<String>,
+    #[serde(default)]
+    pub last_registry_sync_at: Option<u64>,
 }
 
 impl AppStateCache {
@@ -233,6 +235,7 @@ mod tests {
             last_seed_color: Some("#385e72".into()),
             last_is_dark: Some(true),
             last_config_fingerprint: None,
+            last_registry_sync_at: None,
         };
 
         cache.save_to_path(&file)?;
@@ -345,6 +348,7 @@ mod tests {
             last_seed_color: Some("#112233".into()),
             last_is_dark: Some(true),
             last_config_fingerprint: None,
+            last_registry_sync_at: None,
         };
         assert!(!partial_cache.is_up_to_date(&source, true));
 
@@ -377,5 +381,24 @@ mod tests {
         assert!(!cache.is_up_to_date_with_config(&source, true, Some(&fp3)));
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_state_cache_roundtrip_with_last_registry_sync_at() -> Result<()> {
+        let temp_dir =
+            std::env::temp_dir().join(format!("termonet_test_state_sync_{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+        let file = temp_dir.join("state.toml");
+
+        let cache = AppStateCache {
+            last_registry_sync_at: Some(1_764_250_000),
+            ..Default::default()
+        };
+        cache.save_to_path(&file)?;
+        let loaded = AppStateCache::load_from_path(&file)?;
+        assert_eq!(loaded.last_registry_sync_at, Some(1_764_250_000));
+
+        let _ = fs::remove_dir_all(&temp_dir);
+        Ok(())
     }
 }

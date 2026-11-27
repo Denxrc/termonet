@@ -34,11 +34,26 @@ impl AppPaths {
         Ok(Self::config_dir()?.join("rules"))
     }
 
+    /// Returns the path to the repository sources directory (`~/.config/termonet/repos/`).
+    pub fn repos_dir() -> Result<PathBuf> {
+        Ok(Self::config_dir()?.join("repos"))
+    }
+
     /// Returns the path to the state directory (`~/.local/state/termonet/`).
     pub fn state_dir() -> Result<PathBuf> {
         let dirs = Self::project_dirs()?;
         let path = dirs.state_dir().unwrap_or_else(|| dirs.data_dir());
         Ok(path.to_path_buf())
+    }
+
+    /// Returns the path to the cached registry indexes directory (`~/.local/state/termonet/registry_cache/`).
+    pub fn registry_cache_dir() -> Result<PathBuf> {
+        Ok(Self::state_dir()?.join("registry_cache"))
+    }
+
+    /// Returns the path to the installed registry packages manifest (`~/.local/state/termonet/installed.toml`).
+    pub fn installed_file() -> Result<PathBuf> {
+        Ok(Self::state_dir()?.join("installed.toml"))
     }
 
     /// Returns the path to the state cache file storing the last applied wallpaper hash.

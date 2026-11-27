@@ -32,6 +32,10 @@ pub enum TermonetError {
     /// Configuration validation or parsing error.
     #[error("Configuration error: {0}")]
     Config(String),
+
+    /// External template repository or registry operation error.
+    #[error("Registry error: {0}")]
+    Registry(String),
 }
 
 /// Global Result type alias using `TermonetError`.

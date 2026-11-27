@@ -149,15 +149,14 @@ pub enum WallpaperBackend {
 }
 
 /// Current configuration schema version.
-const CONFIG_SCHEMA_VERSION: u32 = 2;
+const CONFIG_SCHEMA_VERSION: u32 = 3;
 
 fn default_enabled_programs() -> Vec<String> {
-    vec![
-        "kitty".to_string(),
-        "waybar".to_string(),
-        "rofi".to_string(),
-        "hyprland".to_string(),
-    ]
+    Vec::new()
+}
+
+fn default_auto_update_rules() -> bool {
+    true
 }
 
 /// Global Termonet configuration.
@@ -181,6 +180,8 @@ pub struct AppConfig {
     pub manual_wallpaper_path: Option<String>,
     #[serde(default)]
     pub create_backups: bool,
+    #[serde(default = "default_auto_update_rules")]
+    pub auto_update_rules: bool,
 }
 
 impl Default for AppConfig {
@@ -195,6 +196,7 @@ impl Default for AppConfig {
             enabled_programs: default_enabled_programs(),
             manual_wallpaper_path: None,
             create_backups: false,
+            auto_update_rules: default_auto_update_rules(),
         }
     }
 }
@@ -258,6 +260,7 @@ impl AppConfig {
         };
 
         let create_backups = self.create_backups;
+        let auto_update_rules = self.auto_update_rules;
 
         format!(
             r#"# ==============================================================================
@@ -322,17 +325,17 @@ wallpaper_backend = "{backend}"
 {manual_path_line}
 
 # [Target Applications]
-# List of applications for which Termonet will generate Material You themes.
-# Built-in supported targets:
-#   "kitty"     - Kitty terminal (~/.config/kitty/colors-termonet.conf)
-#   "waybar"    - Waybar status bar (~/.config/waybar/colors.css)
-#   "rofi"      - Rofi app launcher (~/.config/rofi/colors.rasi)
-#   "hyprland"  - Hyprland 0.55+ Lua configuration (~/.config/hypr/colors.lua)
-#
-# Custom application targets can be easily added by creating a rule TOML file in
-# ~/.config/termonet/rules/ and a corresponding template in ~/.config/termonet/templates/.
+# List of installed application IDs for which Termonet will generate Material You themes.
+# Manage repository apps via `termonet --list-rules` / `--install <id>` or inside the TUI.
+# Custom repositories can be added by placing `.toml` files in ~/.config/termonet/repos/.
+# Local custom rules can be authored in ~/.config/termonet/rules/ and ~/.config/termonet/templates/.
 enabled_programs = [
 {programs_formatted}]
+
+# [Template Registry & Updates]
+# Automatically check connected repositories once every 7 days on TUI startup or `--apply`
+# to update unmodified installed rules/templates (never runs on `--toggle-theme` or `--theme`).
+auto_update_rules = {auto_update_rules}
 
 # [Safety & Backups]
 # Create backup copies (.bak, .original) before modifying target configurations and templates.
@@ -348,7 +351,10 @@ create_backups = {create_backups}
     pub fn needs_migration(content: &str) -> bool {
         let is_generated = content.contains("Termonet Configuration");
         let schema_marker = format!("Schema Version: {CONFIG_SCHEMA_VERSION}");
-        (is_generated && (!content.contains("create_backups") || !content.contains(&schema_marker)))
+        (is_generated
+            && (!content.contains("create_backups")
+                || !content.contains("auto_update_rules")
+                || !content.contains(&schema_marker)))
             || content.contains("\"alacritty\" - Alacritty terminal")
     }
 
@@ -424,6 +430,9 @@ create_backups = {create_backups}
         if let Ok(rules_dir) = AppPaths::rules_dir() {
             let _ = std::fs::create_dir_all(&rules_dir);
         }
+        if let Ok(repos_dir) = AppPaths::repos_dir() {
+            let _ = std::fs::create_dir_all(&repos_dir);
+        }
 
         self.save_to_path(&path)?;
         Ok(path)
@@ -454,6 +463,7 @@ mod tests {
             manual_wallpaper_path: Some("/home/user/bg.png".to_string()),
             enabled_programs: vec!["kitty".into(), "rofi".into()],
             create_backups: false,
+            auto_update_rules: true,
         };
 
         let commented = config.to_commented_toml();
@@ -527,8 +537,9 @@ enabled_programs = [
         assert!(!parsed.create_backups);
 
         let upgraded = parsed.to_commented_toml();
-        assert!(upgraded.contains("Schema Version: 2"));
+        assert!(upgraded.contains("Schema Version: 3"));
         assert!(upgraded.contains("create_backups = false"));
+        assert!(upgraded.contains("auto_update_rules = true"));
         assert!(!upgraded.contains("alacritty"));
         assert!(!AppConfig::needs_migration(&upgraded));
     }
@@ -588,5 +599,43 @@ enabled_programs = [
     fn test_custom_minimal_config_not_overwritten_by_migration() {
         let minimal_custom = "language = \"en\"\ntui_theme = \"light\"\n";
         assert!(!AppConfig::needs_migration(minimal_custom));
+    }
+
+    #[test]
+    fn test_config_v3_defaults_have_empty_programs_and_auto_update_enabled() {
+        let config = AppConfig::default();
+        assert!(config.enabled_programs.is_empty());
+        assert!(config.auto_update_rules);
+        let commented = config.to_commented_toml();
+        assert!(commented.contains("Schema Version: 3"));
+        assert!(commented.contains("auto_update_rules = true"));
+    }
+
+    #[test]
+    fn test_config_v2_migration_preserves_enabled_programs_and_adds_auto_update() {
+        let v2_toml = r#"
+# Termonet Configuration
+# Schema Version: 2
+language = "ru"
+tui_theme = "dark"
+font_mode = "pixel"
+display_server = "wayland"
+wallpaper_backend = "auto"
+enabled_programs = [
+    "kitty",
+    "waybar"
+]
+create_backups = true
+"#;
+        assert!(AppConfig::needs_migration(v2_toml));
+        let parsed: AppConfig = toml::from_str(v2_toml).expect("parse v2 config");
+        assert_eq!(parsed.enabled_programs, vec!["kitty", "waybar"]);
+        assert!(parsed.auto_update_rules);
+        assert!(parsed.create_backups);
+
+        let upgraded = parsed.to_commented_toml();
+        assert!(upgraded.contains("Schema Version: 3"));
+        assert!(upgraded.contains("auto_update_rules = true"));
+        assert!(!AppConfig::needs_migration(&upgraded));
     }
 }
