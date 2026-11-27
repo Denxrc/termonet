@@ -688,6 +688,17 @@ impl AppState {
         self.wizard_state = Some(wizard);
         self.is_wizard = true;
         self.refresh_catalog();
+        if let Some(ref mut wizard) = self.wizard_state
+            && !wizard.catalog.is_empty()
+        {
+            wizard.config.enabled_programs.retain(|prog| {
+                wizard.catalog.iter().any(|entry| {
+                    !matches!(entry.status, CatalogStatus::Available { .. })
+                        && (entry.id.eq_ignore_ascii_case(prog)
+                            || entry.name.eq_ignore_ascii_case(prog))
+                })
+            });
+        }
     }
 
     /// Opens the manual wallpaper path input dialog.

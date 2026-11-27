@@ -225,6 +225,16 @@ fn normalize_rule_template_field(rule_text: &str, expected_template: &str) -> Re
     Ok(serialized.into_bytes())
 }
 
+fn entry_files_present(paths: &RegistryPaths, entry: &InstalledEntry) -> bool {
+    if sanitize_single_filename(&entry.rule_file).is_err()
+        || sanitize_single_filename(&entry.template_file).is_err()
+    {
+        return false;
+    }
+    paths.rules_dir.join(&entry.rule_file).is_file()
+        && paths.templates_dir.join(&entry.template_file).is_file()
+}
+
 fn is_entry_locally_modified(paths: &RegistryPaths, entry: &InstalledEntry) -> bool {
     if sanitize_single_filename(&entry.rule_file).is_err()
         || sanitize_single_filename(&entry.template_file).is_err()
@@ -234,14 +244,14 @@ fn is_entry_locally_modified(paths: &RegistryPaths, entry: &InstalledEntry) -> b
     let rule_path = paths.rules_dir.join(&entry.rule_file);
     let tmpl_path = paths.templates_dir.join(&entry.template_file);
 
-    let Ok(rule_bytes) = fs::read(rule_path) else {
-        return true;
-    };
-    let Ok(tmpl_bytes) = fs::read(tmpl_path) else {
-        return true;
-    };
+    let rule_modified = fs::read(rule_path)
+        .map(|bytes| sha256_hex(&bytes) != entry.rule_sha256)
+        .unwrap_or(false);
+    let tmpl_modified = fs::read(tmpl_path)
+        .map(|bytes| sha256_hex(&bytes) != entry.template_sha256)
+        .unwrap_or(false);
 
-    sha256_hex(&rule_bytes) != entry.rule_sha256 || sha256_hex(&tmpl_bytes) != entry.template_sha256
+    rule_modified || tmpl_modified
 }
 
 fn acquire_lock_file(lock_path: &Path) -> Result<fs::File> {
@@ -411,6 +421,29 @@ impl<T: RegistryTransport> RegistryService<T> {
             sanitize_single_filename(&entry.template_file)?;
         }
         Ok(manifest)
+    }
+
+    /// Loads `installed.toml` and automatically prunes ghost entries whose local files were deleted.
+    fn load_reconciled_installed_manifest(&self) -> Result<InstalledManifest> {
+        let manifest = self.load_installed_manifest()?;
+        if manifest
+            .installed
+            .iter()
+            .all(|e| entry_files_present(&self.paths, e))
+        {
+            return Ok(manifest);
+        }
+
+        let _lock = acquire_lock_file(&self.installed_lock_path())?;
+        let mut locked = self.load_installed_manifest()?;
+        let before = locked.installed.len();
+        locked
+            .installed
+            .retain(|e| entry_files_present(&self.paths, e));
+        if locked.installed.len() != before {
+            let _ = self.save_installed_manifest(&locked);
+        }
+        Ok(locked)
     }
 
     fn installed_lock_path(&self) -> PathBuf {
@@ -606,7 +639,9 @@ impl<T: RegistryTransport> RegistryService<T> {
         let (manifests, cache_warnings) = self.load_cached_manifests(&repos);
         warnings.extend(cache_warnings);
 
-        let installed = self.load_installed_manifest().unwrap_or_default();
+        let installed = self
+            .load_reconciled_installed_manifest()
+            .unwrap_or_default();
         let installed_by_id: HashMap<&str, &InstalledEntry> = installed
             .installed
             .iter()
@@ -811,7 +846,9 @@ impl<T: RegistryTransport> RegistryService<T> {
         let _ = self.sync_indexes_if_empty();
         let (repos, _) = self.load_repos()?;
         let (manifests, _) = self.load_cached_manifests(&repos);
-        let installed = self.load_installed_manifest().unwrap_or_default();
+        let installed = self
+            .load_reconciled_installed_manifest()
+            .unwrap_or_default();
         let engine = TemplateEngine::new();
 
         let mut prepared = Vec::with_capacity(specs.len());
@@ -917,6 +954,9 @@ impl<T: RegistryTransport> RegistryService<T> {
 
         let _lock = acquire_lock_file(&self.installed_lock_path())?;
         let mut manifest = self.load_installed_manifest().unwrap_or_default();
+        manifest
+            .installed
+            .retain(|e| entry_files_present(&self.paths, e));
         let mut installed_ids = Vec::with_capacity(prepared.len());
 
         for item in prepared {
@@ -1015,7 +1055,7 @@ impl<T: RegistryTransport> RegistryService<T> {
             ..Default::default()
         };
 
-        let installed = self.load_installed_manifest()?;
+        let installed = self.load_reconciled_installed_manifest()?;
         if installed.installed.is_empty() {
             return Ok(report);
         }
@@ -1088,7 +1128,7 @@ impl<T: RegistryTransport> RegistryService<T> {
     pub fn remove_program(&self, id: &str) -> Result<()> {
         validate_program_id(id)?;
         let _lock = acquire_lock_file(&self.installed_lock_path())?;
-        let mut manifest = self.load_installed_manifest()?;
+        let mut manifest = self.load_reconciled_installed_manifest()?;
         let pos = manifest
             .installed
             .iter()
@@ -1132,7 +1172,7 @@ impl<T: RegistryTransport> RegistryService<T> {
             return AutoUpdateOutcome::SkippedDisabled;
         }
 
-        match self.load_installed_manifest() {
+        match self.load_reconciled_installed_manifest() {
             Ok(m) if !m.installed.is_empty() => {}
             Ok(_) => return AutoUpdateOutcome::SkippedNothingInstalled,
             Err(err) => return AutoUpdateOutcome::FailedNonFatal(err.to_string()),
@@ -1785,6 +1825,73 @@ mod tests {
         svc.remove_program("kitty").unwrap();
         assert!(!paths.rules_dir.join("kitty.toml").exists());
         assert!(!paths.templates_dir.join("kitty.tmpl").exists());
+
+        let _ = fs::remove_dir_all(paths.repos_dir.parent().unwrap());
+    }
+
+    #[test]
+    fn test_deleted_local_files_reconcile_installed_manifest_without_false_conflict() {
+        let paths = temp_registry_paths("reconcile_deleted");
+        let r1 = sample_rule("Kitty", 1, "kitty.tmpl");
+        let t1 = sample_tmpl(1);
+        let manifest = build_manifest(&[(
+            "kitty",
+            "Kitty",
+            1,
+            1,
+            "1.6.0",
+            &sha256_hex(r1.as_bytes()),
+            &sha256_hex(t1.as_bytes()),
+        )]);
+        let mut map = HashMap::new();
+        map.insert(format!("{OFFICIAL_REPO_URL}/registry.toml"), Ok(manifest));
+        map.insert(format!("{OFFICIAL_REPO_URL}/rules/kitty.toml"), Ok(r1));
+        map.insert(format!("{OFFICIAL_REPO_URL}/templates/kitty.tmpl"), Ok(t1));
+
+        let svc = RegistryService::with_paths_and_transport(
+            paths.clone(),
+            MockTransport::new(map),
+            "1.6.0".into(),
+        );
+        svc.ensure_default_repo_config().unwrap();
+        svc.sync_indexes().unwrap();
+        svc.install_programs(&["kitty".into()], false, false)
+            .unwrap();
+
+        // Manually delete BOTH rule and template from .config while installed.toml remains
+        fs::remove_file(paths.rules_dir.join("kitty.toml")).unwrap();
+        fs::remove_file(paths.templates_dir.join("kitty.tmpl")).unwrap();
+
+        let (catalog, _) = svc.catalog().unwrap();
+        let kitty = catalog.iter().find(|e| e.id == "kitty").unwrap();
+        assert_eq!(
+            kitty.status,
+            CatalogStatus::Available {
+                repo: "official".into(),
+                compatible: true,
+            }
+        );
+
+        let installed_raw = fs::read_to_string(&paths.installed_file).unwrap();
+        assert!(!installed_raw.contains("id = \"kitty\""));
+
+        let report = svc.update_installed(false, false).unwrap();
+        assert!(report.skipped_modified.is_empty());
+
+        // Reinstall must succeed cleanly without --force
+        svc.install_programs(&["kitty".into()], false, false)
+            .unwrap();
+        assert!(paths.rules_dir.join("kitty.toml").exists());
+
+        // Deleting only rules/<id>.toml must also reconcile cleanly without fake "modified" conflict
+        fs::remove_file(paths.rules_dir.join("kitty.toml")).unwrap();
+        let (catalog2, _) = svc.catalog().unwrap();
+        assert!(matches!(
+            catalog2.iter().find(|e| e.id == "kitty").unwrap().status,
+            CatalogStatus::Available { .. }
+        ));
+        svc.install_programs(&["kitty".into()], false, false)
+            .unwrap();
 
         let _ = fs::remove_dir_all(paths.repos_dir.parent().unwrap());
     }

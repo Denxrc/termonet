@@ -807,16 +807,25 @@ fn stress_tui_wizard_finish_partial_write_failure_and_deleted_rule_visibility() 
     assert!(paths.installed_file.exists());
     assert!(paths.rules_dir.join("foot.toml").exists());
 
-    // 2. Delete rules/foot.toml while foot is in installed.toml -> Step::Programs must still show it
+    // 2. Delete rules/foot.toml while foot is in installed.toml -> reconciled cleanly back to Available
     fs::remove_file(paths.rules_dir.join("foot.toml")).unwrap();
     state.refresh_catalog();
-    assert!(state.programs.iter().any(|p| p.id == "foot"));
-    assert!(
-        state
-            .wizard_state
-            .as_ref()
-            .is_some_and(|w| w.catalog.iter().any(|c| c.id == "foot"))
-    );
+    assert!(state.programs.iter().any(|p| {
+        p.id == "foot"
+            && matches!(
+                p.catalog_status,
+                Some(termonet::registry::CatalogStatus::Available { .. })
+            )
+    }));
+    assert!(state.wizard_state.as_ref().is_some_and(|w| {
+        w.catalog.iter().any(|c| {
+            c.id == "foot"
+                && matches!(
+                    c.status,
+                    termonet::registry::CatalogStatus::Available { .. }
+                )
+        })
+    }));
 }
 
 #[test]
