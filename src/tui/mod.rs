@@ -807,6 +807,7 @@ mod tests {
         std::fs::write(&kitty_conf, "font_size 11.0\n").unwrap();
 
         let custom_rule = crate::template::ProgramRule {
+            id: String::new(),
             version: 2,
             name: "TestKitty".to_string(),
             template: "kitty.tmpl".to_string(),

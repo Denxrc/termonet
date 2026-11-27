@@ -74,6 +74,10 @@ fn default_rule_version() -> u32 {
 /// Rule definition for an individual target application.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProgramRule {
+    /// Canonical lowercase program identifier derived from `<id>.toml` filename (runtime metadata).
+    #[serde(skip)]
+    pub id: String,
+
     /// Schema and content version for auto-migration and updates.
     #[serde(default = "default_rule_version")]
     pub version: u32,
@@ -109,6 +113,16 @@ impl ProgramRule {
     pub fn from_toml(content: &str) -> Result<Self> {
         let rule: Self = toml::from_str(content)?;
         Ok(rule)
+    }
+
+    /// Returns the canonical program ID (filename stem if set, otherwise lowercased `name`).
+    #[must_use]
+    pub fn effective_id(&self) -> String {
+        if self.id.is_empty() {
+            self.name.to_lowercase()
+        } else {
+            self.id.clone()
+        }
     }
 
     /// Resolves output path with user home tilde expansion.
@@ -179,10 +193,18 @@ impl ProgramRule {
             paths.sort();
 
             for path in paths {
+                let stem_id = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
                 match fs::read_to_string(&path) {
                     Ok(content) => match Self::from_toml(&content) {
-                        Ok(user_rule) => {
-                            let key = user_rule.name.to_lowercase();
+                        Ok(mut user_rule) => {
+                            if !stem_id.is_empty() {
+                                user_rule.id = stem_id;
+                            }
+                            let key = user_rule.effective_id();
                             if let Some(embedded_rule) = rules_map.get(&key) {
                                 // Only override if the user rule has equal or newer version
                                 if user_rule.version >= embedded_rule.version {
@@ -736,6 +758,7 @@ hl.config({
         ));
 
         let rule_empty = ProgramRule {
+            id: String::new(),
             version: 2,
             name: "EmptyHook".into(),
             template: "kitty.tmpl".into(),
@@ -768,6 +791,7 @@ hl.config({
         fs::create_dir_all(&temp_dir).unwrap();
 
         let rule = ProgramRule {
+            id: String::new(),
             version: 2,
             name: "DetachedTest".into(),
             template: "kitty.tmpl".into(),
@@ -869,6 +893,7 @@ window { background: #111111; }
         fs::write(temp_dir.join("kitty.tmpl"), "# termonet-version: 1\nold").unwrap();
 
         let rule = ProgramRule {
+            id: String::new(),
             version: 2,
             name: "Kitty".into(),
             template: "kitty.tmpl".into(),

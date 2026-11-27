@@ -107,6 +107,18 @@ impl<'a> TemplateEngine<'a> {
         Self { env }
     }
 
+    /// Validates MiniJinja template syntax without rendering it.
+    ///
+    /// # Errors
+    /// Returns `TermonetError::Template` if template parsing fails.
+    pub fn validate_syntax(&self, template_source: &str) -> Result<()> {
+        let _ = self
+            .env
+            .template_from_str(template_source)
+            .map_err(|e| TermonetError::Template(e.to_string()))?;
+        Ok(())
+    }
+
     /// Renders a template string in-memory using the provided palette and active theme mode.
     ///
     /// # Errors

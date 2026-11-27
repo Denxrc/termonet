@@ -368,6 +368,7 @@ mod tests {
         initial_config.save_to_path(&config_file).unwrap();
 
         let failing_rule = crate::template::ProgramRule {
+            id: String::new(),
             version: 1,
             name: "Broken".into(),
             template: "missing_nonexistent_template_xyz.tmpl".into(),
