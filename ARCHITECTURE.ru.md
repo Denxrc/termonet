@@ -2,7 +2,7 @@
 
 [English](ARCHITECTURE.md) | [Русский](ARCHITECTURE.ru.md) · [README](README.ru.md)
 
-> **Памятка для разработчиков и ИИ-агентов**: Этот документ является каноническим, единым источником истины по архитектуре и внутреннему устройству кодовой базы **Termonet** (~13 тыс. строк современного Rust в 36 исходных файлах). Здесь описаны структура подсистем, жизненные циклы выполнения, механизмы IPC, контракты безопасности данных и руководства по расширению функциональности. Обращайтесь к этому документу перед планированием и внесением изменений в код.
+> **Памятка для разработчиков и ИИ-агентов**: Этот документ является каноническим, единым источником истины по архитектуре и внутреннему устройству кодовой базы **Termonet** (современный Rust в 8 модульных подсистемах). Здесь описаны структура подсистем, жизненные циклы выполнения, механизмы IPC, контракты безопасности данных и руководства по расширению функциональности. Обращайтесь к этому документу перед планированием и внесением изменений в код.
 
 ---
 
@@ -59,25 +59,29 @@
 
 ## 2. Структура репозитория и разбор подсистем
 
-Кодовая база состоит из 36 файлов Rust, организованных в 7 модульных подсистем:
+Кодовая база организована в 8 модульных подсистем:
 
 ```text
 src/
-├── main.rs                   # Точка входа бинарника, парсинг CLI-флагов и диспетчеризация
+├── main.rs                   # Точка входа бинарника, парсинг CLI-флагов, реестр и недельный цикл
 ├── lib.rs                    # Корень библиотеки, реэкспорты модулей, Result / TermonetError
 ├── error.rs                  # Типизированный enum ошибок (TermonetError) на thiserror
 ├── cli/                      # Автономное CLI-применение тем и автоматизация
 │   └── mod.rs                # Исполнитель headless-режима (run_cli_mode) и CliArgs
 ├── config/                   # Пути XDG и конфигурация приложения
 │   ├── mod.rs                # Публичные реэкспорты конфигурации
-│   ├── paths.rs              # AppPaths: резолв директорий XDG и раскрытие ~
-│   ├── settings.rs           # Схема AppConfig (v2), enum-опции, детектор темной темы, TOML с комментариями
+│   ├── paths.rs              # AppPaths: XDG-директории (repos/, registry_cache/, installed.toml) и ~
+│   ├── settings.rs           # Схема AppConfig (v3), auto_update_rules, детектор темной темы
 │   └── state.rs              # Персистентный кэш AppStateCache (~/.local/state/termonet/state.toml)
 ├── core/                     # Чистый домен: декодирование изображений, квантование, палитры
 │   ├── mod.rs                # Реэкспорты ядра
 │   ├── image.rs              # Загрузка картинок, извлечение 1-го кадра GIF/WebP, сжатие
 │   ├── color.rs              # RgbColor (zero-alloc сериализация HEX), MaterialScheme, TerminalPalette
 │   └── palette.rs            # GeneratedPalette, QuantizerCelebi, скоринг CAM16, ThemeBuilder
+├── registry/                 # Внешний реестр шаблонов (Denxrc/termonet-apps + кастомные репо)
+│   ├── mod.rs                # RegistryService, RegistryOps, транзакционная установка/откат, миграция v1.5
+│   ├── client.rs             # Трейт RegistryTransport и ограниченный HTTPS-клиент (ureq + rustls)
+│   └── types.rs              # RepoConfig, RegistryManifest, InstalledManifest, санитайзеры, SHA-256
 ├── wallpaper/                # Поиск обоев, протоколы IPC и санитизация путей
 │   ├── mod.rs                # Маршрутизация get_current_wallpaper и приоритеты query_auto_monitors
 │   ├── monitor.rs            # MonitorWallpapers и политики выбора главного монитора
@@ -86,24 +90,23 @@ src/
 │   ├── wayland.rs            # Демоны Wayland: awww, swww, hyprpaper (сокет), swaybg, wpaperd
 │   └── de.rs                 # Окружения рабочего стола: GNOME (gsettings) и KDE Plasma (appletsrc)
 ├── template/                 # Рендеринг MiniJinja, бэкапы и инъекция правил
-│   ├── mod.rs                # Реэкспорты модуля шаблонов и синхронизация ассетов
+│   ├── mod.rs                # Реэкспорты модуля шаблонов
 │   ├── backup.rs             # Эталонный бэкап (.original), страховочный (.bak) и safe_write
-│   ├── engine.rs             # TemplateEngine (обертка MiniJinja с фильтрами hex/strip/rgb)
-│   ├── embedded.rs           # Вшитые дефолтные шаблоны (*.tmpl) и правила (*.toml)
-│   └── rules.rs              # Схема ProgramRule, стили комментариев и вставка блоков маркеров
+│   ├── engine.rs             # TemplateEngine (MiniJinja с валидацией синтаксиса и фильтрами)
+│   └── rules.rs              # Схема ProgramRule, загрузка с диска, id-нормализация, маркеры
 ├── tui/                      # Интерактивный терминальный интерфейс на Ratatui и Crossterm
 │   ├── mod.rs                # Цикл событий run_tui, опрос 50 мс и рендер нижней панели подсказок
 │   ├── terminal.rs           # RAII-обертка TerminalGuard (raw mode и alternate screen)
 │   ├── font.rs               # Битовый 5px шрифт PixelFont на полублоках Unicode (█, ▀, ▄)
-│   ├── app.rs                # Конечный автомат AppState, Step/WizardStep и маршрутизация клавиш
+│   ├── app.rs                # Конечный автомат AppState, ConfirmModalState, Step/WizardStep
 │   └── views/                # Модульные рендереры экранов
 │       ├── mod.rs            # Реэкспорты представлений
 │       ├── header.rs         # Адаптивная шапка с логотипом, вкладками шагов и бейджем монитора
 │       ├── palette.rs        # Seed-цвет, сетка ролей Material 3, 16 цветов ANSI, ввод пути/HEX
-│       ├── programs.rs       # Список целевых программ с чекбоксами и метаданными правил
+│       ├── programs.rs       # Общий список программ/реестра, бейджи и модалка подтверждения
 │       ├── hooks.rs          # Список команд перезапуска с переключением
 │       ├── apply.rs          # Подтверждение применения, сводка и статус выполнения
-│       └── wizard.rs         # Мастер настройки (Язык, Тема, Сервер, Программы, Итог)
+│       └── wizard.rs         # Мастер настройки (Язык, Тема, Сервер, Каталог программ, Итог)
 └── i18n/                     # Интернационализация и словари локализации
     ├── mod.rs                # Диспетчер get_translations
     └── locales.rs            # Структура Translations с английским и русским словарями
@@ -113,40 +116,42 @@ src/
 
 | Путь | Основные задачи | Ключевые структуры / функции |
 | :--- | :--- | :--- |
-| `src/main.rs` | Парсинг аргументов CLI (`parse_cli_args()`), вывод `--help`/`--version`, маршрутизация в CLI или TUI | `main()`, `parse_cli_args()`, `resolve_tui_wallpaper()`, `handle_reset_rules()` |
+| `src/main.rs` | Парсинг аргументов CLI (`parse_cli_args()`), команды реестра (`--install`, `--update-rules`), недельный цикл | `main()`, `parse_cli_args()`, `execute_install_with_io()`, `should_run_weekly_auto_update()` |
 | `src/lib.rs` | Корень крейта, реэкспорт модулей и типов ошибок | `Result<T>`, `TermonetError` |
-| `src/error.rs` | Типизированные ошибки операций ввода-вывода, изображений, TOML, шаблонов и IPC | `enum TermonetError` (`Io`, `Image`, `TomlDe`, `TomlSer`, `Template`, `WallpaperNotFound`, `Config`) |
+| `src/error.rs` | Типизированные ошибки ввода-вывода, изображений, TOML, шаблонов, реестра и IPC | `enum TermonetError` (`Io`, `Image`, `TomlDe`, `TomlSer`, `Template`, `WallpaperNotFound`, `Config`, `Registry`) |
 | `src/cli/mod.rs` | Автономная оркестрация (`--apply`, `--toggle-theme`, `--theme`, `-c/--color`) | `struct CliArgs`, `run_cli_mode(&CliArgs) -> Result<bool>`, `run_cli_mode_with_context()` |
-| `src/config/state.rs` | Кэширование последних обоев, цвета, темы и отпечатка правил для пропуска лишней работы | `struct AppStateCache`, `enum CacheSource`, `is_up_to_date_with_config()`, `save()` |
+| `src/config/state.rs` | Кэширование обоев, цвета, темы, отпечатка правил и `last_registry_sync_at` | `struct AppStateCache`, `is_up_to_date_with_config()`, `save()` |
 | `src/config/mod.rs` | Реэкспорты модуля конфигурации (`AppPaths`, `AppConfig`, enum-ы) | Реэкспорты модуля |
-| `src/config/paths.rs` | Канонические директории XDG (`~/.config/termonet/`, `~/.local/state/termonet/`) и раскрытие `~` | `struct AppPaths`, `expand_tilde(&str) -> PathBuf` |
-| `src/config/settings.rs` | Хранение настроек, миграции схемы (v1 -> v2), детектор системной темной темы | `struct AppConfig`, `Language`, `TuiTheme`, `FontMode`, `DisplayServer`, `WallpaperBackend`, `is_system_dark()` |
+| `src/config/paths.rs` | Канонические директории XDG (`~/.config/termonet/`, `~/.local/state/termonet/`) и `~` | `struct AppPaths`, `repos_dir()`, `registry_cache_dir()`, `installed_file()`, `expand_tilde()` |
+| `src/config/settings.rs` | Хранение настроек, миграции (v1 -> v3), `auto_update_rules`, детектор темной темы | `struct AppConfig`, `Language`, `TuiTheme`, `FontMode`, `DisplayServer`, `WallpaperBackend` |
 | `src/core/mod.rs` | Реэкспорты доменного ядра (`GeneratedPalette`, `MaterialScheme`, `RgbColor`) | Реэкспорты модуля |
 | `src/core/image.rs` | Загрузка изображений, извлечение первого кадра GIF/WebP, сжатие | `load_and_preprocess_image()`, `to_material_pixels()`, `EXTRACTION_SIZE = 128` |
-| `src/core/color.rs` | Zero-alloc сериализация RGB, 19-ролевая схема MD3, парсер HEX, палитра ANSI | `struct RgbColor`, `from_hex()`, `struct MaterialScheme` (19 ролей), `struct TerminalPalette` |
+| `src/core/color.rs` | Zero-alloc сериализация RGB, 19-ролевая схема MD3, парсер HEX, палитра ANSI | `struct RgbColor`, `from_hex()`, `struct MaterialScheme`, `struct TerminalPalette` |
 | `src/core/palette.rs` | Извлечение цветов CAM16, квантование Celebi, генерация светлой/темной схем | `struct GeneratedPalette`, `from_image_path()`, `from_seed_color()` |
+| `src/registry/mod.rs` | Транзакционная установка/обновление/удаление, миграция v1.5.2, 7-дневный цикл | `struct RegistryService`, `trait RegistryOps`, `prepare_install()`, `commit_install()` |
+| `src/registry/client.rs` | Ограниченный HTTPS-клиент (`ureq` + `rustls`), таймауты, лимиты размера | `trait RegistryTransport`, `struct HttpTransport`, `MAX_MANIFEST_BYTES`, `MAX_ASSET_BYTES` |
+| `src/registry/types.rs` | Схемы реестра, санитайзеры ID/путей, semver-проверка и SHA-256 | `RepoConfig`, `RegistryManifest`, `InstalledManifest`, `CatalogEntry`, `sha256_hex()` |
 | `src/wallpaper/mod.rs` | Определение пути к обоям с учетом бэкенда и мультимониторной политики | `get_current_wallpaper()`, `get_wallpaper_monitors()`, `query_auto_monitors()` |
 | `src/wallpaper/monitor.rs` | Хранение путей по мониторам, дедупликация и выбор главного экрана | `struct MonitorWallpapers`, `resolve_primary()` |
 | `src/wallpaper/path.rs` | Percent-декодирование, удаление `file://`, очистка тегов геометрии, проверка файла на диске | `clean_wallpaper_path()`, `sanitize_wallpaper_path()`, `percent_decode()` |
 | `src/wallpaper/provider.rs` | Абстрактный интерфейс провайдеров обоев и диагностический отчет | `trait WallpaperProvider`, `struct ProviderDiagnostic`, `run_all_diagnostics()` |
 | `src/wallpaper/wayland.rs` | Интеграции `awww`/`swww`, `hyprpaper` (UNIX-сокет + конфиг), `swaybg`, `wpaperd` | `query_awww_or_swww()`, `query_hyprpaper()`, `query_swaybg()`, `query_wpaperd()` |
 | `src/wallpaper/de.rs` | Интеграции GNOME (`gsettings`) и KDE Plasma (парсер `appletsrc` и пакетов тем) | `query_gnome()`, `query_kde()`, `resolve_kde_theme_package()` |
-| `src/template/mod.rs` | Реэкспорты модуля шаблонов и синхронизация встроенных ассетов | `sync_default_assets()`, реэкспорты модуля |
-| `src/template/engine.rs` | Обертка над MiniJinja с фильтрами цветов и контекстом переменных | `struct TemplateEngine`, `render_string()`, фильтры (`hex`, `strip`, `rgb`, `hypr_rgb`, `hypr_rgba`) |
-| `src/template/backup.rs` | Защита конфигов: вечный `.original`, временный `.bak`, атомарная запись с сохранением симлинков | `ensure_master_backup()`, `create_safety_backup()`, `safe_write()` |
-| `src/template/rules.rs` | Правила программ, парсинг TOML, стиль комментариев, инъекция маркеров, запуск хуков | `struct ProgramRule`, `CommentStyle`, `ImportPosition`, `inject_import()`, `spawn_reload_hook_detached()` |
-| `src/template/embedded.rs` | Встроенные дефолтные шаблоны и TOML-правила (Kitty, Waybar, Rofi, Hyprland) | `DEFAULT_TEMPLATES`, `DEFAULT_RULES`, `sync_default_assets()` |
+| `src/template/mod.rs` | Реэкспорты модуля шаблонов | Реэкспорты модуля |
+| `src/template/engine.rs` | Обертка над MiniJinja с валидацией синтаксиса и фильтрами цветов | `struct TemplateEngine`, `validate_syntax()`, `render_string()` |
+| `src/template/backup.rs` | Защита конфигов: вечный `.original`, временный `.bak`, атомарная запись | `ensure_master_backup()`, `create_safety_backup()`, `safe_write()` |
+| `src/template/rules.rs` | Правила программ, загрузка с диска, `effective_id()`, стиль комментариев, маркеры | `struct ProgramRule`, `effective_id()`, `CommentStyle`, `inject_import()` |
 | `src/tui/mod.rs` | Драйвер цикла событий TUI (опрос 50 мс) и рендер нижней панели подсказок | `run_tui()`, `render_footer()` |
 | `src/tui/terminal.rs` | RAII-обертка для безопасного входа/выхода из raw mode и alternate screen | `struct TerminalGuard`, `struct TuiTerminal` |
 | `src/tui/font.rs` | Генератор 5px битового логотипа на полублоках Unicode (█, ▀, ▄) | `struct PixelFont`, `render()`, `termonet_banner()` |
-| `src/tui/app.rs` | Главный конечный автомат TUI, переключение шагов и обработка клавиатуры | `struct AppState`, `enum Step`, `enum WizardStep`, `enum EnvSubStep`, `handle_key()` |
+| `src/tui/app.rs` | Главный конечный автомат TUI, модалки подтверждения, переключение шагов | `struct AppState`, `struct ConfirmModalState`, `enum Step`, `enum WizardStep`, `handle_key()` |
 | `src/tui/views/mod.rs` | Реэкспорты представлений TUI | `render_apply`, `render_header`, `render_hooks`, `render_palette`, `render_programs`, `render_wizard` |
 | `src/tui/views/header.rs` | Адаптивная шапка, вкладки шагов и индикатор активного монитора | `render_header()` |
-| `src/tui/views/palette.rs` | Отображение seed-цвета, сетки Material 3, 16 цветов ANSI и модального окна пути/HEX | `render_palette()` |
-| `src/tui/views/programs.rs` | Список программ с чекбоксами и путями правил | `render_programs()` |
+| `src/tui/views/palette.rs` | Seed-цвет, сетка Material 3, 16 цветов ANSI и модальное окно пути/HEX | `render_palette()` |
+| `src/tui/views/programs.rs` | Общий список программ/реестра, бейджи и рендер модалки подтверждения | `render_programs()`, `render_confirm_modal()` |
 | `src/tui/views/hooks.rs` | Список команд перезапуска с чекбоксами | `render_hooks()` |
 | `src/tui/views/apply.rs` | Сводка перед записью, подтверждение и отображение статуса | `render_apply()` |
-| `src/tui/views/wizard.rs` | Пошаговый мастер настройки (Язык, Тема, Сервер/Бэкенд, Мониторы, Программы) | `render_wizard()` |
+| `src/tui/views/wizard.rs` | Пошаговый мастер настройки (Язык, Тема, Сервер, Каталог программ, Итог) | `render_wizard()` |
 | `src/i18n/mod.rs` | Диспетчер локализации | `get_translations(Language)` |
 | `src/i18n/locales.rs` | Словари строк для английского (`EN_TRANSLATIONS`) и русского (`RU_TRANSLATIONS`) языков | `struct Translations` |
 
@@ -351,7 +356,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    Rule["ProgramRule (напр. Kitty, Waybar)"] --> LoadTmpl["Чтение шаблона (*.tmpl) — с диска или встроенного"]
+    Rule["ProgramRule (напр. Kitty, Waybar)"] --> LoadTmpl["Чтение шаблона (~/.config/termonet/templates/*.tmpl)"]
     LoadTmpl --> Jinja["MiniJinja Engine::render_string(palette, is_dark)"]
     Jinja --> Rendered["Отрендеренный текст палитры"]
     
@@ -484,19 +489,22 @@ flowchart TD
 | :--- | :--- | :--- |
 | **Директория конфигов** | `~/.config/termonet/` | Базовый каталог (`$XDG_CONFIG_HOME/termonet`) |
 | **Файл конфигурации** | `~/.config/termonet/config.toml` | Основные настройки пользователя |
-| **Шаблоны** | `~/.config/termonet/templates/` | Пользовательские шаблоны MiniJinja (`*.tmpl`) |
-| **Правила** | `~/.config/termonet/rules/` | Пользовательские правила программ (`*.toml`) |
+| **Репозитории** | `~/.config/termonet/repos/` | Источники шаблонов (`official.toml` + свои `*.toml`) |
+| **Шаблоны** | `~/.config/termonet/templates/` | Установленные и свои шаблоны MiniJinja (`*.tmpl`) |
+| **Правила** | `~/.config/termonet/rules/` | Установленные и свои правила программ (`*.toml`) |
 | **Директория состояния** | `~/.local/state/termonet/` | Каталог рантайм-состояния (`$XDG_STATE_HOME/termonet`) |
-| **Файл кэша состояния** | `~/.local/state/termonet/state.toml` | Кэш последних обоев, seed-цвета, темы и отпечатка правил |
+| **Кэш реестра** | `~/.local/state/termonet/registry_cache/` | Кэшированные индексы `registry.toml` репозиториев |
+| **Установленные пакеты** | `~/.local/state/termonet/installed.toml` | Учёт установленных из реестра правил, версий, репо и SHA-256 |
+| **Файл кэша состояния** | `~/.local/state/termonet/state.toml` | Кэш обоев, seed-цвета, темы, отпечатка правил и `last_registry_sync_at` |
 
 ---
 
 ### 5.2 Версионирование схемы конфигурации и миграции
 
-Конфигурация в `src/config/settings.rs` использует схему версии `CONFIG_SCHEMA_VERSION = 2`:
-* `AppConfig` хранит поля: `language`, `tui_theme`, `font_mode`, `display_server`, `wallpaper_backend`, `primary_monitor`, `enabled_programs`, `manual_wallpaper_path`, `create_backups`.
+Конфигурация в `src/config/settings.rs` использует схему версии `CONFIG_SCHEMA_VERSION = 3`:
+* `AppConfig` хранит поля: `language`, `tui_theme`, `font_mode`, `display_server`, `wallpaper_backend`, `primary_monitor`, `enabled_programs` (по умолчанию `[]`), `manual_wallpaper_path`, `create_backups`, `auto_update_rules` (по умолчанию `true`, раз в 7 дней).
 * Все строковые значения в `to_commented_toml()` экранируются через `toml::Value::String(...).to_string()`, исключая поломку TOML при кавычках или обратных слешах в путях.
-* Минимальные пользовательские конфиги без автогенерированного заголовка `Termonet Configuration` не перезаписываются принудительно (`needs_migration()` возвращает `false`), а пропущенные поля заполняются значениями `Default` (при этом явный `enabled_programs = []` сохраняется пустым).
+* Минимальные пользовательские конфиги без автогенерированного заголовка `Termonet Configuration` не перезаписываются принудительно (`needs_migration()` возвращает `false`), а при первом переходе с `v1.5.x` немодифицированные дефолтные правила автоматически «усыновляются» в `installed.toml`.
 
 ---
 
@@ -514,7 +522,7 @@ flowchart TD
 
 ## 6. Ключевые инварианты и контракты безопасности
 
-Любое изменение в коде Termonet обязано соблюдать 6 базовых инвариантов:
+Любое изменение в коде Termonet обязано соблюдать 7 базовых инвариантов:
 
 1. **Zero-Panic в рабочем коде**: в production-коде запрещены `.unwrap()`, `.expect()`, `panic!()`, `todo!()`, `unimplemented!()`. Все ошибки пробрасываются через `crate::error::Result<T>` и `TermonetError`.
 2. **Неизменяемость эталонного бэкапа (`.original`)**: при `create_backups = true` файл `<name>.original` создается строго один раз при первой модификации `target_config` и никогда не перезаписывается.
@@ -522,6 +530,12 @@ flowchart TD
 4. **Безопасная атомарная запись (`safe_write`)**: разрешает симлинки через `fs::symlink_metadata()` + `fs::canonicalize()` (отклоняя битые симлинки и директории), чтобы не затирать сами симлинки (важно для GNU Stow / Nix); сохраняет POSIX-права доступа; пропускает запись при побайтовом совпадении; пишет во временный файл `.{name}.tmp.{pid}.{seq}` и атомарно переименовывает его.
 5. **Обязательная санитизация путей**: ни один внешний путь из демонов или ввода не передается в декодер изображений напрямую — только через `clean_wallpaper_path()` / `validate_wallpaper_path()` с проверкой существования файла на диске.
 6. **Неблокирующий IPC и отвязка подпроцессов**: UNIX-сокеты имеют таймаут <= 150 мс; внешние хуки в `sh -c` запускаются с `Stdio::null()` и в TUI вынесены в фоновые потоки с таймаутом ожидания.
+7. **Безопасность внешнего реестра, pre-flight валидация и Universal Install Guard**:
+   - **Транспорт и защита от SSRF**: для удалённых репозиториев строго требуется HTTPS (`https_only(true)`). HTTP разрешён только для loopback (`localhost`, `127.0.0.1`, `[::1]` с валидным портом `u16`) в `is_allowed_local_http()` с запретом userinfo (`@`) и отключёнными редиректами. Объём ограничен `2 MiB` для `registry.toml` и `512 KiB` для файлов шаблонов/правил (таймауты 5с/10с).
+   - **Санитизация идентификаторов и имён файлов**: все ID и пути проходят `validate_program_id()`, `sanitize_relative_repo_path()` и `sanitize_single_filename()` (запрещены `.`, `..`, `/`, `\`, NUL).
+   - **Pre-flight проверка в памяти**: `prepare_install()` проверяет `min_termonet_version`, сверяет SHA-256 (`sha256_hex()`), парсит `ProgramRule::from_toml()` и валидирует синтаксис MiniJinja (`validate_syntax()`) до любых записей на диск.
+   - **Блокировки и откат**: записи `installed.toml` и `state.toml` сериализуются через `flock` (`acquire_lock_file()`), а при частичном сбое оба файла пары (`.toml` и `.tmpl`) откатываются (`restore_or_remove_file()`).
+   - **Universal Install Guard**: CLI (`--install`), `Step::Programs` и `WizardStep::Finish` (`ConfirmAction::WizardInstall`) показывают предупреждения (`output_path`, `target_config`, `reload_cmd`) и ждут подтверждения до вызова `commit_install()`.
 
 ---
 
@@ -539,11 +553,11 @@ flowchart TD
 
 ### 7.2 Добавление или обновление правила и шаблона программы
 
-Дефолтные правила и шаблоны лежат в `assets/rules/` и `assets/templates/` и вшиваются в бинарник через `include_str!`:
-1. Создайте шаблон `assets/templates/<app>.tmpl` с заголовком `# termonet-version: 1` (или в стиле комментариев языка).
-2. Создайте правило `assets/rules/<app>.toml` с `version = 1`, `name`, `template`, `output_path` и опциональными `target_config`, `import_line`, `import_position`, `comment_style`, `reload_cmd`.
-3. Зарегистрируйте оба файла в `DEFAULT_TEMPLATES` и `DEFAULT_RULES` в `src/template/embedded.rs`.
-4. При обновлении существующего правила или шаблона обязательно увеличьте его `version` / `termonet-version`, чтобы `sync_default_assets()` автоматически обновил устаревшие файлы на диске.
+Дефолтные и сторонние шаблоны больше не вшиваются в бинарник, а распространяются через внешний репозиторий [`Denxrc/termonet-apps`](https://github.com/Denxrc/termonet-apps) (и кастомные источники в `~/.config/termonet/repos/*.toml`):
+1. Создайте шаблон `templates/<id>.tmpl` в `termonet-apps` с заголовком `# termonet-version: 1` (в стиле комментариев языка).
+2. Создайте правило `rules/<id>.toml` с `version = 1`, `name`, `template = "<id>.tmpl"`, `output_path` и опциональными `target_config`, `import_line`, `import_position`, `comment_style`, `reload_cmd`.
+3. Пересоберите и проверьте индекс: `python3 scripts/generate_registry.py && python3 scripts/generate_registry.py --check`.
+4. При обновлении существующего правила или шаблона увеличьте `version` / `termonet-version` и пересоберите `registry.toml` — `termonet --update-rules` автоматически проверит SHA-256 и обновит неизменённые локальные файлы (или создаст `.bak` с `--force` / `--reset-rules`).
 
 ### 7.3 Добавление нового CLI-флага или режима работы
 

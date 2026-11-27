@@ -2,7 +2,7 @@
 
 [English](ARCHITECTURE.md) | [Русский](ARCHITECTURE.ru.md) · [README](README.md)
 
-> **Notice for AI Agents and Developers**: This document is the canonical, single-source-of-truth architectural specification and operational guide for the **Termonet** codebase (~13k lines of modern Rust across 36 source files). It details the complete subsystem layout, execution lifecycles, IPC mechanisms, security and data safety contracts, and extension playbooks. Consult this document before planning or applying code modifications.
+> **Notice for AI Agents and Developers**: This document is the canonical, single-source-of-truth architectural specification and operational guide for the **Termonet** codebase (modern Rust across 8 modular subsystems). It details the complete subsystem layout, execution lifecycles, IPC mechanisms, security and data safety contracts, and extension playbooks. Consult this document before planning or applying code modifications.
 
 ---
 
@@ -59,25 +59,29 @@ Termonet is a high-performance, dynamic Material You (Material Design 3) theme a
 
 ## 2. Repository Structure & Subsystem Breakdown
 
-The codebase consists of 36 Rust source files organized into 7 modular crates and domain packages:
+The codebase is organized into 8 modular domain packages:
 
 ```
 src/
-├── main.rs                   # Binary entry point, CLI flag parsing, and execution dispatch
+├── main.rs                   # Binary entry point, CLI flag parsing, registry dispatch, and weekly guard
 ├── lib.rs                    # Crate root, module re-exports, and global Result/TermonetError
 ├── error.rs                  # Strongly-typed error enum (TermonetError) using thiserror
 ├── cli/                      # Headless execution and apply automation
 │   └── mod.rs                # Headless apply runner (run_cli_mode) and CliArgs
 ├── config/                   # XDG filesystem paths and application configuration
 │   ├── mod.rs                # Public config re-exports
-│   ├── paths.rs              # AppPaths: XDG directory resolution and ~ tilde expansion
-│   ├── settings.rs           # AppConfig schema (v2), enums, dark-mode detector, commented TOML
+│   ├── paths.rs              # AppPaths: XDG dirs (repos/, registry_cache/, installed.toml) and ~ expansion
+│   ├── settings.rs           # AppConfig schema (v3), enums, auto_update_rules, dark-mode detector
 │   └── state.rs              # AppStateCache persistence (~/.local/state/termonet/state.toml)
 ├── core/                     # Pure domain: image decoding, quantization, and palette math
 │   ├── mod.rs                # Core module re-exports
 │   ├── image.rs              # Image loading, animated GIF/WebP first-frame extraction, downscaling
 │   ├── color.rs              # RgbColor (zero-alloc hex serialization), MaterialScheme, TerminalPalette
 │   └── palette.rs            # GeneratedPalette, QuantizerCelebi, CAM16 scoring, ThemeBuilder
+├── registry/                 # Decoupled external apps registry (`Denxrc/termonet-apps` + custom repos)
+│   ├── mod.rs                # RegistryService, RegistryOps, transactional install/rollback, v1.5 adoption
+│   ├── client.rs             # RegistryTransport trait + bounded HTTPS client (ureq + rustls)
+│   └── types.rs              # RepoConfig, RegistryManifest, InstalledManifest, path/semver/sha256 guards
 ├── wallpaper/                # Wallpaper discovery, IPC protocols, and path sanitization
 │   ├── mod.rs                # get_current_wallpaper routing and query_auto_monitors priority sequence
 │   ├── monitor.rs            # MonitorWallpapers and multi-monitor resolution policies
@@ -86,24 +90,23 @@ src/
 │   ├── wayland.rs            # Wayland daemons: awww, swww, hyprpaper (socket), swaybg, wpaperd
 │   └── de.rs                 # Desktop environments: GNOME (gsettings) and KDE Plasma (appletsrc)
 ├── template/                 # MiniJinja template rendering, backups, and rule injection
-│   ├── mod.rs                # Template module re-exports and asset synchronization
+│   ├── mod.rs                # Template module re-exports
 │   ├── backup.rs             # Master backup (.original), safety backup (.bak), and safe_write
-│   ├── engine.rs             # TemplateEngine (MiniJinja wrapper with hex/strip/rgb filters)
-│   ├── embedded.rs           # Inlined default templates (*.tmpl) and default rules (*.toml)
-│   └── rules.rs              # ProgramRule schema, comment styles, and marker block injection
+│   ├── engine.rs             # TemplateEngine (MiniJinja wrapper with syntax validation and filters)
+│   └── rules.rs              # ProgramRule schema, disk-only loading, comment styles, marker injection
 ├── tui/                      # Interactive terminal interface built with Ratatui & Crossterm
 │   ├── mod.rs                # run_tui event loop driver, 50ms polling, and footer rendering
 │   ├── terminal.rs           # TerminalGuard RAII wrapper (raw mode and alternate screen)
 │   ├── font.rs               # PixelFont bitmap font rendered using Unicode half-blocks (█, ▀, ▄)
-│   ├── app.rs                # AppState machine, Step/WizardStep enums, and key event router
+│   ├── app.rs                # AppState machine, ConfirmModalState, Step/WizardStep, key router
 │   └── views/                # Modular view renderers
 │       ├── mod.rs            # Views re-exports
 │       ├── header.rs         # Responsive header logo, navigation tabs, and monitor badge
 │       ├── palette.rs        # Seed color, Material 3 role grid, ANSI 16 palette, manual path dialog
-│       ├── programs.rs       # Checkable target program list and rule metadata badges
+│       ├── programs.rs       # Unified installed/remote/local program list & confirmation modals
 │       ├── hooks.rs          # Checkable reload hook commands
 │       ├── apply.rs          # Apply confirmation, execution summary, and live status
-│       └── wizard.rs         # First-run onboarding wizard (Language, Theme, Server, Programs)
+│       └── wizard.rs         # Onboarding wizard (Language, Theme, Server, Catalog Programs, Finish)
 └── i18n/                     # Internationalization and localization catalogs
     ├── mod.rs                # get_translations lookup function
     └── locales.rs            # Translations struct with Russian and English string catalogs
@@ -113,40 +116,42 @@ src/
 
 | File Path | Primary Responsibilities | Key Structures / Functions |
 | :--- | :--- | :--- |
-| `src/main.rs` | CLI argument parsing (`parse_cli_args()`), help/version output, routing to CLI headless (`run_cli_mode_with_context()`) or TUI, pre-flight rule updates | `main()`, `parse_cli_args()`, `run_cli_mode_with_context()`, `sync_default_assets()` |
+| `src/main.rs` | CLI argument parsing (`parse_cli_args()`), registry commands (`--install`, `--update-rules`), weekly guard, routing to CLI or TUI | `main()`, `parse_cli_args()`, `execute_install_with_io()`, `should_run_weekly_auto_update()` |
 | `src/lib.rs` | Root crate definitions and re-exports of modules and global error types | `Result<T>`, `TermonetError` |
-| `src/error.rs` | Strongly-typed operational errors across I/O, parsing, imaging, templates, and IPC | `enum TermonetError` (`Io`, `Image`, `TomlDe`, `TomlSer`, `Template`, `WallpaperNotFound`, `Config`) |
+| `src/error.rs` | Strongly-typed operational errors across I/O, parsing, imaging, templates, registry, and IPC | `enum TermonetError` (`Io`, `Image`, `TomlDe`, `TomlSer`, `Template`, `WallpaperNotFound`, `Config`, `Registry`) |
 | `src/cli/mod.rs` | Headless batch orchestration (`--apply`, `--toggle-theme`, `--theme`, `-c/--color`) | `struct CliArgs`, `run_cli_mode(&CliArgs) -> Result<bool>`, `run_cli_mode_with_context()` |
-| `src/config/state.rs` | Tracks last-applied wallpaper to eliminate redundant re-quantization | `struct AppStateCache`, `is_up_to_date()`, `save()` |
+| `src/config/state.rs` | Tracks last-applied wallpaper, config fingerprint, and `last_registry_sync_at` | `struct AppStateCache`, `is_up_to_date_with_config()`, `save()` |
 | `src/config/mod.rs` | Config module re-exports (`AppPaths`, `AppConfig`, enums) | Module re-exports |
-| `src/config/paths.rs` | Canonical XDG directories (`~/.config/termonet/`, `~/.local/state/termonet/`) and tilde expansion | `struct AppPaths`, `expand_tilde(&str) -> PathBuf` |
-| `src/config/settings.rs` | Full schema configuration persistence, schema migrations (v1 -> v2), system dark theme detection | `struct AppConfig`, `enum Language`, `enum TuiTheme`, `enum DisplayServer`, `enum WallpaperBackend`, `is_system_dark()` |
+| `src/config/paths.rs` | Canonical XDG directories (`~/.config/termonet/`, `~/.local/state/termonet/`) and tilde expansion | `struct AppPaths`, `repos_dir()`, `registry_cache_dir()`, `installed_file()`, `expand_tilde()` |
+| `src/config/settings.rs` | Full schema configuration persistence, schema migrations (v1 -> v3), system dark theme detection | `struct AppConfig`, `auto_update_rules`, `Language`, `TuiTheme`, `DisplayServer`, `WallpaperBackend` |
 | `src/core/mod.rs` | Core module re-exports (`GeneratedPalette`, `MaterialScheme`, `RgbColor`) | Module re-exports |
 | `src/core/image.rs` | High-performance image loading, animated first-frame extraction (GIF/WebP), downscaling | `load_and_preprocess_image()`, `to_material_pixels()`, `EXTRACTION_SIZE = 128` |
 | `src/core/color.rs` | Zero-allocation RGB serialization, 19-role MD3 semantic scheme, ANSI terminal palette | `struct RgbColor`, `struct MaterialScheme` (19 roles), `struct TerminalPalette` |
 | `src/core/palette.rs` | Material You CAM16 extraction, Celebi quantization, light/dark scheme resolution | `struct GeneratedPalette`, `from_image_path()`, `from_seed_color()` |
+| `src/registry/mod.rs` | Transactional install/update/remove, v1.5.2 adoption, 7-day auto-update, rollback | `struct RegistryService`, `trait RegistryOps`, `prepare_install()`, `commit_install()` |
+| `src/registry/client.rs` | Bounded HTTPS client (`ureq` + `rustls`), timeouts, local HTTP test guard | `trait RegistryTransport`, `struct HttpTransport`, `MAX_MANIFEST_BYTES`, `MAX_ASSET_BYTES` |
+| `src/registry/types.rs` | Registry schemas, ID/path sanitizers, semver gating, SHA-256 helper | `RepoConfig`, `RegistryManifest`, `InstalledManifest`, `CatalogEntry`, `sha256_hex()` |
 | `src/wallpaper/mod.rs` | Resolves active wallpaper path based on backend settings and multi-monitor policy | `get_current_wallpaper()`, `get_wallpaper_monitors()`, `query_auto_monitors()` |
 | `src/wallpaper/monitor.rs` | Multi-monitor output storage and deduplication / primary monitor arbitration | `struct MonitorWallpapers`, `resolve_primary()` |
 | `src/wallpaper/path.rs` | Percent-decoding, URL stripping, geometry/crop flag cleaning, filesystem verification | `clean_wallpaper_path()`, `sanitize_wallpaper_path()`, `percent_decode()` |
 | `src/wallpaper/provider.rs` | Abstract wallpaper daemon interface and diagnostic reporting | `trait WallpaperProvider`, `struct ProviderDiagnostic`, `run_all_diagnostics()` |
 | `src/wallpaper/wayland.rs` | Implementations for `awww`/`swww`, `hyprpaper` (UNIX domain socket), `swaybg`, `wpaperd` | `query_awww_or_swww()`, `query_hyprpaper()`, `query_swaybg()`, `query_wpaperd()` |
 | `src/wallpaper/de.rs` | Implementations for GNOME (`gsettings`) and KDE Plasma (appletsrc config parser & theme resolution) | `query_gnome()`, `query_kde()`, `resolve_kde_theme_package()` |
-| `src/template/mod.rs` | Template module re-exports and asset synchronization | `sync_default_assets()`, module re-exports |
-| `src/template/engine.rs` | MiniJinja wrapper with custom color filters and context injection | `struct TemplateEngine`, `render_string()`, filters (`hex`, `strip`, `rgb`, `hypr_rgb`, `hypr_rgba`) |
+| `src/template/mod.rs` | Template module re-exports | Module re-exports |
+| `src/template/engine.rs` | MiniJinja wrapper with syntax validation, custom color filters, and context injection | `struct TemplateEngine`, `validate_syntax()`, `render_string()` |
 | `src/template/backup.rs` | Non-destructive file protection: immutable master `.original`, temporary `.bak`, atomic write | `ensure_master_backup()`, `create_safety_backup()`, `safe_write()` |
-| `src/template/rules.rs` | Target application rules, TOML deserialization, comment syntax selection, marker injection | `struct ProgramRule`, `enum CommentStyle`, `enum ImportPosition`, `inject_import()` |
-| `src/template/embedded.rs` | Embedded default templates and TOML rules for out-of-the-box support | `DEFAULT_TEMPLATES`, `DEFAULT_RULES` |
+| `src/template/rules.rs` | Disk-only application rules, `id` normalization, comment syntax selection, marker injection | `struct ProgramRule`, `effective_id()`, `enum CommentStyle`, `inject_import()` |
 | `src/tui/mod.rs` | Terminal UI event loop driver, 50ms polling, and footer status rendering | `run_tui()`, `render_footer()` |
 | `src/tui/terminal.rs` | RAII lifecycle guard managing alternate screen buffer and raw mode enter/exit | `struct TerminalGuard`, `struct TuiTerminal` |
 | `src/tui/font.rs` | 5px bitmap header logo generator rendered via Unicode half-blocks (█, ▀, ▄) | `struct PixelFont`, `render()`, `termonet_banner()` |
-| `src/tui/app.rs` | Central TUI state machine, navigation step tracking, and keyboard event routing | `struct AppState`, `enum Step`, `enum WizardStep`, `enum EnvSubStep`, `handle_key()` |
+| `src/tui/app.rs` | Central TUI state machine, registry modal actions, navigation step tracking, key routing | `struct AppState`, `struct ConfirmModalState`, `enum Step`, `enum WizardStep`, `handle_key()` |
 | `src/tui/views/mod.rs` | View re-exports | `render_apply`, `render_header`, `render_hooks`, `render_palette`, `render_programs`, `render_wizard` |
 | `src/tui/views/header.rs` | Responsive header logo, navigation tabs, and monitor badge | `render_header()` |
 | `src/tui/views/palette.rs` | Seed color, Material 3 role grid, ANSI 16 palette, manual path dialog | `render_palette()` |
-| `src/tui/views/programs.rs` | Checkable target program list and rule metadata badges | `render_programs()` |
+| `src/tui/views/programs.rs` | Unified installed/remote/local program list, badges, and confirmation modal renderer | `render_programs()`, `render_confirm_modal()` |
 | `src/tui/views/hooks.rs` | Checkable reload hook commands list | `render_hooks()` |
 | `src/tui/views/apply.rs` | Apply confirmation, execution summary, and live status feedback | `render_apply()` |
-| `src/tui/views/wizard.rs` | First-run onboarding wizard (Language, Theme, Server, Programs) | `render_wizard()` |
+| `src/tui/views/wizard.rs` | First-run onboarding wizard (Language, Theme, Server, Catalog Programs, Finish) | `render_wizard()` |
 | `src/i18n/mod.rs` | Translation catalog dispatcher | `get_translations(Language)` |
 | `src/i18n/locales.rs` | Localization catalogs for English (`EN_TRANSLATIONS`) and Russian (`RU_TRANSLATIONS`) | `struct Translations` |
 
@@ -356,7 +361,7 @@ Termonet avoids destructive configuration overwrites through an atomic injection
 
 ```mermaid
 flowchart TD
-    Rule["ProgramRule (e.g. Kitty, Waybar)"] --> LoadTmpl["Load Template (*.tmpl) - Disk or Embedded"]
+    Rule["ProgramRule (e.g. Kitty, Waybar)"] --> LoadTmpl["Load Template (~/.config/termonet/templates/*.tmpl)"]
     LoadTmpl --> Jinja["MiniJinja Engine::render_string(palette, is_dark)"]
     Jinja --> Rendered["Rendered Color Output String"]
     
@@ -590,10 +595,13 @@ Termonet adheres strictly to the FreeDesktop XDG Base Directory Specification vi
 | :--- | :--- | :--- |
 | **Config Directory** | `~/.config/termonet/` | Base directory for user configuration and overrides |
 | **Config File** | `~/.config/termonet/config.toml` | Main user configuration |
-| **Templates Directory** | `~/.config/termonet/templates/` | Custom user MiniJinja templates (`*.tmpl`) |
-| **Rules Directory** | `~/.config/termonet/rules/` | Custom user program rules (`*.toml`) |
+| **Repos Directory** | `~/.config/termonet/repos/` | Repository source definitions (`official.toml` + custom `*.toml`) |
+| **Templates Directory** | `~/.config/termonet/templates/` | Installed or custom MiniJinja templates (`*.tmpl`) |
+| **Rules Directory** | `~/.config/termonet/rules/` | Installed or custom program rules (`*.toml`) |
 | **State Directory** | `~/.local/state/termonet/` | Runtime state and cache directory |
-| **State Cache File** | `~/.local/state/termonet/state.toml` | Tracks last processed wallpaper to skip duplicate work |
+| **Registry Cache** | `~/.local/state/termonet/registry_cache/` | Cached `registry.toml` indexes per enabled repository |
+| **Installed Manifest** | `~/.local/state/termonet/installed.toml` | Tracks registry-managed rules, versions, origin repo, and SHA-256 |
+| **State Cache File** | `~/.local/state/termonet/state.toml` | Tracks last processed wallpaper, config fingerprint, and `last_registry_sync_at` |
 
 #### Tilde Expansion (`AppPaths::expand_tilde`):
 Paths starting with `~/` or bare `~` are expanded against the user's `$HOME` environment variable. Absolute paths (`/usr/...`) and relative paths are preserved without modification.
@@ -605,7 +613,7 @@ Paths starting with `~/` or bare `~` are expanded against the user's `$HOME` env
 Configuration persistence is managed in `src/config/settings.rs` under schema version:
 
 ```rust
-const CONFIG_SCHEMA_VERSION: u32 = 2;
+const CONFIG_SCHEMA_VERSION: u32 = 3;
 ```
 
 #### Configuration Structure (`AppConfig`):
@@ -617,16 +625,17 @@ pub struct AppConfig {
     pub display_server: DisplayServer,           // "wayland" | "x11"
     pub wallpaper_backend: WallpaperBackend,     // "auto" | "swww" | "hyprpaper" | ...
     pub primary_monitor: Option<String>,         // e.g. Some("eDP-1")
-    pub enabled_programs: Vec<String>,           // ["kitty", "waybar", "rofi", "hyprland"]
-    pub manual_wallpaper_path: Option<String>,  // Path override if backend = "manual"
+    pub enabled_programs: Vec<String>,           // Installed IDs enabled by user (default: [])
+    pub manual_wallpaper_path: Option<String>,   // Path override if backend = "manual"
     pub create_backups: bool,                    // true creates .original and .bak
+    pub auto_update_rules: bool,                 // true checks registry every 7 days (default: true)
 }
 ```
 
-#### Automatic Migration & Comment Preservation:
-- When an outdated Termonet header schema (`# Termonet Configuration (Schema vN)` with `N < CONFIG_SCHEMA_VERSION`, or legacy header without version) or missing configuration file is encountered, Termonet automatically generates a fully documented, commented configuration file (`to_commented_toml()`).
-- Minimal custom user configs that do not start with `# Termonet Configuration` are preserved as-is (`needs_migration()` returns `false`), with omitted keys filled by `Default` values during deserialization.
-- Embedded rules synchronize automatically: if an embedded default rule has a higher `version` integer than a file on disk, the embedded modern rule is used.
+#### Automatic Migration & Legacy Adoption:
+- When an outdated Termonet header schema (`Schema Version: N` with `N < 3`) or missing configuration file is encountered, Termonet automatically upgrades to Schema v3 while preserving existing `enabled_programs`.
+- Minimal custom user configs without the `# Termonet Configuration` header are left untouched (`needs_migration()` returns `false`).
+- On first upgrade from `v1.5.x` (when `installed.toml` does not yet exist), `adopt_legacy_v1_5_assets()` inspects existing `kitty`/`waybar`/`rofi`/`hyprland` files against known `v1.5.2` SHA-256 digests and adopts unmodified defaults pinned to `official`.
 
 ---
 
@@ -652,7 +661,7 @@ last_config_fingerprint = "0123456789abcdef"
 
 ## 6. Core Invariants & Safety Contracts
 
-Every modification to the Termonet codebase must preserve these 6 core invariants:
+Every modification to the Termonet codebase must preserve these 7 core invariants:
 
 ### 1. The Zero-Panic Invariant
 - **Rule**: Production code must **never** call `.unwrap()`, `.expect()`, `panic!()`, `todo!()`, or `unimplemented!()`.
@@ -682,6 +691,15 @@ Every modification to the Termonet codebase must preserve these 6 core invariant
 ### 6. Subprocess Decoupling & Non-Blocking IPC
 - **Rule**: Probing external daemons, sockets, or reload hooks must never stall the application.
 - **Contract**: UNIX domain sockets must use strict timeouts (<= 150 ms). Subprocesses (`sh -c`) must redirect `stdin`, `stdout`, and `stderr` to `Stdio::null()` unless capturing output, preventing zombie processes or buffer deadlocks.
+
+### 7. Registry Transport, Pre-Flight Integrity & Universal Install Guard
+- **Rule**: No remote repository asset may touch disk or mutate tracked state without passing transport security, sanitization, cryptographic integrity, and user confirmation checks.
+- **Contract**:
+  - **Transport & SSRF Bounds**: Remote repositories require HTTPS (`https_only(true)`). Plaintext HTTP is allowed solely for loopback hosts (`localhost`, `127.0.0.1`, `[::1]` with valid `u16` port) via `is_allowed_local_http()` (rejecting `@` userinfo bypasses and disabling HTTP redirects). Payloads are capped at `2 MiB` for `registry.toml` and `512 KiB` per `.toml`/`.tmpl` asset with 5s connect / 10s read timeouts.
+  - **Identifier & Path Sanitization**: All program IDs and file references pass `validate_program_id()`, `sanitize_relative_repo_path()`, and `sanitize_single_filename()` (rejecting empty values, `.`, `..`, `/`, `\`, and NUL bytes).
+  - **In-Memory Pre-Flight Verification**: `prepare_install()` verifies `min_termonet_version` (`is_version_compatible()`), downloads assets into memory, checks exact `sha256_hex()` digests, parses `ProgramRule::from_toml()`, and compiles MiniJinja syntax (`TemplateEngine::validate_syntax()`) before touching disk.
+  - **Concurrency & Transactional Rollback**: Mutations to `installed.toml` and `state.toml` are serialized with OS file locks (`acquire_lock_file()` on `.lock` sidecars). Any partial write or manifest failure restores or removes both rule and template files atomically (`restore_or_remove_file()`).
+  - **Universal Install Guard**: CLI (`--install`), TUI `Step::Programs`, and `WizardStep::Finish` (`ConfirmAction::WizardInstall`) all present explicit `output_path`, `target_config`, `reload_cmd`, and local modification conflict warnings and wait for explicit user confirmation prior to `commit_install()`.
 
 ---
 
@@ -754,11 +772,11 @@ This playbook provides step-by-step implementation instructions for common agent
 
 **Objective**: Add support for a new program (e.g. `foot` terminal or `fuzzel` launcher).
 
-In Termonet, default rules and templates are stored as standalone files in the repository's `assets/` directory and compiled into the binary via `include_str!`.
+Default and community application configs are no longer embedded in the `termonet` binary; they live in the external [`Denxrc/termonet-apps`](https://github.com/Denxrc/termonet-apps) repository (or custom user repositories configured in `~/.config/termonet/repos/*.toml`).
 
 #### Steps:
-1. **Create the Template File**:
-   Create `assets/templates/fuzzel.tmpl`:
+1. **Create the Template File in `termonet-apps`**:
+   Create `templates/fuzzel.tmpl` with `# termonet-version: 1`:
    ```ini
    # termonet-version: 1
    [colors]
@@ -769,8 +787,8 @@ In Termonet, default rules and templates are stored as standalone files in the r
    selection-text={{ active.on_primary_container.strip }}ff
    border={{ active.outline.strip }}ff
    ```
-2. **Create the Rule TOML File**:
-   Create `assets/rules/fuzzel.toml`:
+2. **Create the Rule TOML File in `termonet-apps`**:
+   Create `rules/fuzzel.toml` with `template = "<id>.tmpl"`:
    ```toml
    version = 1
    name = "Fuzzel"
@@ -781,21 +799,14 @@ In Termonet, default rules and templates are stored as standalone files in the r
    import_position = "top"
    comment_style = "hash"
    ```
-3. **Register Assets in `src/template/embedded.rs`**:
-   ```rust
-   pub const DEFAULT_TEMPLATES: &[(&str, &str)] = &[
-       ...
-       ("fuzzel.tmpl", include_str!("../../assets/templates/fuzzel.tmpl")),
-   ];
-
-   pub const DEFAULT_RULES: &[(&str, &str)] = &[
-       ...
-       ("fuzzel.toml", include_str!("../../assets/rules/fuzzel.toml")),
-   ];
+3. **Regenerate & Validate `registry.toml`**:
+   ```bash
+   python3 scripts/generate_registry.py
+   python3 scripts/generate_registry.py --check
    ```
-4. **If Modifying an Existing Rule**:
-   - Increment `version = 2` in the rule TOML (e.g. `assets/rules/kitty.toml`).
-   - Termonet's rule synchronization (`sync_default_assets()`) automatically compares versions and creates a `<file>.v{old}.bak` backup before upgrading outdated user configs!
+4. **If Modifying an Existing Rule or Template**:
+   - Increment `version` in `rules/<id>.toml` or `termonet-version:` in `templates/<id>.tmpl`, then regenerate `registry.toml`.
+   - `termonet --update-rules` automatically compares versions and local SHA-256 digests, preserving user-edited files unless `--force` / `--reset-rules` is used.
 
 ---
 
