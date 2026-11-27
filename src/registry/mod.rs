@@ -1060,8 +1060,66 @@ mod tests {
         fs::create_dir_all(&paths.rules_dir).unwrap();
         fs::create_dir_all(&paths.templates_dir).unwrap();
 
-        let kitty_rule = include_str!("../../assets/rules/kitty.toml");
-        let kitty_tmpl = include_str!("../../assets/templates/kitty.tmpl");
+        let kitty_rule = concat!(
+            "version = 2\n",
+            "name = \"Kitty\"\n",
+            "template = \"kitty.tmpl\"\n",
+            "output_path = \"~/.config/kitty/colors-termonet.conf\"\n",
+            "target_config = \"~/.config/kitty/kitty.conf\"\n",
+            "import_line = \"include colors-termonet.conf\"\n",
+            "import_position = \"bottom\"\n",
+            "reload_cmd = \"killall -SIGUSR1 kitty\"\n"
+        );
+        let kitty_tmpl = concat!(
+            "# ==============================================================================\n",
+            "# Termonet Kitty Color Scheme\n",
+            "# Generated automatically by Termonet\n",
+            "# termonet-version: 4\n",
+            "# ==============================================================================\n\n",
+            "background {{ terminal.background.hex }}\n",
+            "foreground {{ terminal.foreground.hex }}\n",
+            "selection_background {{ active.secondary_container.hex }}\n",
+            "selection_foreground {{ active.on_secondary_container.hex }}\n",
+            "cursor {{ terminal.cursor.hex }}\n",
+            "cursor_text_color {{ terminal.background.hex }}\n\n",
+            "# Tab Bar (Material You)\n",
+            "active_tab_foreground {{ active.on_primary_container.hex }}\n",
+            "active_tab_background {{ active.primary_container.hex }}\n",
+            "inactive_tab_foreground {{ active.on_surface_variant.hex }}\n",
+            "inactive_tab_background {{ active.surface_variant.hex }}\n",
+            "tab_bar_background {{ active.surface.hex }}\n\n",
+            "# Window Borders & Alerts\n",
+            "active_border_color {{ active.primary.hex }}\n",
+            "inactive_border_color {{ active.surface_variant.hex }}\n",
+            "bell_border_color {{ active.error.hex }}\n\n",
+            "# URL & Highlights\n",
+            "url_color {{ active.primary.hex }}\n\n",
+            "# ANSI 16 Colors\n",
+            "# Black\n",
+            "color0 {{ terminal.color0.hex }}\n",
+            "color8 {{ terminal.color8.hex }}\n\n",
+            "# Red\n",
+            "color1 {{ terminal.color1.hex }}\n",
+            "color9 {{ terminal.color9.hex }}\n\n",
+            "# Green\n",
+            "color2 {{ terminal.color2.hex }}\n",
+            "color10 {{ terminal.color10.hex }}\n\n",
+            "# Yellow\n",
+            "color3 {{ terminal.color3.hex }}\n",
+            "color11 {{ terminal.color11.hex }}\n\n",
+            "# Blue\n",
+            "color4 {{ terminal.color4.hex }}\n",
+            "color12 {{ terminal.color12.hex }}\n\n",
+            "# Magenta\n",
+            "color5 {{ terminal.color5.hex }}\n",
+            "color13 {{ terminal.color13.hex }}\n\n",
+            "# Cyan\n",
+            "color6 {{ terminal.color6.hex }}\n",
+            "color14 {{ terminal.color14.hex }}\n\n",
+            "# White\n",
+            "color7 {{ terminal.color7.hex }}\n",
+            "color15 {{ terminal.color15.hex }}\n"
+        );
         fs::write(paths.rules_dir.join("kitty.toml"), kitty_rule).unwrap();
         fs::write(paths.templates_dir.join("kitty.tmpl"), kitty_tmpl).unwrap();
 
@@ -1071,11 +1129,7 @@ mod tests {
             "version = 2\nname = \"Waybar\"\ntemplate = \"waybar.tmpl\"\noutput_path = \"~/custom/waybar.css\"\n",
         )
         .unwrap();
-        fs::write(
-            paths.templates_dir.join("waybar.tmpl"),
-            include_str!("../../assets/templates/waybar.tmpl"),
-        )
-        .unwrap();
+        fs::write(paths.templates_dir.join("waybar.tmpl"), "/* waybar */\n").unwrap();
 
         let svc = RegistryService::with_paths_and_transport(
             paths.clone(),

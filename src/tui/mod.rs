@@ -805,6 +805,11 @@ mod tests {
 
         let kitty_conf = temp_dir.join("kitty.conf");
         std::fs::write(&kitty_conf, "font_size 11.0\n").unwrap();
+        std::fs::write(
+            temp_dir.join("kitty.tmpl"),
+            "background {{ terminal.background.hex }}\n",
+        )
+        .unwrap();
 
         let custom_rule = crate::template::ProgramRule {
             id: String::new(),
@@ -824,6 +829,7 @@ mod tests {
             ..Default::default()
         };
         let mut state = AppState::new(config);
+        state.custom_templates_dir = Some(temp_dir.clone());
         let seed = material_colors::color::Rgb::new(0x42, 0x85, 0xf4);
         state.palette = Some(crate::core::GeneratedPalette::from_seed_color(seed));
 

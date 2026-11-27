@@ -63,23 +63,22 @@ fn print_help() {
 }
 
 fn handle_reset_rules(no_backup: bool, backup: bool) -> Result<()> {
-    if let Ok(config_dir) = termonet::config::AppPaths::config_dir() {
-        let mut cfg = AppConfig::load()?.unwrap_or_default();
-        if no_backup {
-            cfg.create_backups = false;
-        } else if backup {
-            cfg.create_backups = true;
-        }
-        let updated =
-            termonet::template::sync_default_assets(config_dir, true, cfg.create_backups)?;
-        println!("Default rules and templates synchronized:");
-        if updated.is_empty() {
-            println!("  All rules and templates are already up to date.");
-        } else {
-            for item in updated {
-                println!("  ✔ {}", item);
-            }
-        }
+    let mut cfg = AppConfig::load()?.unwrap_or_default();
+    if no_backup {
+        cfg.create_backups = false;
+    } else if backup {
+        cfg.create_backups = true;
+    }
+    let service = termonet::registry::RegistryService::from_system_paths()?;
+    service.ensure_default_repo_config()?;
+    let _ = service.adopt_legacy_v1_5_assets();
+    let report = service.update_installed(true, cfg.create_backups)?;
+    println!("Registry rules and templates synchronized:");
+    for item in &report.updated {
+        println!("  ✔ Updated: {item}");
+    }
+    for item in &report.errors {
+        eprintln!("  ! Warning: {item}");
     }
     Ok(())
 }
@@ -271,9 +270,10 @@ fn main() -> Result<()> {
         config.create_backups = true;
     }
 
-    // Synchronize and auto-migrate default templates and rules into ~/.config/termonet/
-    if let Ok(config_dir) = termonet::config::AppPaths::config_dir() {
-        let _ = termonet::template::sync_default_assets(config_dir, false, config.create_backups);
+    // Ensure default repository config exists and adopt unmodified v1.5.2 rules
+    if let Ok(service) = termonet::registry::RegistryService::from_system_paths() {
+        let _ = service.ensure_default_repo_config();
+        let _ = service.adopt_legacy_v1_5_assets();
     }
 
     // 1. Check if headless CLI mode was requested

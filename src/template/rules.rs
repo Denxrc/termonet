@@ -8,7 +8,6 @@ use crate::config::AppPaths;
 use crate::core::GeneratedPalette;
 use crate::error::{Result, TermonetError};
 use crate::template::backup::{ensure_master_backup, safe_write};
-use crate::template::embedded::{DEFAULT_RULES, DEFAULT_TEMPLATES};
 use crate::template::engine::TemplateEngine;
 
 /// Position where the import line should be injected into target config file.
@@ -125,6 +124,15 @@ impl ProgramRule {
         }
     }
 
+    /// Returns `true` if `enabled_programs` contains this rule's ID or display name (case-insensitive).
+    #[must_use]
+    pub fn matches_enabled_list(&self, enabled_programs: &[String]) -> bool {
+        let id = self.effective_id();
+        enabled_programs
+            .iter()
+            .any(|p| p.eq_ignore_ascii_case(&id) || p.eq_ignore_ascii_case(&self.name))
+    }
+
     /// Resolves output path with user home tilde expansion.
     #[must_use]
     pub fn resolve_output_path(&self) -> PathBuf {
@@ -151,8 +159,7 @@ impl ProgramRule {
         CommentStyle::Hash
     }
 
-    /// Loads all available program rules: merges embedded defaults and user rules.
-    /// If an existing user rule is an outdated default (lower version), the newer embedded default is preferred.
+    /// Loads all available program rules from the user rules directory on disk.
     pub fn load_all() -> Result<Vec<Self>> {
         let (rules, _warnings) = Self::load_all_with_warnings()?;
         Ok(rules)
@@ -164,8 +171,8 @@ impl ProgramRule {
         Self::load_all_with_warnings_from(rules_dir.as_deref())
     }
 
-    /// Loads rules from an explicit user rules directory merged with embedded defaults,
-    /// returning non-fatal warnings for any malformed user `.toml` files.
+    /// Loads rules from an explicit user rules directory on disk,
+    /// returning non-fatal warnings for any malformed `.toml` files.
     pub fn load_all_with_warnings_from(
         rules_dir: Option<&Path>,
     ) -> Result<(Vec<Self>, Vec<String>)> {
@@ -173,14 +180,7 @@ impl ProgramRule {
             std::collections::HashMap::new();
         let mut warnings = Vec::new();
 
-        // 1. Seed with embedded defaults
-        for (_, content) in DEFAULT_RULES {
-            if let Ok(rule) = Self::from_toml(content) {
-                rules_map.insert(rule.name.to_lowercase(), rule);
-            }
-        }
-
-        // 2. Scan user's rules directory
+        // Scan user's rules directory
         if let Some(rules_dir) = rules_dir
             && rules_dir.is_dir()
             && let Ok(entries) = fs::read_dir(rules_dir)
@@ -205,15 +205,7 @@ impl ProgramRule {
                                 user_rule.id = stem_id;
                             }
                             let key = user_rule.effective_id();
-                            if let Some(embedded_rule) = rules_map.get(&key) {
-                                // Only override if the user rule has equal or newer version
-                                if user_rule.version >= embedded_rule.version {
-                                    rules_map.insert(key, user_rule);
-                                }
-                            } else {
-                                // User's own custom rule
-                                rules_map.insert(key, user_rule);
-                            }
+                            rules_map.insert(key, user_rule);
                         }
                         Err(e) => {
                             warnings.push(format!("Failed to parse rule {}: {}", path.display(), e))
@@ -231,45 +223,25 @@ impl ProgramRule {
         Ok((rules, warnings))
     }
 
-    /// Retrieves the raw template content for this rule.
-    /// Automatically detects if a template on disk is an outdated default and provides the modern version.
+    /// Retrieves the raw template content for this rule from the user templates directory.
     pub fn load_template_content(&self) -> Result<String> {
         let templates_dir = AppPaths::templates_dir().ok();
         self.load_template_content_from(templates_dir.as_deref())
     }
 
-    /// Retrieves template content from an explicit templates directory, falling back to embedded defaults
-    /// if the file is missing or is an outdated embedded default.
+    /// Retrieves template content strictly from an explicit templates directory on disk.
     pub fn load_template_content_from(&self, templates_dir: Option<&Path>) -> Result<String> {
-        let embedded_content = DEFAULT_TEMPLATES
-            .iter()
-            .find(|(name, _)| *name == self.template)
-            .map(|(_, content)| *content);
-
         if let Some(dir) = templates_dir {
             let file_path = dir.join(&self.template);
-            if file_path.is_file()
-                && let Ok(disk_content) = fs::read_to_string(&file_path)
-            {
-                if let Some(emb) = embedded_content {
-                    let disk_ver = extract_template_version(&disk_content);
-                    let emb_ver = extract_template_version(emb);
-                    if disk_ver >= emb_ver {
-                        return Ok(disk_content);
-                    }
-                } else {
-                    return Ok(disk_content);
-                }
+            if file_path.is_file() {
+                return fs::read_to_string(&file_path).map_err(TermonetError::from);
             }
         }
 
-        if let Some(content) = embedded_content {
-            return Ok(content.to_string());
-        }
-
         Err(TermonetError::Template(format!(
-            "Template file not found: {}",
-            self.template
+            "Template file '{}' not found on disk (try reinstalling via 'termonet --install {}')",
+            self.template,
+            self.effective_id()
         )))
     }
 
@@ -284,7 +256,26 @@ impl ProgramRule {
         is_dark: bool,
         create_backups: bool,
     ) -> Result<()> {
-        let template_content = self.load_template_content()?;
+        let templates_dir = AppPaths::templates_dir().ok();
+        self.apply_from_templates_dir(
+            engine,
+            palette,
+            is_dark,
+            create_backups,
+            templates_dir.as_deref(),
+        )
+    }
+
+    /// Renders and applies the template reading from an explicit templates directory.
+    pub fn apply_from_templates_dir(
+        &self,
+        engine: &TemplateEngine,
+        palette: &GeneratedPalette,
+        is_dark: bool,
+        create_backups: bool,
+        templates_dir: Option<&Path>,
+    ) -> Result<()> {
+        let template_content = self.load_template_content_from(templates_dir)?;
         let rendered = engine.render_string(&template_content, palette, is_dark)?;
 
         // 1. Write the rendered palette file (ephemeral generated target, no backup clutter needed)
@@ -441,7 +432,29 @@ impl ProgramRule {
         create_backups: bool,
         run_hook: bool,
     ) -> Result<bool> {
-        self.apply(engine, palette, is_dark, create_backups)?;
+        let templates_dir = AppPaths::templates_dir().ok();
+        self.apply_with_hook_detached_from(
+            engine,
+            palette,
+            is_dark,
+            create_backups,
+            run_hook,
+            templates_dir.as_deref(),
+        )
+    }
+
+    /// Renders and applies the template from an explicit templates directory,
+    /// optionally spawning the reload hook asynchronously.
+    pub fn apply_with_hook_detached_from(
+        &self,
+        engine: &TemplateEngine,
+        palette: &GeneratedPalette,
+        is_dark: bool,
+        create_backups: bool,
+        run_hook: bool,
+        templates_dir: Option<&Path>,
+    ) -> Result<bool> {
+        self.apply_from_templates_dir(engine, palette, is_dark, create_backups, templates_dir)?;
         if run_hook {
             Ok(self.spawn_reload_hook_detached())
         } else {
@@ -676,55 +689,45 @@ cursor_shape beam
     }
 
     #[test]
-    fn test_load_embedded_default_rules() {
-        let rules = ProgramRule::load_all().unwrap();
-        assert!(rules.len() >= 4);
+    fn test_load_all_returns_empty_when_no_rules_on_disk() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("termonet_test_empty_rules_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
 
-        let names: Vec<_> = rules.iter().map(|r| r.name.as_str()).collect();
-        assert!(names.contains(&"Kitty"));
-        assert!(names.contains(&"Waybar"));
-        assert!(names.contains(&"Rofi"));
-        assert!(names.contains(&"Hyprland"));
+        let (rules, warnings) = ProgramRule::load_all_with_warnings_from(Some(&temp_dir)).unwrap();
+        assert!(rules.is_empty());
+        assert!(warnings.is_empty());
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
-    fn test_render_all_default_templates() {
-        use material_colors::color::Rgb as MaterialRgb;
+    fn test_rule_derives_id_from_filename_stem_and_matches_enabled_list() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("termonet_test_rule_id_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
 
-        let seed = MaterialRgb::new(0x67, 0x50, 0xa4);
-        let palette = GeneratedPalette::from_seed_color(seed);
-        let engine = TemplateEngine::new();
+        fs::write(
+            temp_dir.join("gtk-4.toml"),
+            r#"
+version = 1
+name = "GTK 4"
+template = "gtk-4.tmpl"
+output_path = "~/.config/gtk-4.0/colors.css"
+"#,
+        )
+        .unwrap();
 
-        for &(name, content) in DEFAULT_TEMPLATES {
-            let rendered = engine.render_string(content, &palette, true).unwrap();
+        let (rules, _) = ProgramRule::load_all_with_warnings_from(Some(&temp_dir)).unwrap();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].effective_id(), "gtk-4");
+        assert!(rules[0].matches_enabled_list(&["gtk-4".to_string()]));
+        assert!(rules[0].matches_enabled_list(&["GTK 4".to_string()]));
+        assert!(!rules[0].matches_enabled_list(&["kitty".to_string()]));
 
-            assert!(
-                !rendered.is_empty(),
-                "Rendered template for {} was empty",
-                name
-            );
-            match name {
-                "kitty.tmpl" => {
-                    assert!(rendered.contains("background #"));
-                    assert!(rendered.contains("color0 #"));
-                    assert!(rendered.contains("color15 #"));
-                }
-                "waybar.tmpl" => {
-                    assert!(rendered.contains("@define-color primary #"));
-                    assert!(rendered.contains("@define-color background #"));
-                }
-                "rofi.tmpl" => {
-                    assert!(rendered.contains("primary: #"));
-                    assert!(rendered.contains("background: #"));
-                }
-                "hyprland.tmpl" => {
-                    assert!(rendered.contains("return {"));
-                    assert!(rendered.contains("primary = \"#"));
-                    assert!(rendered.contains("active_border_1 = \"rgba("));
-                }
-                _ => {}
-            }
-        }
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
@@ -806,17 +809,22 @@ hl.config({
         let palette =
             GeneratedPalette::from_seed_color(material_colors::color::Rgb::new(0x11, 0x22, 0x33));
         let engine = TemplateEngine::new();
+        fs::write(
+            temp_dir.join("kitty.tmpl"),
+            "background {{ terminal.background.hex }}\n",
+        )
+        .unwrap();
 
         // run_hook = false -> returns Ok(false)
         let ran_false = rule
-            .apply_with_hook_detached(&engine, &palette, true, false, false)
+            .apply_with_hook_detached_from(&engine, &palette, true, false, false, Some(&temp_dir))
             .unwrap();
         assert!(!ran_false);
 
         // run_hook = true -> spawns in background and returns Ok(true) immediately
         let t0 = std::time::Instant::now();
         let ran_true = rule
-            .apply_with_hook_detached(&engine, &palette, true, false, true)
+            .apply_with_hook_detached_from(&engine, &palette, true, false, true, Some(&temp_dir))
             .unwrap();
         assert!(ran_true);
         assert!(t0.elapsed() < std::time::Duration::from_millis(250));
@@ -846,8 +854,8 @@ output_path = "~/.config/foot/colors.ini"
         let (rules, warnings) = ProgramRule::load_all_with_warnings_from(Some(&temp_dir)).unwrap();
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("broken.toml"));
+        assert_eq!(rules.len(), 1);
         assert!(rules.iter().any(|r| r.name == "Foot"));
-        assert!(rules.iter().any(|r| r.name == "Kitty"));
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
@@ -883,17 +891,14 @@ window { background: #111111; }
     }
 
     #[test]
-    fn test_load_template_content_prefers_modern_embedded_over_outdated_disk() {
+    fn test_load_template_content_reads_disk_only_and_errors_when_missing() {
         let temp_dir =
             std::env::temp_dir().join(format!("termonet_test_tpl_ver_{}", std::process::id()));
         let _ = fs::remove_dir_all(&temp_dir);
         fs::create_dir_all(&temp_dir).unwrap();
 
-        // Outdated v1 template on disk for kitty.tmpl (embedded is v4)
-        fs::write(temp_dir.join("kitty.tmpl"), "# termonet-version: 1\nold").unwrap();
-
         let rule = ProgramRule {
-            id: String::new(),
+            id: "kitty".into(),
             version: 2,
             name: "Kitty".into(),
             template: "kitty.tmpl".into(),
@@ -905,10 +910,14 @@ window { background: #111111; }
             comment_style: None,
         };
 
-        let loaded = rule.load_template_content_from(Some(&temp_dir)).unwrap();
-        assert!(loaded.contains("termonet-version: 4"));
+        // Missing file on disk must fail with helpful error (no embedded fallback)
+        let missing_err = rule
+            .load_template_content_from(Some(&temp_dir))
+            .unwrap_err()
+            .to_string();
+        assert!(missing_err.contains("--install kitty"));
 
-        // User-customized v4+ template on disk must be respected
+        // Any existing file on disk is loaded directly
         fs::write(
             temp_dir.join("kitty.tmpl"),
             "# termonet-version: 4\ncustom_user_content",

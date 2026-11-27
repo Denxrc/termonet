@@ -190,11 +190,7 @@ pub fn run_cli_mode_with_context(
 
     let mut applied_count = 0;
     for rule in &rules {
-        if config
-            .enabled_programs
-            .iter()
-            .any(|p| p.eq_ignore_ascii_case(&rule.name))
-        {
+        if rule.matches_enabled_list(&config.enabled_programs) {
             let hook_executed =
                 rule.apply_with_hook(&engine, &palette, is_dark, config.create_backups, true)?;
             applied_count += 1;

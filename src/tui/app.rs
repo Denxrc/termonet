@@ -233,6 +233,8 @@ pub struct AppState {
 
     // Optional isolated config path override (used in tests)
     pub custom_config_path: Option<PathBuf>,
+    // Optional isolated templates directory override (used in tests)
+    pub custom_templates_dir: Option<PathBuf>,
 }
 
 impl AppState {
@@ -244,9 +246,7 @@ impl AppState {
             .into_iter()
             .map(|rule| {
                 let name_lower = rule.name.to_lowercase();
-                let is_enabled = enabled_list
-                    .iter()
-                    .any(|p| p.eq_ignore_ascii_case(&rule.name));
+                let is_enabled = rule.matches_enabled_list(enabled_list);
 
                 let eff_cmd = rule.effective_reload_cmd().map(str::to_string);
                 let reload_desc = if eff_cmd.is_some() {
@@ -302,6 +302,7 @@ impl AppState {
             active_monitors: Vec::new(),
             current_monitor_idx: 0,
             custom_config_path: None,
+            custom_templates_dir: None,
         }
     }
 
@@ -331,6 +332,7 @@ impl AppState {
             active_monitors: Vec::new(),
             current_monitor_idx: 0,
             custom_config_path: None,
+            custom_templates_dir: None,
         }
     }
 
@@ -1082,13 +1084,24 @@ impl AppState {
             if prog.enabled
                 && let Some(ref rule) = prog.rule
             {
-                rule.apply_with_hook_detached(
-                    &engine,
-                    palette,
-                    is_dark,
-                    self.config.create_backups,
-                    prog.hook_enabled,
-                )?;
+                if let Some(ref tpl_dir) = self.custom_templates_dir {
+                    rule.apply_with_hook_detached_from(
+                        &engine,
+                        palette,
+                        is_dark,
+                        self.config.create_backups,
+                        prog.hook_enabled,
+                        Some(tpl_dir.as_path()),
+                    )?;
+                } else {
+                    rule.apply_with_hook_detached(
+                        &engine,
+                        palette,
+                        is_dark,
+                        self.config.create_backups,
+                        prog.hook_enabled,
+                    )?;
+                }
             }
         }
 
